@@ -25,7 +25,7 @@ import logging
 from oyoyo import helpers
 from oyoyo.client import IRCClient 
 from oyoyo.cmdhandler import DefaultCommandHandler
-
+        
 class CollabMsgHandler(DefaultCommandHandler):
     tgt_nick = 'nick'
 
@@ -50,12 +50,12 @@ class CollabMsgHandler(DefaultCommandHandler):
 class IRCClientThread(threading.Thread): 
     def __init__(self, irc_client):
         self.client = irc_client
+        self.live = True
         threading.Thread.__init__(self)
 
     def run(self):
-        logging.basicConfig(level=logging.DEBUG)
         conn = self.client.connect()
-        while True:
+        while self.live:
             conn.next()
 
 settings = sublime.load_settings('Preferences.sublime-settings')
@@ -110,10 +110,17 @@ class CollabSessionCommand(sublime_plugin.WindowCommand):
     def with_whom(self, irc_nick):
         self.co_collab_nick = irc_nick
         self.irc_client.command_handler.tgt_nick = irc_nick
+        self.start_session()
 
     def start_session(self):
         print 'you chose to share %s, with %s' % (self.session_view.file_name(), self.irc_client.command_handler.tgt_nick)
         helpers.msg(self.irc_client, self.co_collab_nick, '!want.bacon?')
+
+
+        # DIE DIE DIE
+        self.irc_thread.live = False
+        helpers.quit(self.irc_client)
+        self.irc_thread.join(10)
 
 
 
