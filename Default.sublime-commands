@@ -1,6 +1,12 @@
 [
     {
+        "caption": "Collaborator: Connect to IRC", 
+        "command": "collab_session",
+        "args" : {"init_irc": true}
+    },
+    {
         "caption": "Collaborator: Share...", 
-        "command": "collab_session"
+        "command": "collab_session",
+        "args" : {"init_irc": false}
     }
 ]

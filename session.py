@@ -86,16 +86,19 @@ class CollabSessionCommand(sublime_plugin.WindowCommand):
         self.irc_thread = IRCClientThread(self.irc_client)
         self.irc_thread.start()
 
-    def run(self):
-        if not self.irc_client and not self.irc_thread:
-            print 'oh nos! initing irc session'
+    def run(self, init_irc):
+        if init_irc:
             self.init()
-        self.window.show_quick_panel(['Share active view (default)', 'Share other view...'], self.view_to_share)
+        else:
+            if not self.irc_client and not self.irc_thread:
+                print 'oh nos! initing irc session'
+                self.init()
+            self.window.show_quick_panel(['Share active view (default)', 'Share other view...'], self.view_to_share)
 
     def view_to_share(self, choice_idx):
         if choice_idx < 1:
             self.session_view = self.window.active_view()
-            self.window.show_input_panel('Share with (IRC nick):', 'sumdumguy', self.with_whom, None, None)
+            self.window.show_input_panel('Share with (IRC nick):', '', self.with_whom, None, None)
         else:
             self.current_views = []
             self.current_view_names = []
@@ -108,7 +111,7 @@ class CollabSessionCommand(sublime_plugin.WindowCommand):
     def choose_this_view(self, view_idx):
         if view_idx >= 0:
             self.session_view = self.current_views[view_idx]
-            self.window.show_input_panel('Share with (IRC nick):', 'sumdumguy', self.with_whom, None, None)
+            self.window.show_input_panel('Share with (IRC nick):', '', self.with_whom, None, None)
 
     def with_whom(self, irc_nick):
         self.co_collab_nick = irc_nick
