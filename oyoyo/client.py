@@ -82,6 +82,7 @@ class IRCClient:
         ...
         """
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.passwd = None
         self.nick = None
         self.real_name = None
         self.host = None
@@ -142,6 +143,8 @@ class IRCClient:
             if not self.blocking:
                 self.socket.setblocking(0)
             
+            if self.passwd:
+                self.send('PASS', self.passwd)
             helpers.nick(self, self.nick)
             helpers.user(self, self.nick, self.real_name)
 
