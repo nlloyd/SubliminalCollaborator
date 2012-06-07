@@ -27,7 +27,7 @@ from oyoyo.client import IRCClient
 from oyoyo.cmdhandler import DefaultCommandHandler
         
 class CollabMsgHandler(DefaultCommandHandler):
-    tgt_nick = 'nick'
+    tgt_nick = None
 
     def privmsg(self, nick, chan, msg):
         print 'msg from: %s' % nick
@@ -36,10 +36,13 @@ class CollabMsgHandler(DefaultCommandHandler):
         nick_seg = None
 
         if nick:
-            nick_seg = nick.split('!',1) 
+            nick_seg = nick.split('!',1)[0]
 
         if nick_seg == tgt_nick:
             print "%s in %s said: %s" % (nick_seg, chan, msg)
+        elif msg == '!want.bacon?':
+            helpers.msg(self.irc_client, nick_seg, '!!OMGYES!!')
+            print 'I WANT BACON'
         else:
             print "%s from %s IS NOT WELCOMEin " % (nick_seg, chan)
 
