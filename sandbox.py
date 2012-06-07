@@ -14,7 +14,8 @@ class MyHandler(DefaultCommandHandler):
 
 cli = IRCClient(MyHandler, host="irc.pearsoncmg.com", port=6667, nick="subliminal_nick",
          passwd='my9pv',
-         connect_cb=None)
+         connect_cb=None,
+         blocking=True)
 
 class IRCClientThread(threading.Thread): 
     def __init__(self, irc_client):
@@ -25,6 +26,7 @@ class IRCClientThread(threading.Thread):
         logging.basicConfig(level=logging.DEBUG)
         conn = self.client.connect()
         while True:
+#         print "LOOP"   
          conn.next()
 
 irc_thread = IRCClientThread(cli)
