@@ -22,6 +22,7 @@
 import sublime, sublime_plugin
 import threading
 import logging
+import time
 from oyoyo import helpers
 from oyoyo.client import IRCClient 
 from oyoyo.cmdhandler import DefaultCommandHandler
@@ -31,14 +32,14 @@ class CollabMsgHandler(DefaultCommandHandler):
 
     def privmsg(self, nick, chan, msg):
         print 'msg from: %s' % nick
-        print 'only listening to: %s' % tgt_nick
         
         nick_seg = None
 
         if nick:
+            
             nick_seg = nick.split('!',1)[0]
 
-        if nick_seg == tgt_nick:
+        if tgt_nick and nick_seg == tgt_nick:
             print "%s in %s said: %s" % (nick_seg, chan, msg)
         elif msg == '!want.bacon?':
             helpers.msg(self.irc_client, nick_seg, '!!OMGYES!!')
@@ -57,6 +58,7 @@ class IRCClientThread(threading.Thread):
         threading.Thread.__init__(self)
 
     def run(self):
+        logging.basicConfig(level=logging.DEBUG)
         conn = self.client.connect()
         while self.live:
             conn.next()
@@ -81,6 +83,15 @@ class CollabSessionCommand(sublime_plugin.WindowCommand):
     co_collab_nick = None
 
     def init(self):
+        print self.irc_client
+        print self.irc_thread
+        if self.irc_client and self.irc_thread:
+            self.irc_thread.live = False
+            helpers.quit(self.irc_client)
+            self.irc_thread.join(10)
+            self.irc_client = None
+            self.irc_thread = None
+            # print 'cleaned up connection'
         self.irc_client = IRCClient(CollabMsgHandler, host="irc.pearsoncmg.com", port=6667, nick="subliminal_nick",
                                 passwd='my9pv', blocking=True)
         self.irc_thread = IRCClientThread(self.irc_client)
@@ -121,13 +132,6 @@ class CollabSessionCommand(sublime_plugin.WindowCommand):
     def start_session(self):
         print 'you chose to share %s, with %s' % (self.session_view.file_name(), self.irc_client.command_handler.tgt_nick)
         helpers.msg(self.irc_client, self.co_collab_nick, '!want.bacon?')
-
-
-        # DIE DIE DIE
-        self.irc_thread.live = False
-        helpers.quit(self.irc_client)
-        self.irc_thread.join(10)
-
 
 
 # class CollabSessionEventHandler(sublime_plugin.EventListener):
