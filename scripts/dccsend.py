@@ -1,0 +1,91 @@
+#! /usr/bin/env python
+#
+# Example program using irc.client.
+#
+# This program is free without restrictions; do anything you like with
+# it.
+#
+# Joel Rosdahl <joel@rosdahl.net>
+
+import irc.client
+import os
+import struct
+import sys
+
+class DCCSend(irc.client.SimpleIRCClient):
+    def __init__(self, receiver, filename):
+        irc.client.SimpleIRCClient.__init__(self)
+        self.receiver = receiver
+        self.filename = filename
+        self.filesize = os.path.getsize(self.filename)
+        self.file = open(filename)
+        self.sent_bytes = 0
+
+    def on_welcome(self, connection, event):
+        self.dcc = self.dcc_listen("raw")
+        self.connection.ctcp("DCC", self.receiver, "SEND %s %s %d %d" % (
+            os.path.basename(self.filename),
+            irc.client.ip_quad_to_numstr(self.dcc.localaddress),
+            self.dcc.localport,
+            self.filesize))
+
+    def on_dcc_connect(self, connection, event):
+        if self.filesize == 0:
+            self.dcc.disconnect()
+            return
+        self.send_chunk()
+
+    def on_dcc_disconnect(self, connection, event):
+        print "Sent file %s (%d bytes)." % (self.filename, self.filesize)
+        self.connection.quit()
+
+    def on_dccmsg(self, connection, event):
+        acked = struct.unpack("!I", event.arguments()[0])[0]
+        if acked == self.filesize:
+            self.dcc.disconnect()
+            self.connection.quit()
+        elif acked == self.sent_bytes:
+            self.send_chunk()
+
+    def on_disconnect(self, connection, event):
+        sys.exit(0)
+
+    def on_nosuchnick(self, connection, event):
+        print "No such nickname:", event.arguments()[0]
+        self.connection.quit()
+
+    def send_chunk(self):
+        data = self.file.read(1024)
+        self.dcc.privmsg(data)
+        self.sent_bytes = self.sent_bytes + len(data)
+
+def main():
+    if len(sys.argv) != 5:
+        print "Usage: dccsend <server[:port]> <nickname> <receiver nickname> <filename>"
+        print "\nSends <filename> to <receiver nickname> via DCC and then exits."
+        sys.exit(1)
+
+    s = sys.argv[1].split(":", 1)
+    server = s[0]
+    if len(s) == 2:
+        try:
+            port = int(s[1])
+        except ValueError:
+            print "Error: Erroneous port."
+            sys.exit(1)
+    else:
+        port = 6667
+    nickname = sys.argv[2]
+    receiver = sys.argv[3]
+    filename = sys.argv[4]
+
+    c = DCCSend(receiver, filename)
+    try:
+        c.connect(server, port, nickname)
+    except irc.client.ServerConnectionError, x:
+        print x
+        sys.exit(1)
+    c.start()
+
+if __name__ == "__main__":
+    main()
