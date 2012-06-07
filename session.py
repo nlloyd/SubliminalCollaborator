@@ -32,6 +32,7 @@ class CollabMsgHandler(DefaultCommandHandler):
 
     def privmsg(self, nick, chan, msg):
         print 'msg from: %s' % nick
+       # print 'only listening to: %s' % tgt_nick
         
         nick_seg = None
 
@@ -39,10 +40,10 @@ class CollabMsgHandler(DefaultCommandHandler):
             
             nick_seg = nick.split('!',1)[0]
 
-        if tgt_nick and nick_seg == tgt_nick:
+        if self.tgt_nick and nick_seg == self.tgt_nick:
             print "%s in %s said: %s" % (nick_seg, chan, msg)
         elif msg == '!want.bacon?':
-            helpers.msg(self.irc_client, nick_seg, '!!OMGYES!!')
+            helpers.msg(self.client, nick_seg, '!!OMGYES!!')
             print 'I WANT BACON'
         else:
             print "%s from %s IS NOT WELCOMEin " % (nick_seg, chan)
