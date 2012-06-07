@@ -32,8 +32,12 @@ class CollabMsgHandler(DefaultCommandHandler):
     def privmsg(self, nick, chan, msg):
         print 'msg from: %s' % nick
         print 'only listening to: %s' % tgt_nick
-        if nick == tgt_nick:
-            print "%s in %s said: %s" % (nick, chan, msg)
+
+        if nick:
+            nick_seg = nick.split('!',1) 
+
+        if nick_seg == tgt_nick:
+            print "%s in %s said: %s" % (nick_seg, chan, msg)
 
     def welcome(self, *args):
         print 'connected to irc!'
