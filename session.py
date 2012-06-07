@@ -70,7 +70,7 @@ class CollabSessionCommand(sublime_plugin.WindowCommand):
     co_collab_nick = None
 
     def init(self):
-        self.irc_client = IRCClient(MyHandler, host="irc.pearsoncmg.com", port=6667, nick="subliminal_nick",
+        self.irc_client = IRCClient(CollabMsgHandler, host="irc.pearsoncmg.com", port=6667, nick="subliminal_nick",
                                 passwd='my9pv', blocking=True)
         self.irc_thread = IRCClientThread(self.irc_client)
         self.irc_thread.start()
