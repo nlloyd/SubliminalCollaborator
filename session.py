@@ -1,6 +1,6 @@
 # All of SubliminalCollaborator is licensed under the MIT license.
 
-#   Copyright (c) 2012 Nick Lloyd
+#   Copyright (c) 2012 Nick Lloyd, Frank Papineau, Rippa Gasparyan
 
 #   Permission is hereby granted, free of charge, to any person obtaining a copy
 #   of this software and associated documentation files (the "Software"), to deal
@@ -22,39 +22,6 @@
 import sublime, sublime_plugin
 import threading
 import logging
-import irc.client
-# from oyoyo.client import IRCClient
-# from oyoyo.cmdhandler import DefaultCommandHandler
-# from oyoyo import helpers
-
-# # def connect_callback(cli):
-# #     # Identify to nickserv
-# #     helpers.identify(cli, "my9pv")
-
-# #     # Join the channel '#test'
-# #     helpers.join(cli, "#subliminalcollaborator")
-
-# class MyHandler(DefaultCommandHandler):
-#     # Handle messages (the PRIVMSG command, note lower case)
-#     def privmsg(self, nick, chan, msg):
-#         print "%s in %s said: %s" % (nick, chan, msg)
-
-# cli = IRCClient(MyHandler, host="irc.pearsoncmg.com", port=6667, nick="subliminal_nick",
-#                 connect_cb=None)
-
-# class IRCClientThread(threading.Thread): 
-#     def __init__(self, irc_client):
-#         self.client = irc_client
-#         threading.Thread.__init__(self)
-
-#     def run(self):
-#         logging.basicConfig(level=logging.DEBUG)
-#         conn = self.client.connect()
-#         while True:
-#             conn.next()
-
-# irc_thread = IRCClientThread(cli)
-# irc_thread.start()
 
 settings = sublime.load_settings('Preferences.sublime-settings')
 # {
@@ -69,13 +36,41 @@ settings = sublime.load_settings('Preferences.sublime-settings')
 # }
 collab_config = settings.get('subliminal_collaborator_config', None)
 
-class CollabSessionBlahBlah(sublime_plugin.WindowCommand):
+class CollabSessionCommand(sublime_plugin.WindowCommand):
 
     def run(self):
-        self.window.show_quick_panel(['Share active view (default)', 'Share other view...'])
+        self.window.show_quick_panel(['Share active view (default)', 'Share other view...'], self.view_to_share)
 
     def view_to_share(self, choice_idx):
         if choice_idx < 1:
-            print 'blah'
+            self.start_session(self.window.active_view())
         else:
-            view_names = []
+            self.current_views = []
+            self.current_view_names = []
+            for view in self.window.views():
+                self.current_views.append(view)
+                self.current_view_names.append(view.file_name())
+
+            self.window.show_quick_panel(self.current_view_names, self.choose_this_view)
+
+    def choose_this_view(self, view_idx):
+        if view_idx >= 0:
+            self.start_session(self.current_views[view_idx])
+
+    def start_session(self, view):
+        print 'you chose to share %s' % view.file_name()
+
+
+# class CollabSessionEventHandler(sublime_plugin.EventListener):
+
+#     def on_modified(self, view):
+#         # TODO: send change events to the partner
+#         if view.file_name():
+#             for region in view.sel():
+#                 print region.begin()
+#             print '!!! command %s modified: %s' % (view.command_history(0, True), view.file_name())
+
+#     def on_selection_modified(self, view):
+#         if view.file_name():
+#             for region in view.sel():
+#                 print 'sel_mod: %d' % region.begin()
