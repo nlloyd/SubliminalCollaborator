@@ -39,17 +39,13 @@ class CollabMsgHandler(DefaultCommandHandler):
         print 'connected to irc!'
         helpers.join(self.client, "#subliminalcollaborator")
 
-# cli = IRCClient(MyHandler, host="irc.pearsoncmg.com", port=6667, nick="subliminal_nick",
-#          passwd='my9pv',
-#          blocking=True)
-
 class IRCClientThread(threading.Thread): 
     def __init__(self, irc_client):
         self.client = irc_client
         threading.Thread.__init__(self)
 
     def run(self):
-        # logging.basicConfig(level=logging.DEBUG)
+        logging.basicConfig(level=logging.DEBUG)
         conn = self.client.connect()
         while True:
             conn.next()
@@ -68,21 +64,27 @@ settings = sublime.load_settings('Preferences.sublime-settings')
 collab_config = settings.get('subliminal_collaborator_config', None)
 
 class CollabSessionCommand(sublime_plugin.WindowCommand):
-    def __init__(self):
-        super(CollabSessionCommand, self).__init__()
-        self.init()
+    irc_client = None
+    irc_thread = None
+    session_view = None
+    co_collab_nick = None
 
     def init(self):
         self.irc_client = IRCClient(MyHandler, host="irc.pearsoncmg.com", port=6667, nick="subliminal_nick",
                                 passwd='my9pv', blocking=True)
         self.irc_thread = IRCClientThread(self.irc_client)
+        self.irc_thread.start()
 
     def run(self):
+        if not self.irc_client and not self.irc_thread:
+            print 'oh nos! initing irc session'
+            self.init()
         self.window.show_quick_panel(['Share active view (default)', 'Share other view...'], self.view_to_share)
 
     def view_to_share(self, choice_idx):
         if choice_idx < 1:
-            self.start_session(self.window.active_view())
+            self.session_view = self.window.active_view()
+            self.window.show_input_panel('Share with (IRC nick):', 'sumdumguy', self.with_whom, None, None)
         else:
             self.current_views = []
             self.current_view_names = []
@@ -94,10 +96,17 @@ class CollabSessionCommand(sublime_plugin.WindowCommand):
 
     def choose_this_view(self, view_idx):
         if view_idx >= 0:
-            self.start_session(self.current_views[view_idx])
+            self.session_view = self.current_views[view_idx]
+            self.window.show_input_panel('Share with (IRC nick):', 'sumdumguy', self.with_whom, None, None)
 
-    def start_session(self, view):
-        print 'you chose to share %s' % view.file_name()
+    def with_whom(self, irc_nick):
+        self.co_collab_nick = irc_nick
+        self.irc_client.command_handler.tgt_nick = irc_nick
+
+    def start_session(self):
+        print 'you chose to share %s, with %s' % (self.session_view.file_name(), self.irc_client.command_handler.tgt_nick)
+        helpers.msg(self.irc_client, self.co_collab_nick, '!want.bacon?')
+
 
 
 # class CollabSessionEventHandler(sublime_plugin.EventListener):
