@@ -8,7 +8,7 @@ Sublime Text 2 Plugin for remote pair programming
 
 All of SublimeMaven is licensed under the MIT license.
 
-  Copyright (c) 2012 Nick Lloyd
+  Copyright (c) 2012 Nick Lloyd, Frank Papineau, Rippa Gasparyan
 
   Permission is hereby granted, free of charge, to any person obtaining a copy
   of this software and associated documentation files (the "Software"), to deal

@@ -22,6 +22,37 @@
 import sublime, sublime_plugin
 import threading
 import logging
+from oyoyo import helpers
+from oyoyo.client import IRCClient 
+from oyoyo.cmdhandler import DefaultCommandHandler
+
+class CollabMsgHandler(DefaultCommandHandler):
+    tgt_nick = 'nick'
+
+    def privmsg(self, nick, chan, msg):
+        print 'msg from: %s' % nick
+        print 'only listening to: %s' % tgt_nick
+        if nick == tgt_nick:
+            print "%s in %s said: %s" % (nick, chan, msg)
+
+    def welcome(self, *args):
+        print 'connected to irc!'
+        helpers.join(self.client, "#subliminalcollaborator")
+
+# cli = IRCClient(MyHandler, host="irc.pearsoncmg.com", port=6667, nick="subliminal_nick",
+#          passwd='my9pv',
+#          blocking=True)
+
+class IRCClientThread(threading.Thread): 
+    def __init__(self, irc_client):
+        self.client = irc_client
+        threading.Thread.__init__(self)
+
+    def run(self):
+        # logging.basicConfig(level=logging.DEBUG)
+        conn = self.client.connect()
+        while True:
+            conn.next()
 
 settings = sublime.load_settings('Preferences.sublime-settings')
 # {
@@ -37,6 +68,14 @@ settings = sublime.load_settings('Preferences.sublime-settings')
 collab_config = settings.get('subliminal_collaborator_config', None)
 
 class CollabSessionCommand(sublime_plugin.WindowCommand):
+    def __init__(self):
+        super(CollabSessionCommand, self).__init__()
+        self.init()
+
+    def init(self):
+        self.irc_client = IRCClient(MyHandler, host="irc.pearsoncmg.com", port=6667, nick="subliminal_nick",
+                                passwd='my9pv', blocking=True)
+        self.irc_thread = IRCClientThread(self.irc_client)
 
     def run(self):
         self.window.show_quick_panel(['Share active view (default)', 'Share other view...'], self.view_to_share)

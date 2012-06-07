@@ -5,18 +5,22 @@ from oyoyo import helpers
 from oyoyo.client import IRCClient 
 from oyoyo.cmdhandler import DefaultCommandHandler
 
+logging.basicConfig(level=logging.ERROR)
+
 # def connect_callback(cli):
 #     # Join the channel '#subliminalcollaborator'
 #     helpers.join(cli, "#subliminalcollaborator")
 
-tgt_nick = 'nick'
+# tgt_nick = 'nick'
 
 class MyHandler(DefaultCommandHandler):
+    tgt_nick = 'nick'
+
     def privmsg(self, nick, chan, msg):
-        print 'msg from: %s' % nick
-        print 'only listening to: %s' % tgt_nick
-        if nick == tgt_nick:
-            print "%s in %s said: %s" % (nick, chan, msg)
+        # print 'msg from: %s' % nick
+        # print 'only listening to: %s' % tgt_nick
+        # if nick == tgt_nick:
+        print "%s in %s, %d said: %s" % (nick, chan, len(msg), msg)
 
     def welcome(self, *args):
         print 'we have been welcomed!'
@@ -33,7 +37,7 @@ class IRCClientThread(threading.Thread):
         threading.Thread.__init__(self)
 
     def run(self):
-        logging.basicConfig(level=logging.DEBUG)
+        logging.basicConfig(level=logging.ERROR)
         conn = self.client.connect()
         print conn
         while self.loop:
