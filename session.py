@@ -31,17 +31,17 @@ class CollabMsgHandler(DefaultCommandHandler):
 
     def privmsg(self, nick, chan, msg):
         print 'msg from: %s' % nick
-        print 'only listening to: %s' % tgt_nick
+       # print 'only listening to: %s' % tgt_nick
         
         nick_seg = None
 
         if nick:
             nick_seg = nick.split('!',1)[0]
 
-        if nick_seg == tgt_nick:
+        if self.tgt_nick and nick_seg == self.tgt_nick:
             print "%s in %s said: %s" % (nick_seg, chan, msg)
         elif msg == '!want.bacon?':
-            helpers.msg(self.irc_client, nick_seg, '!!OMGYES!!')
+            helpers.msg(self.client, nick_seg, '!!OMGYES!!')
             print 'I WANT BACON'
         else:
             print "%s from %s IS NOT WELCOMEin " % (nick_seg, chan)
@@ -81,7 +81,7 @@ class CollabSessionCommand(sublime_plugin.WindowCommand):
     co_collab_nick = None
 
     def init(self):
-        self.irc_client = IRCClient(CollabMsgHandler, host="irc.pearsoncmg.com", port=6667, nick="subliminal_nick",
+        self.irc_client = IRCClient(CollabMsgHandler, host="irc.pearsoncmg.com", port=6667, nick="subliminal_frank",
                                 passwd='my9pv', blocking=True)
         self.irc_thread = IRCClientThread(self.irc_client)
         self.irc_thread.start()
