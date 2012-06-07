@@ -1,27 +1,29 @@
 import sublime, sublime_plugin
 import threading
 import logging
-import time
 from oyoyo import helpers
 from oyoyo.client import IRCClient 
-from oyoyo.cmdhandler import DefaultCommandHandler  
+from oyoyo.cmdhandler import DefaultCommandHandler
 
 # def connect_callback(cli):
 #     # Join the channel '#subliminalcollaborator'
 #     helpers.join(cli, "#subliminalcollaborator")
 
+tgt_nick = 'nick'
+
 class MyHandler(DefaultCommandHandler):
     def privmsg(self, nick, chan, msg):
-        print "%s in %s said: %s" % (nick, chan, msg)
+        print 'msg from: %s' % nick
+        print 'only listening to: %s' % tgt_nick
+        if nick == tgt_nick:
+            print "%s in %s said: %s" % (nick, chan, msg)
 
     def welcome(self, *args):
         print 'we have been welcomed!'
-        print args
         helpers.join(self.client, "#subliminalcollaborator")
 
 cli = IRCClient(MyHandler, host="irc.pearsoncmg.com", port=6667, nick="subliminal_nick",
          passwd='my9pv',
-         connect_cb=None,
          blocking=True)
 
 class IRCClientThread(threading.Thread): 
@@ -33,9 +35,10 @@ class IRCClientThread(threading.Thread):
     def run(self):
         logging.basicConfig(level=logging.DEBUG)
         conn = self.client.connect()
+        print conn
         while self.loop:
-#         print "LOOP"   
-         conn.next()
+            next = conn.next()
+            print self.loop
 
 irc_thread = IRCClientThread(cli)
 
@@ -44,7 +47,8 @@ def launch():
 
 def kill():
     irc_thread.loop = False
-    irc_thread.join(1)
+    helpers.quit(cli)
+    irc_thread.join(10)
 
 class IrcSandboxCommand(sublime_plugin.TextCommand):
     def run(self, view):
@@ -53,3 +57,10 @@ class IrcSandboxCommand(sublime_plugin.TextCommand):
 class KillIrcCommand(sublime_plugin.TextCommand):
     def run(self, view):
         kill()
+
+class UpdateNickCommand(sublime_plugin.TextCommand):
+    def run(self, view):
+        if tgt_nick == 'nick':
+            tgt_nick = 'Rippa'
+        elif tgt_nick == 'Rippa':
+            tgt_nick = 'nick'
