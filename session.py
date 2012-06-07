@@ -22,6 +22,7 @@
 import sublime, sublime_plugin
 import threading
 import logging
+import irc.client
 # from oyoyo.client import IRCClient
 # from oyoyo.cmdhandler import DefaultCommandHandler
 # from oyoyo import helpers
@@ -41,7 +42,7 @@ import logging
 # cli = IRCClient(MyHandler, host="irc.pearsoncmg.com", port=6667, nick="subliminal_nick",
 #                 connect_cb=None)
 
-# class IRCClientThread(threading.Thread):
+# class IRCClientThread(threading.Thread): 
 #     def __init__(self, irc_client):
 #         self.client = irc_client
 #         threading.Thread.__init__(self)
@@ -55,8 +56,26 @@ import logging
 # irc_thread = IRCClientThread(cli)
 # irc_thread.start()
 
-class CollabSessionCommand(sublime_plugin.WindowCommand):
-    def run(self):
-        print 'blah blah blah'
-        # helpers.msg(cli, 'nick_hackathon', "ohai!")
+settings = sublime.load_settings('Preferences.sublime-settings')
+# {
+#     'sublinimal_collaborator_config': {
+#         'irc': {
+#             'host': "irc.pearsoncmg.com",
+#             'port': 6667,
+#             'pwd': "my9pv",
+#             'nick': "subliminal_nick"
+#         }
+#     }
+# }
+collab_config = settings.get('subliminal_collaborator_config', None)
 
+class CollabSessionBlahBlah(sublime_plugin.WindowCommand):
+
+    def run(self):
+        self.window.show_quick_panel(['Share active view (default)', 'Share other view...'])
+
+    def view_to_share(self, choice_idx):
+        if choice_idx < 1:
+            print 'blah'
+        else:
+            view_names = []
