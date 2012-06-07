@@ -32,6 +32,9 @@ class CollabMsgHandler(DefaultCommandHandler):
 
     def privmsg(self, nick, chan, msg):
         print 'msg from: %s' % nick
+        print len(nick)
+        print len(chan)
+        print len(msg)
        # print 'only listening to: %s' % tgt_nick
         
         nick_seg = None
