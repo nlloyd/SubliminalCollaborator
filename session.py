@@ -163,9 +163,8 @@ class IRCClientThread(threading.Thread):
             conn.next()
         print 'disconnected from irc'
 
-settings = sublime.load_settings('Preferences.sublime-settings')
 # {
-#     "sublinimal_collaborator_config": {
+#     "subliminal_collaborator_config": {
 #         "irc": {
 #             "host": "irc.pearsoncmg.com",
 #             "port": 6667,
@@ -174,7 +173,7 @@ settings = sublime.load_settings('Preferences.sublime-settings')
 #         }
 #     }
 # }
-collab_config = settings.get('subliminal_collaborator_config', {
+collab_config = sublime.active_window().active_view().settings().get('subliminal_collaborator_config', {
         "irc": {
             "host": "irc.pearsoncmg.com",
             "port": 6667,
