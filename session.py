@@ -261,8 +261,6 @@ class CollabSessionCommand(sublime_plugin.WindowCommand):
         self.irc_thread.start()
 
     def run(self, init_irc, send_select=False):
-        print "Blah blah"
-        print send_select
         # print self.irc_client
         # print self.irc_client.command_handler.session_view
         if send_select:
