@@ -220,9 +220,9 @@ class IRCClientThread(threading.Thread):
 # {
 #     "subliminal_collaborator_config": {
 #         "irc": {
-#             "host": "irc.pearsoncmg.com",
+#             "host": "irc.something.com",
 #             "port": 6667,
-#             "pwd": "my9pv",
+#             "pwd": "somepwd",
 #             "nick": "subliminal_nick"
 #         }
 #     }
@@ -243,14 +243,7 @@ class CollabSessionCommand(sublime_plugin.WindowCommand):
             self.irc_client = None
             self.irc_thread = None
 
-        collab_config = self.window.active_view().settings().get("subliminal_collaborator_config", {
-                "irc": {
-                    "host": "irc.pearsoncmg.com",
-                    "port": 6667,
-                    "pwd": "my9pv",
-                    "nick": "sub_nick"
-                }
-            })
+        collab_config = self.window.active_view().settings().get("subliminal_collaborator_config", None)
         irc_host = collab_config['irc']['host']
         irc_port = collab_config['irc']['port']
         irc_pwd = collab_config['irc']['pwd']
