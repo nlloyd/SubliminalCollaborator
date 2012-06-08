@@ -28,8 +28,6 @@ from oyoyo import helpers
 from oyoyo.client import IRCClient 
 from oyoyo.cmdhandler import DefaultCommandHandler
 
-logging.basicConfig(level=logging.ERROR)
-
 share_view_reply_pattern = re.compile('^!!OMGYES!!([0-9]+)!!$')
 
 class Role:
@@ -52,6 +50,7 @@ class CollabMsgHandler(DefaultCommandHandler):
     in_queue_lock = threading.Lock()
     out_queue = []
     out_queue_lock = threading.Lock()
+    chunk_lock = threading.Lock()
 
     def privmsg(self, nick, chan, msg):
         print 'msg from: %s' % nick
@@ -69,8 +68,10 @@ class CollabMsgHandler(DefaultCommandHandler):
         if self.tgt_nick and nick_seg == self.tgt_nick:
             if self.session_role == Role.HOST:
                 ## HOST behavior
+                print 'imahost'
                 buffer_match = share_view_reply_pattern.match(msg)
                 if buffer_match:
+                    print 'sharing buffer'
                     self.max_buf_size = int(buffer_match.group(1))
                     self.share_entire_view()
                 ## more msg handling here ##
@@ -116,10 +117,12 @@ class CollabMsgHandler(DefaultCommandHandler):
         self.session_role_dialog_lock.release()
 
     def share_next_chunk(self):
+        self.chunk_lock.acquire()
         self.session_view.erase_regions('share_all_bacon')
         self.session_view.show_at_center(self.chunk)
         self.session_view.add_regions('share_all_bacon', [self.chunk], 'comment', '', sublime.DRAW_OUTLINED)
         chunk_str = self.session_view.substr(self.chunk)
+        self.chunk_lock.release()
         # print chunk_str
         if len(chunk_str) > 0:
             helpers.msg(self.client, self.tgt_nick, chunk_str)
@@ -130,21 +133,26 @@ class CollabMsgHandler(DefaultCommandHandler):
         helpers.msg(self.client, self.tgt_nick, CollabMessages.END_SHARE_PUBLISH)
 
     def share_entire_view(self):
-        self.session_view.set_read_only(True)
         chunk_min_pt = 0
         chunk_max_pt = self.max_buf_size
+        self.chunk_lock.acquire()
         self.chunk = sublime.Region(chunk_min_pt, self.max_buf_size)
         if self.max_buf_size > chunk_max_pt:
             self.chunk = sublime.Region(self.chunk.begin(), chunk_max_pt)
         while self.chunk.end() <= self.view_size:
             print 'region: %d -> %d of buf size %d' % (self.chunk.begin(), self.chunk.end(), self.view_size)
+            self.chunk_lock.release()
             sublime.set_timeout(lambda: self.share_next_chunk(), 150)
             time.sleep(.2)
+            self.chunk_lock.acquire()
             self.chunk = sublime.Region(self.chunk.end(), self.chunk.end() + self.max_buf_size)
+            self.chunk_lock.release()
         # one more chunk to send?
+        self.chunk_lock.acquire()
         if self.chunk.end() > self.view_size and self.chunk.begin() < self.view_size:
             self.chunk = sublime.Region(self.chunk.begin(), self.view_size)
             sublime.set_timeout(lambda: self.share_next_chunk(), 150)
+        self.chunk_lock.release()
         print 'done sharing, cleaning up'
         sublime.set_timeout(lambda: self.post_share_cleanup(), 100)
 
@@ -228,7 +236,7 @@ class CollabSessionCommand(sublime_plugin.WindowCommand):
     def view_to_share(self, choice_idx):
         if choice_idx < 1:
             self.session_view = self.window.active_view()
-            self.window.show_input_panel('Share with (IRC nick):', 'nick', self.with_whom, None, None)
+            self.window.show_input_panel('Share with (IRC nick):', 'sub_nick_mac', self.with_whom, None, None)
         else:
             self.current_views = []
             self.current_view_names = []
