@@ -92,7 +92,7 @@ class CollabMsgHandler(DefaultCommandHandler):
         self.session_view.show_at_center(self.chunk)
         self.session_view.add_regions('share_all_bacon', [self.chunk], 'comment', '', sublime.DRAW_OUTLINED)
         chunk_str = self.session_view.substr(self.chunk)
-        print chunk_str
+        # print chunk_str
         if len(chunk_str) > 0:
             helpers.msg(self.client, self.tgt_nick, chunk_str)
 
@@ -108,13 +108,17 @@ class CollabMsgHandler(DefaultCommandHandler):
         self.chunk = sublime.Region(chunk_min_pt, self.max_buf_size)
         if self.max_buf_size > chunk_max_pt:
             self.chunk = sublime.Region(self.chunk.begin(), chunk_max_pt)
-        while self.chunk.begin() <= self.view_size:
+        while self.chunk.end() <= self.view_size:
+            print 'region: %d -> %d of buf size %d' % (self.chunk.begin(), self.chunk.end(), self.view_size)
             sublime.set_timeout(lambda: self.share_next_chunk(), 150)
-            time.sleep(.1)
+            time.sleep(.2)
             # helpers.msg(self.client, self.tgt_nick, chunk_str)
             self.chunk = sublime.Region(self.chunk.end(), self.chunk.end() + self.max_buf_size)
-            if self.chunk.end() > self.view_size:
-                self.chunk = sublime.Region(self.chunk.begin(), self.view_size)
+        # one more chunk to send?
+        if self.chunk.end() > self.view_size and self.chunk.begin() < self.view_size:
+            self.chunk = sublime.Region(self.chunk.begin(), self.view_size)
+            sublime.set_timeout(lambda: self.share_next_chunk(), 150)
+        print 'done sharing, cleaning up'
         sublime.set_timeout(lambda: self.post_share_cleanup(), 100)
         # self.session_view.erase_regions('share_all_bacon')
         # self.session_view.set_read_only(False)
