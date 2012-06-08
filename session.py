@@ -208,7 +208,7 @@ class CollabSessionCommand(sublime_plugin.WindowCommand):
                     "host": "irc.pearsoncmg.com",
                     "port": 6667,
                     "pwd": "my9pv",
-                    "nick": "sub_rippa"
+                    "nick": "sub_nick"
                 }
             })
         irc_host = collab_config['irc']['host']
