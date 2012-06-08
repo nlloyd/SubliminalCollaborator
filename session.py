@@ -86,7 +86,7 @@ class CollabMsgHandler(DefaultCommandHandler):
                     self.session_selection = None
                     self.session_selection = sublime.Region(int(cmd_match.group(1)), int(cmd_match.group(2)))
                     sublime.set_timeout(lambda: self.show_shared_selection(), 100)
-                if self.am_recving_buffer:
+                elif self.am_recving_buffer:
                     print 'recvd msg of len %d' % len(msg)
                     self.in_queue_lock.acquire()
                     self.in_queue.insert(0, msg)
@@ -108,6 +108,7 @@ class CollabMsgHandler(DefaultCommandHandler):
         helpers.join(self.client, "#subliminalcollaborator")
 
     def show_shared_selection(self):
+        print 'do i get here???'
         # first clear previous shared selections
         self.session_view.erase_regions('collab_shared_selection')
         # now show the new one, scroll the view to it
@@ -242,11 +243,15 @@ class CollabSessionCommand(sublime_plugin.WindowCommand):
 
     def run(self, init_irc, send_select=False):
         if send_select:
-            if self.session_view == self.window.active_view():
+            # print 'session view'
+            # print self.session_view
+            # print 'active view'
+            # print self.window.active_view()
+            if self.session_view:
                 for region in self.session_view.sel():
                     print '%d - %d' % (region.begin(), region.end())
                     if self.irc_client and self.tgt_nick:
-                        helpers.msg(self.irc_client, self.tgt_nick, 'SELECTION[%d,%d]' % (region.begin(), region.end()))
+                        helpers.msg(self.irc_client, self.irc_client.command_handler.tgt_nick, 'SELECTION[%d,%d]' % (region.begin(), region.end()))
             # else:
             #     print 'not in active view!'
         else:
