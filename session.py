@@ -250,7 +250,7 @@ class CollabSessionCommand(sublime_plugin.WindowCommand):
             if self.session_view:
                 for region in self.session_view.sel():
                     print '%d - %d' % (region.begin(), region.end())
-                    if self.irc_client and self.tgt_nick:
+                    if self.irc_client and self.irc_client.command_handler.tgt_nick:
                         helpers.msg(self.irc_client, self.irc_client.command_handler.tgt_nick, 'SELECTION[%d,%d]' % (region.begin(), region.end()))
             # else:
             #     print 'not in active view!'
