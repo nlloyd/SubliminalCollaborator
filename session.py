@@ -26,6 +26,7 @@ import time
 import re
 from base64 import b64encode, b64decode
 from oyoyo import helpers
+from oyoyo.parse import parse_nick 
 from oyoyo.client import IRCClient 
 from oyoyo.cmdhandler import DefaultCommandHandler
 
@@ -66,7 +67,8 @@ class CollabMsgHandler(DefaultCommandHandler):
         nick_seg = None
 
         if nick:
-            nick_seg = nick.split('!',1)[0]
+            nick_segs = parse_nick(nick)
+            nick_seg = nick_segs[0]
 
         if self.tgt_nick and nick_seg == self.tgt_nick:
             if self.session_role == Role.HOST:
