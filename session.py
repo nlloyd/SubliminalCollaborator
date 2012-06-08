@@ -72,7 +72,8 @@ class CollabMsgHandler(DefaultCommandHandler):
                 buffer_match = share_view_reply_pattern.match(msg)
                 if buffer_match:
                     print 'sharing buffer'
-                    self.max_buf_size = int(buffer_match.group(1))
+                    # bad hack for base64 encoding/decoding support
+                    self.max_buf_size = int(float(buffer_match.group(1))/2)
                     self.share_entire_view()
                 ## more msg handling here ##
             else:
@@ -125,12 +126,7 @@ class CollabMsgHandler(DefaultCommandHandler):
         self.chunk_lock.release()
         # print chunk_str
         if len(chunk_str) > 0:
-            b64_chunk = b64encode(chunk_str)
-            if len(b64_chunk) > self.max_buf_size:
-                self.client.send("PRIVMSG", self.tgt_nick, ":%s" % b64_chunk[:self.max_buf_size])
-                self.client.send("PRIVMSG", self.tgt_nick, ":%s" % b64_chunk[self.max_buf_size:])
-            else:
-                self.client.send("PRIVMSG", self.tgt_nick, ":%s" % b64_chunk)
+            self.client.send("PRIVMSG", self.tgt_nick, ":%s" % b64encode(chunk_str))
             # helpers.msg(self.client, self.tgt_nick, bytes(chunk_str, 'ascii'))
 
     def post_share_cleanup(self):
@@ -170,7 +166,7 @@ class CollabMsgHandler(DefaultCommandHandler):
         self.in_queue_lock.release()
         share_edit = self.session_view.begin_edit()
         self.session_view.insert(share_edit, self.session_view.size(), b64decode(chunk_str))
-        self.session_view.end_edit(share_edit)
+        self.session_view.end_edit(share_edit) 
 
 
 class IRCClientThread(threading.Thread): 
