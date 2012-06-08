@@ -28,27 +28,37 @@ from oyoyo import helpers
 from oyoyo.client import IRCClient 
 from oyoyo.cmdhandler import DefaultCommandHandler
 
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.ERROR)
 
-max_buffer_pattern = re.compile('^!!OMGYES!!([0-9]+)!!$')
+share_view_reply_pattern = re.compile('^!!OMGYES!!([0-9]+)!!$')
 
 class Role:
     HOST = 1
     PARTNER = 2
+
+class CollabMessages:
+    START_SHARE = '!want.bacon?'
+    START_SHARE_ACK_FMT = '!!OMGYES!!%d!!'
+    END_SHARE_PUBLISH = '!you.haz.teh.bacons!'
         
 class CollabMsgHandler(DefaultCommandHandler):
     tgt_nick = None
     session_view = None
     session_role = None
     max_buf_size = 0
+    recving_buffer = False
+    in_queue = []
+    in_queue_lock = threading.Lock()
+    out_queue = []
+    out_queue_lock = threading.Lock()
 
     def privmsg(self, nick, chan, msg):
         print 'msg from: %s' % nick
-        print msg
+        # print msg
         # print len(nick)
         # print len(chan)
         # print len(msg)
-       # print 'only listening to: %s' % tgt_nick
+        # print 'only listening to: %s' % tgt_nick
         
         nick_seg = None
 
@@ -57,24 +67,31 @@ class CollabMsgHandler(DefaultCommandHandler):
 
         if self.tgt_nick and nick_seg == self.tgt_nick:
             if self.session_role == Role.HOST:
-                buffer_match = max_buffer_pattern.match(msg)
+                ## HOST behavior
+                buffer_match = share_view_reply_pattern.match(msg)
                 if buffer_match:
                     self.max_buf_size = int(buffer_match.group(1))
                     self.share_entire_view()
-                    # r = sublime.Region(400, 600)
-                    # s = self.session_view.substr(r)
-                    # self.session_view.show_at_center(r)
-                    # self.session_view.add_regions('junk', [r], 'comment', '', sublime.DRAW_OUTLINED)
-                    # sublime.set_timeout(lambda: self.share_entire_view(), 1000)
-            # if msg is !!OMGYES!!#!! then we start chunking out the view... commandhandler needs to know about the view!
+                ## more msg handling here ##
             else:
+                if msg == CollabMessages.END_SHARE_PUBLISH:
+                    recving_buffer = False
+                if recving_buffer:
+                    self.in_queue_lock.acquire()
+                    self.in_queue.insert(0, msg)
+                    self.in_queue_lock.release()
+                    sublime.set_timeout(lambda: self.publish_partner_chunk(), 100)
+                    print len(msg)
+                ## PARTNER behavior
                 print "%s in %s said: %s" % (nick_seg, chan, msg)
-        elif msg == '!want.bacon?':
-            # if YES... need to prompt user for a choice... sublime dialog window i suppose
+        elif msg == CollabMessages.START_SHARE:
+            # request from a potential host to start a session
             if sublime.ok_cancel_dialog('%s wants to share a file with you...' % nick_seg):
                 self.tgt_nick = nick_seg
                 self.session_role = Role.PARTNER
-                helpers.msg(self.client, nick_seg, '!!OMGYES!!%d!!' % (498 - (len(nick) + len(chan))))
+                self.recving_buffer = True
+                helpers.msg(self.client, nick_seg, CollabMessages.START_SHARE_ACK_FMT % (498 - (len(nick) + len(chan))))
+                sublime.set_timeout(lambda: self.open_new_partner_view(), 100)
                 print 'I WANT BACON'
             else:
                 # helpers.msg(self.client, nick_seg, 'NOTHANKS.IMGOOD')
@@ -98,11 +115,11 @@ class CollabMsgHandler(DefaultCommandHandler):
 
     def post_share_cleanup(self):
         self.session_view.erase_regions('share_all_bacon')
-        # self.session_view.set_read_only(False)
-        helpers.msg(self.client, self.tgt_nick, '!you.haz.teh.bacons!')
+        self.session_view.set_read_only(False)
+        helpers.msg(self.client, self.tgt_nick, CollabMessages.END_SHARE_PUBLISH)
 
     def share_entire_view(self):
-        # self.session_view.set_read_only(True)
+        self.session_view.set_read_only(True)
         chunk_min_pt = 0
         chunk_max_pt = self.max_buf_size
         self.chunk = sublime.Region(chunk_min_pt, self.max_buf_size)
@@ -112,7 +129,6 @@ class CollabMsgHandler(DefaultCommandHandler):
             print 'region: %d -> %d of buf size %d' % (self.chunk.begin(), self.chunk.end(), self.view_size)
             sublime.set_timeout(lambda: self.share_next_chunk(), 150)
             time.sleep(.2)
-            # helpers.msg(self.client, self.tgt_nick, chunk_str)
             self.chunk = sublime.Region(self.chunk.end(), self.chunk.end() + self.max_buf_size)
         # one more chunk to send?
         if self.chunk.end() > self.view_size and self.chunk.begin() < self.view_size:
@@ -120,9 +136,19 @@ class CollabMsgHandler(DefaultCommandHandler):
             sublime.set_timeout(lambda: self.share_next_chunk(), 150)
         print 'done sharing, cleaning up'
         sublime.set_timeout(lambda: self.post_share_cleanup(), 100)
-        # self.session_view.erase_regions('share_all_bacon')
-        # self.session_view.set_read_only(False)
-        # helpers.msg(self.client, self.tgt_nick, '!you.haz.teh.bacons!')
+
+    def open_new_partner_view(self):
+        self.session_view = sublime.active_window().new_file()
+        self.session_view.set_scratch(True)
+        # self.session_view.set_read_only(True) <-- may need a cleanup function if we do this
+
+    def publish_partner_chunk(self):
+        self.in_queue_lock.acquire()
+        chunk_str = self.in_queue.pop(-1)
+        self.in_queue_lock.release()
+        share_edit = self.session_view.begin_edit()
+        self.session_view.insert(share_edit, self.session_view.size(), chunk_str)
+        self.session_view.end_edit(share_edit)
 
 
 class IRCClientThread(threading.Thread): 
