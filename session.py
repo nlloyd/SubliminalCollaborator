@@ -30,6 +30,7 @@ from oyoyo.client import IRCClient
 from oyoyo.cmdhandler import DefaultCommandHandler
 
 share_view_reply_pattern = re.compile('^!!OMGYES!!([0-9]+)!!$')
+view_sel_cmd_pattern = re.compile('^SELECTION\[([0-9]+),([0-9]+)\]$')
 
 class Role:
     HOST = 1
@@ -44,6 +45,7 @@ class CollabMsgHandler(DefaultCommandHandler):
     tgt_nick = None
     session_view = None
     session_role = None
+    session_selection = None
     max_buf_size = 0
     am_recving_buffer = False
     in_queue = []
@@ -77,8 +79,13 @@ class CollabMsgHandler(DefaultCommandHandler):
                     self.share_entire_view()
                 ## more msg handling here ##
             else:
+                cmd_match = view_sel_cmd_pattern.match(msg)
                 if msg == CollabMessages.END_SHARE_PUBLISH:
                     self.am_recving_buffer = False
+                elif cmd_match:
+                    self.session_selection = None
+                    self.session_selection = sublime.Region(int(cmd_match.group(1)), int(cmd_match.group(2)))
+                    sublime.set_timeout(lambda: self.show_shared_selection(), 100)
                 if self.am_recving_buffer:
                     print 'recvd msg of len %d' % len(msg)
                     self.in_queue_lock.acquire()
@@ -99,6 +106,14 @@ class CollabMsgHandler(DefaultCommandHandler):
     def welcome(self, *args):
         print 'connected to irc as %s' % self.client.nick
         helpers.join(self.client, "#subliminalcollaborator")
+
+    def show_shared_selection(self):
+        # first clear previous shared selections
+        self.session_view.erase_regions('collab_shared_selection')
+        # now show the new one, scroll the view to it
+        self.session_view.add_regions('collab_shared_selection', [self.session_selection], 
+                                      'comment', '', sublime.DRAW_OUTLINED)
+        self.session_view.show_at_center(self.session_selection)
 
     def partner_accept_session_dialog(self):
         sublime.active_window().show_quick_panel(['Collaborate with %s' % self.tgt_nick, 'No thanks!'], 
@@ -227,8 +242,13 @@ class CollabSessionCommand(sublime_plugin.WindowCommand):
 
     def run(self, init_irc, send_select=False):
         if send_select:
-            for region in self.window.active_view().sel():
-                print '%d - %d' % (region.begin(), region.end())
+            if self.session_view == self.window.active_view():
+                for region in self.session_view.sel():
+                    print '%d - %d' % (region.begin(), region.end())
+                    if self.irc_client and self.tgt_nick:
+                        helpers.msg(self.irc_client, self.tgt_nick, 'SELECTION[%d,%d]' % (region.begin(), region.end()))
+            # else:
+            #     print 'not in active view!'
         else:
             if init_irc:
                 self.init()
