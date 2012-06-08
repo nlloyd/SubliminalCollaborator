@@ -84,7 +84,7 @@ class CollabMsgHandler(DefaultCommandHandler):
                     sublime.set_timeout(lambda: self.publish_partner_chunk(), 100)
                     print len(msg)
                 ## PARTNER behavior
-                print "%s in %s said: %s" % (nick_seg, chan, msg)
+                print "%s said to %s: %s" % (nick_seg, chan, msg)
         elif msg == CollabMessages.START_SHARE:
             # request from a potential host to start a session
             self.tgt_nick = nick_seg
@@ -208,7 +208,7 @@ class CollabSessionCommand(sublime_plugin.WindowCommand):
                     "host": "irc.pearsoncmg.com",
                     "port": 6667,
                     "pwd": "my9pv",
-                    "nick": "sub_nick"
+                    "nick": "sub_rippa"
                 }
             })
         irc_host = collab_config['irc']['host']
