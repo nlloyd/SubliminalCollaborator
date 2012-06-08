@@ -124,11 +124,12 @@ class CollabMsgHandler(DefaultCommandHandler):
         self.chunk_lock.release()
         # print chunk_str
         if len(chunk_str) > 0:
-            helpers.msg(self.client, self.tgt_nick, bytes(chunk_str, 'ascii'))
+            self.client.send("PRIVMSG", self.tgt_nick, ":%s" % chunk_str)
+            # helpers.msg(self.client, self.tgt_nick, bytes(chunk_str, 'ascii'))
 
     def post_share_cleanup(self):
+        # self.session_view.set_read_only(False)
         self.session_view.erase_regions('share_all_bacon')
-        self.session_view.set_read_only(False)
         helpers.msg(self.client, self.tgt_nick, CollabMessages.END_SHARE_PUBLISH)
 
     def share_entire_view(self):
@@ -153,7 +154,7 @@ class CollabMsgHandler(DefaultCommandHandler):
             sublime.set_timeout(lambda: self.share_next_chunk(), 150)
         self.chunk_lock.release()
         print 'done sharing, cleaning up'
-        sublime.set_timeout(lambda: self.post_share_cleanup(), 100)
+        sublime.set_timeout(lambda: self.post_share_cleanup(), 200)
 
     def publish_partner_chunk(self):
         self.in_queue_lock.acquire()
