@@ -85,7 +85,7 @@ class CollabMsgHandler(DefaultCommandHandler):
                     self.in_queue_lock.release()
                     sublime.set_timeout(lambda: self.publish_partner_chunk(), 100)
                 ## PARTNER behavior
-                print "%s in %s said: %s" % (nick_seg, chan, msg)
+                print "%s said to %s: %s" % (nick_seg, chan, msg)
         elif msg == CollabMessages.START_SHARE:
             # request from a potential host to start a session
             self.tgt_nick = nick_seg
