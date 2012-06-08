@@ -24,6 +24,7 @@ import threading
 import logging
 import time
 import re
+from base64 import b64encode, b64decode
 from oyoyo import helpers
 from oyoyo.client import IRCClient 
 from oyoyo.cmdhandler import DefaultCommandHandler
@@ -78,11 +79,11 @@ class CollabMsgHandler(DefaultCommandHandler):
                 if msg == CollabMessages.END_SHARE_PUBLISH:
                     self.am_recving_buffer = False
                 if self.am_recving_buffer:
+                    print 'recvd msg of len %d' % len(msg)
                     self.in_queue_lock.acquire()
                     self.in_queue.insert(0, msg)
                     self.in_queue_lock.release()
                     sublime.set_timeout(lambda: self.publish_partner_chunk(), 100)
-                    print len(msg)
                 ## PARTNER behavior
                 print "%s in %s said: %s" % (nick_seg, chan, msg)
         elif msg == CollabMessages.START_SHARE:
@@ -124,7 +125,12 @@ class CollabMsgHandler(DefaultCommandHandler):
         self.chunk_lock.release()
         # print chunk_str
         if len(chunk_str) > 0:
-            self.client.send("PRIVMSG", self.tgt_nick, ":%s" % chunk_str)
+            b64_chunk = b64encode(chunk_str)
+            if len(b64_chunk) > self.max_buf_size:
+                self.client.send("PRIVMSG", self.tgt_nick, ":%s" % b64_chunk[:self.max_buf_size])
+                self.client.send("PRIVMSG", self.tgt_nick, ":%s" % b64_chunk[self.max_buf_size:])
+            else:
+                self.client.send("PRIVMSG", self.tgt_nick, ":%s" % b64_chunk)
             # helpers.msg(self.client, self.tgt_nick, bytes(chunk_str, 'ascii'))
 
     def post_share_cleanup(self):
@@ -158,10 +164,12 @@ class CollabMsgHandler(DefaultCommandHandler):
 
     def publish_partner_chunk(self):
         self.in_queue_lock.acquire()
-        chunk_str = self.in_queue.pop(-1)
+        print 'chunks to publish: %d' % len(self.in_queue)
+        while len(self.in_queue) > 0:
+            chunk_str = self.in_queue.pop(-1)
         self.in_queue_lock.release()
         share_edit = self.session_view.begin_edit()
-        self.session_view.insert(share_edit, self.session_view.size(), chunk_str)
+        self.session_view.insert(share_edit, self.session_view.size(), b64decode(chunk_str))
         self.session_view.end_edit(share_edit)
 
 
