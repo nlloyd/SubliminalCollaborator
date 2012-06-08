@@ -248,15 +248,20 @@ class CollabSessionCommand(sublime_plugin.WindowCommand):
         self.irc_thread.start()
 
     def run(self, init_irc, send_select=False):
-        if send_select:
-            # print 'session view'
-            # print self.session_view
+        print "Blah blah"
+        print send_select
+        if send_select and self.irc_client:
+            if not self.session_view:
+                self.session_view = self.irc_client.command_handler.session_view
+            print 'session view'
+            print self.session_view
             # print 'active view'
             # print self.window.active_view()
             if self.session_view:
                 for region in self.session_view.sel():
                     print '%d - %d' % (region.begin(), region.end())
-                    if self.irc_client and self.irc_client.command_handler.tgt_nick:
+                    if self.irc_client.command_handler.tgt_nick:
+                        print "got to here"
                         helpers.msg(self.irc_client, self.irc_client.command_handler.tgt_nick, 'SELECTION[%d,%d]' % (region.begin(), region.end()))
             # else:
             #     print 'not in active view!'
