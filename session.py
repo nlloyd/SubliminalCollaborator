@@ -70,13 +70,18 @@ class CollabMsgHandler(DefaultCommandHandler):
         if self.tgt_nick and nick_seg == self.tgt_nick:
             if self.session_role == Role.HOST:
                 ## HOST behavior
-                print 'imahost'
+                # print 'imahost'
                 buffer_match = share_view_reply_pattern.match(msg)
+                cmd_match = view_sel_cmd_pattern.match(msg)
                 if buffer_match:
                     print 'sharing buffer'
                     # bad hack for base64 encoding/decoding support
                     self.max_buf_size = int(float(buffer_match.group(1))/2)
                     self.share_entire_view()
+                elif cmd_match:
+                    self.session_selection = None
+                    self.session_selection = sublime.Region(int(cmd_match.group(1)), int(cmd_match.group(2)))
+                    sublime.set_timeout(lambda: self.show_shared_selection(), 100)
                 ## more msg handling here ##
             else:
                 cmd_match = view_sel_cmd_pattern.match(msg)
@@ -113,7 +118,7 @@ class CollabMsgHandler(DefaultCommandHandler):
         self.session_view.erase_regions('collab_shared_selection')
         # now show the new one, scroll the view to it
         self.session_view.add_regions('collab_shared_selection', [self.session_selection], 
-                                      'comment', '', sublime.DRAW_OUTLINED)
+                                      'string', '')
         self.session_view.show_at_center(self.session_selection)
 
     def partner_accept_session_dialog(self):
@@ -138,6 +143,7 @@ class CollabMsgHandler(DefaultCommandHandler):
         self.session_view.erase_regions('share_all_bacon')
         self.session_view.show_at_center(self.chunk)
         self.session_view.add_regions('share_all_bacon', [self.chunk], 'comment', '', sublime.DRAW_OUTLINED)
+        # self.session_view.add_regions('share_all_bacon', [self.chunk], 'string', '')
         chunk_str = self.session_view.substr(self.chunk)
         self.chunk_lock.release()
         # print chunk_str
