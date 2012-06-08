@@ -144,8 +144,8 @@ class CollabMsgHandler(DefaultCommandHandler):
         self.chunk_lock.release()
         while self.chunk.end() <= self.view_size:
             print 'region: %d -> %d of buf size %d' % (self.chunk.begin(), self.chunk.end(), self.view_size)
-            sublime.set_timeout(lambda: self.share_next_chunk(), 400)
-            time.sleep(.5)
+            sublime.set_timeout(lambda: self.share_next_chunk(), 200)
+            time.sleep(1)
             self.chunk_lock.acquire()
             self.chunk = sublime.Region(self.chunk.end(), self.chunk.end() + self.max_buf_size)
             self.chunk_lock.release()
@@ -153,7 +153,7 @@ class CollabMsgHandler(DefaultCommandHandler):
         self.chunk_lock.acquire()
         if self.chunk.end() > self.view_size and self.chunk.begin() < self.view_size:
             self.chunk = sublime.Region(self.chunk.begin(), self.view_size)
-            sublime.set_timeout(lambda: self.share_next_chunk(), 400)
+            sublime.set_timeout(lambda: self.share_next_chunk(), 200)
         self.chunk_lock.release()
         print 'done sharing, cleaning up'
         sublime.set_timeout(lambda: self.post_share_cleanup(), 200)
