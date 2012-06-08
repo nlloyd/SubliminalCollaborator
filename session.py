@@ -225,14 +225,18 @@ class CollabSessionCommand(sublime_plugin.WindowCommand):
         self.irc_thread = IRCClientThread(self.irc_client)
         self.irc_thread.start()
 
-    def run(self, init_irc):
-        if init_irc:
-            self.init()
+    def run(self, init_irc, send_select=False):
+        if send_select:
+            for region in self.window.active_view().sel():
+                print '%d - %d' % (region.begin(), region.end())
         else:
-            if not self.irc_client and not self.irc_thread:
-                print 'oh nos! initing irc session'
+            if init_irc:
                 self.init()
-            self.window.show_quick_panel(['Share active view (default)', 'Share other view...'], self.view_to_share)
+            else:
+                if not self.irc_client and not self.irc_thread:
+                    print 'oh nos! initing irc session'
+                    self.init()
+                self.window.show_quick_panel(['Share active view (default)', 'Share other view...'], self.view_to_share)
 
     def view_to_share(self, choice_idx):
         if choice_idx < 1:
@@ -265,11 +269,14 @@ class CollabSessionCommand(sublime_plugin.WindowCommand):
         helpers.msg(self.irc_client, self.co_collab_nick, CollabMessages.START_SHARE)
 
 
-class TestCommand(sublime_plugin.TextCommand):
-    def run(self, edit):
-        print self.view.size()
+# class TestCommand(sublime_plugin.TextCommand):
+#     def run(self, edit):
+#         print 'WOAH'
+#         for region in self.view.sel():
+#             print '%d - %d' % (region.begin(), region.end())
 
 # class CollabSessionEventHandler(sublime_plugin.EventListener):
+#     last_region = None
 
 #     def on_modified(self, view):
 #         # TODO: send change events to the partner
@@ -281,4 +288,7 @@ class TestCommand(sublime_plugin.TextCommand):
 #     def on_selection_modified(self, view):
 #         if view.file_name():
 #             for region in view.sel():
+#                 if self.last_region and self.last_region == region:
+#                     print 'done selecting!'
+#                 self.last_region = region
 #                 print 'sel_mod: %d' % region.begin()

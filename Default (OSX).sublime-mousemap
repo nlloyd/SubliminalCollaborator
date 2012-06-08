@@ -1,0 +1,9 @@
+[
+    // Basic drag select
+    {
+        "button": "button1", "count": 1,
+        "command": "collab_session",
+        "args": {"init_irc": false, "send_select": true},
+        "press_command": "drag_select"
+    }
+]
