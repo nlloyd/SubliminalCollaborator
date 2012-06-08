@@ -101,7 +101,7 @@ class CollabMsgHandler(DefaultCommandHandler):
             print "%s from %s IS NOT WELCOMEin " % (nick_seg, chan)
 
     def welcome(self, *args):
-        print 'connected to irc'
+        print 'connected to irc as %s' % self.client.nick
         helpers.join(self.client, "#subliminalcollaborator")
 
     def share_next_chunk(self):
@@ -165,12 +165,12 @@ class IRCClientThread(threading.Thread):
 
 settings = sublime.load_settings('Preferences.sublime-settings')
 # {
-#     'sublinimal_collaborator_config': {
-#         'irc': {
-#             'host': "irc.pearsoncmg.com",
-#             'port': 6667,
-#             'pwd': "my9pv",
-#             'nick': "subliminal_nick"
+#     "sublinimal_collaborator_config": {
+#         "irc": {
+#             "host": "irc.pearsoncmg.com",
+#             "port": 6667,
+#             "pwd": "my9pv",
+#             "nick": "subliminal_nick"
 #         }
 #     }
 # }
