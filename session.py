@@ -45,6 +45,7 @@ class CollabMsgHandler(DefaultCommandHandler):
     tgt_nick = None
     session_view = None
     session_role = None
+    session_role_dialog_lock = threading.Lock()
     max_buf_size = 0
     recving_buffer = False
     in_queue = []
@@ -86,23 +87,33 @@ class CollabMsgHandler(DefaultCommandHandler):
                 print "%s in %s said: %s" % (nick_seg, chan, msg)
         elif msg == CollabMessages.START_SHARE:
             # request from a potential host to start a session
-            if sublime.ok_cancel_dialog('%s wants to share a file with you...' % nick_seg):
-                self.tgt_nick = nick_seg
-                self.session_role = Role.PARTNER
+            self.tgt_nick = nick_seg
+            sublime.set_timeout(lambda: self.partner_accept_session_dialog(), 0)
+            self.session_role_dialog_lock.acquire()
+            if self.session_role:
                 self.recving_buffer = True
                 helpers.msg(self.client, nick_seg, CollabMessages.START_SHARE_ACK_FMT % (498 - (len(nick) + len(chan))))
                 sublime.set_timeout(lambda: self.open_new_partner_view(), 100)
                 print 'I WANT BACON'
-            else:
-                # helpers.msg(self.client, nick_seg, 'NOTHANKS.IMGOOD')
-                self.session_view = None
-                self.session_role = None
+            self.session_role_dialog_lock.release()
         else:
             print "%s from %s IS NOT WELCOMEin " % (nick_seg, chan)
 
     def welcome(self, *args):
         print 'connected to irc as %s' % self.client.nick
         helpers.join(self.client, "#subliminalcollaborator")
+
+    def partner_accept_session_dialog(self):
+        self.session_role_dialog_lock.acquire()
+        sublime.active_window().show_quick_panel(['Collaborate with %s' % self.tgt_nick, 'No thanks!'], 
+                                                 self.partner_accept_session_ondone)
+
+    def partner_accept_session_ondone(self, response_idx):
+        if response_idx == 0:
+            self.session_role = Role.PARTNER
+        else:
+            self.session_role = None
+        self.session_role_dialog_lock.release()
 
     def share_next_chunk(self):
         self.session_view.erase_regions('share_all_bacon')
