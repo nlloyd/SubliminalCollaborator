@@ -15,7 +15,7 @@
 #   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 #   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 #   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-#   AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+#   AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHE`R
 #   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #   THE SOFTWARE.
@@ -27,8 +27,6 @@ import re
 from oyoyo import helpers
 from oyoyo.client import IRCClient 
 from oyoyo.cmdhandler import DefaultCommandHandler
-
-logging.basicConfig(level=logging.ERROR)
 
 share_view_reply_pattern = re.compile('^!!OMGYES!!([0-9]+)!!$')
 
@@ -45,7 +43,6 @@ class CollabMsgHandler(DefaultCommandHandler):
     tgt_nick = None
     session_view = None
     session_role = None
-    session_role_dialog_lock = threading.Lock()
     max_buf_size = 0
     recving_buffer = False
     in_queue = []
@@ -88,14 +85,9 @@ class CollabMsgHandler(DefaultCommandHandler):
         elif msg == CollabMessages.START_SHARE:
             # request from a potential host to start a session
             self.tgt_nick = nick_seg
+            print 'show start session dialog'
+            self.max_buf_size = 498 - (len(nick) + len(chan))
             sublime.set_timeout(lambda: self.partner_accept_session_dialog(), 0)
-            self.session_role_dialog_lock.acquire()
-            if self.session_role:
-                self.recving_buffer = True
-                helpers.msg(self.client, nick_seg, CollabMessages.START_SHARE_ACK_FMT % (498 - (len(nick) + len(chan))))
-                sublime.set_timeout(lambda: self.open_new_partner_view(), 100)
-                print 'I WANT BACON'
-            self.session_role_dialog_lock.release()
         else:
             print "%s from %s IS NOT WELCOMEin " % (nick_seg, chan)
 
@@ -104,16 +96,21 @@ class CollabMsgHandler(DefaultCommandHandler):
         helpers.join(self.client, "#subliminalcollaborator")
 
     def partner_accept_session_dialog(self):
-        self.session_role_dialog_lock.acquire()
         sublime.active_window().show_quick_panel(['Collaborate with %s' % self.tgt_nick, 'No thanks!'], 
                                                  self.partner_accept_session_ondone)
 
     def partner_accept_session_ondone(self, response_idx):
         if response_idx == 0:
             self.session_role = Role.PARTNER
+            self.recving_buffer = True
+            helpers.msg(self.client, self.tgt_nick, CollabMessages.START_SHARE_ACK_FMT % self.max_buf_size)
+            print 'IWANTBACON'
+            self.session_view = sublime.active_window().new_file()
+            self.session_view.set_scratch(True)
+            # self.session_view.set_read_only(True) <-- may need a cleanup function if we do this
         else:
             self.session_role = None
-        self.session_role_dialog_lock.release()
+            self.tgt_nick = None
 
     def share_next_chunk(self):
         self.session_view.erase_regions('share_all_bacon')
@@ -148,11 +145,6 @@ class CollabMsgHandler(DefaultCommandHandler):
         print 'done sharing, cleaning up'
         sublime.set_timeout(lambda: self.post_share_cleanup(), 100)
 
-    def open_new_partner_view(self):
-        self.session_view = sublime.active_window().new_file()
-        self.session_view.set_scratch(True)
-        # self.session_view.set_read_only(True) <-- may need a cleanup function if we do this
-
     def publish_partner_chunk(self):
         self.in_queue_lock.acquire()
         chunk_str = self.in_queue.pop(-1)
@@ -184,18 +176,6 @@ class IRCClientThread(threading.Thread):
 #         }
 #     }
 # }
-collab_config = sublime.active_window().active_view().settings().get('subliminal_collaborator_config', {
-        "irc": {
-            "host": "irc.pearsoncmg.com",
-            "port": 6667,
-            "pwd": "my9pv",
-            "nick": "sub_nick"
-        }
-    })
-irc_host = collab_config['irc']['host']
-irc_port = collab_config['irc']['port']
-irc_pwd = collab_config['irc']['pwd']
-irc_nick = collab_config['irc']['nick']
 
 class CollabSessionCommand(sublime_plugin.WindowCommand):
     irc_client = None
@@ -211,6 +191,19 @@ class CollabSessionCommand(sublime_plugin.WindowCommand):
             self.irc_thread.join(10)
             self.irc_client = None
             self.irc_thread = None
+
+        collab_config = self.window.active_view().settings().get('subliminal_collaborator_config', {
+                "irc": {
+                    "host": "irc.pearsoncmg.com",
+                    "port": 6667,
+                    "pwd": "my9pv",
+                    "nick": "sub_nick"
+                }
+            })
+        irc_host = collab_config['irc']['host']
+        irc_port = collab_config['irc']['port']
+        irc_pwd = collab_config['irc']['pwd']
+        irc_nick = collab_config['irc']['nick']
         self.irc_client = IRCClient(CollabMsgHandler, host=irc_host, port=irc_port, nick=irc_nick,
                                 passwd=irc_pwd, blocking=True)
         self.irc_thread = IRCClientThread(self.irc_client)
