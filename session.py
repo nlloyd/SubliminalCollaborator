@@ -86,12 +86,16 @@ class CollabMsgHandler(DefaultCommandHandler):
                 ## more msg handling here ##
             else:
                 cmd_match = view_sel_cmd_pattern.match(msg)
+                syntax_match = view_set_syntax_pattern.match(msg)
                 if msg == CollabMessages.END_SHARE_PUBLISH:
                     self.am_recving_buffer = False
                 elif cmd_match:
                     self.session_selection = None
                     self.session_selection = sublime.Region(int(cmd_match.group(1)), int(cmd_match.group(2)))
                     sublime.set_timeout(lambda: self.show_shared_selection(), 100)
+                elif syntax_match:
+                    self.session_syntax = syntax_match.group(1)
+                    sublime.set_timeout(lambda: self.set_syntax(), 100)
                 elif self.am_recving_buffer:
                     print 'recvd msg of len %d' % len(msg)
                     self.in_queue_lock.acquire()
@@ -99,7 +103,7 @@ class CollabMsgHandler(DefaultCommandHandler):
                     self.in_queue_lock.release()
                     sublime.set_timeout(lambda: self.publish_partner_chunk(), 100)
                 ## PARTNER behavior
-                print "%s said to %s: %s" % (nick_seg, chan, msg)
+                # print "%s said to %s: %s" % (nick_seg, chan, msg)
         elif msg == CollabMessages.START_SHARE:
             # request from a potential host to start a session
             self.tgt_nick = nick_seg
@@ -112,6 +116,10 @@ class CollabMsgHandler(DefaultCommandHandler):
     def welcome(self, *args):
         print 'connected to irc as %s' % self.client.nick
         helpers.join(self.client, "#subliminalcollaborator")
+
+    def set_syntax(self):
+        print self.session_syntax
+        self.session_view.settings().set('syntax', self.session_syntax)
 
     def show_shared_selection(self):
         print 'do i get here???'
@@ -156,6 +164,8 @@ class CollabMsgHandler(DefaultCommandHandler):
         # self.session_view.set_read_only(False)
         self.session_view.erase_regions('share_all_bacon')
         helpers.msg(self.client, self.tgt_nick, CollabMessages.END_SHARE_PUBLISH)
+        syntax = self.session_view.settings().get('syntax')
+        helpers.msg(self.client, self.tgt_nick, 'SYNTAX %s' % syntax)
 
     def share_entire_view(self):
         chunk_min_pt = 0
