@@ -44,7 +44,7 @@ class CollabMsgHandler(DefaultCommandHandler):
     session_view = None
     session_role = None
     max_buf_size = 0
-    recving_buffer = False
+    am_recving_buffer = False
     in_queue = []
     in_queue_lock = threading.Lock()
     out_queue = []
@@ -76,8 +76,8 @@ class CollabMsgHandler(DefaultCommandHandler):
                 ## more msg handling here ##
             else:
                 if msg == CollabMessages.END_SHARE_PUBLISH:
-                    recving_buffer = False
-                if recving_buffer:
+                    self.am_recving_buffer = False
+                if self.am_recving_buffer:
                     self.in_queue_lock.acquire()
                     self.in_queue.insert(0, msg)
                     self.in_queue_lock.release()
@@ -105,7 +105,7 @@ class CollabMsgHandler(DefaultCommandHandler):
     def partner_accept_session_ondone(self, response_idx):
         if response_idx == 0:
             self.session_role = Role.PARTNER
-            self.recving_buffer = True
+            self.am_recving_buffer = True
             helpers.msg(self.client, self.tgt_nick, CollabMessages.START_SHARE_ACK_FMT % self.max_buf_size)
             print 'IWANTBACON'
             self.session_view = sublime.active_window().new_file()
@@ -202,7 +202,7 @@ class CollabSessionCommand(sublime_plugin.WindowCommand):
             self.irc_client = None
             self.irc_thread = None
 
-        collab_config = self.window.active_view().settings().get('subliminal_collaborator_config', {
+        collab_config = self.window.active_view().settings().get("subliminal_collaborator_config", {
                 "irc": {
                     "host": "irc.pearsoncmg.com",
                     "port": 6667,
@@ -231,7 +231,7 @@ class CollabSessionCommand(sublime_plugin.WindowCommand):
     def view_to_share(self, choice_idx):
         if choice_idx < 1:
             self.session_view = self.window.active_view()
-            self.window.show_input_panel('Share with (IRC nick):', 'sub_nick_mac', self.with_whom, None, None)
+            self.window.show_input_panel('Share with (IRC nick):', 'sub_frank', self.with_whom, None, None)
         else:
             self.current_views = []
             self.current_view_names = []
@@ -256,7 +256,7 @@ class CollabSessionCommand(sublime_plugin.WindowCommand):
         self.irc_client.command_handler.session_view = self.session_view
         self.irc_client.command_handler.view_size = self.session_view.size()
         self.irc_client.command_handler.session_role = Role.HOST
-        helpers.msg(self.irc_client, self.co_collab_nick, '!want.bacon?')
+        helpers.msg(self.irc_client, self.co_collab_nick, CollabMessages.START_SHARE)
 
 
 class TestCommand(sublime_plugin.TextCommand):
