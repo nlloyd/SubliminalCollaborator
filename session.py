@@ -260,9 +260,13 @@ class CollabSessionCommand(sublime_plugin.WindowCommand):
         self.irc_thread = IRCClientThread(self.irc_client)
         self.irc_thread.start()
 
-    def run(self, init_irc, send_select=False):
+    def run(self, init_irc, send_select=False, disco=False):
         # print self.irc_client
         # print self.irc_client.command_handler.session_view
+        if disco == True:
+            self.disconn()
+            return
+
         if send_select:
             if self.irc_client and self.irc_client.command_handler.session_view:
                 if not self.session_view:
@@ -317,6 +321,15 @@ class CollabSessionCommand(sublime_plugin.WindowCommand):
         self.irc_client.command_handler.view_size = self.session_view.size()
         self.irc_client.command_handler.session_role = Role.HOST
         helpers.msg(self.irc_client, self.co_collab_nick, CollabMessages.START_SHARE)
+
+    def disconn(self):
+            print 'Called disconn routine'
+            self.irc_thread.live = False
+            helpers.quit(self.irc_client)
+            self.irc_thread.join(10)
+            self.irc_client = None
+            self.irc_thread = None
+
 
 
 # class TestCommand(sublime_plugin.TextCommand):

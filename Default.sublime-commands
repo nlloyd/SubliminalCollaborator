@@ -8,5 +8,10 @@
         "caption": "Collaborator: Share...", 
         "command": "collab_session",
         "args" : {"init_irc": false}
+    },
+    {
+        "caption": "Collaborator: Disco...", 
+        "command": "collab_session",
+        "args" : {"init_irc": false, "disco" : true }
     }
 ]
