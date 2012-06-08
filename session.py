@@ -31,6 +31,7 @@ from oyoyo.cmdhandler import DefaultCommandHandler
 
 share_view_reply_pattern = re.compile('^!!OMGYES!!([0-9]+)!!$')
 view_sel_cmd_pattern = re.compile('^SELECTION\[([0-9]+),([0-9]+)\]$')
+view_set_syntax_pattern = re.compile('^SYNTAX (.*)$')
 
 class Role:
     HOST = 1
@@ -40,7 +41,7 @@ class CollabMessages:
     START_SHARE = '!want.bacon?'
     START_SHARE_ACK_FMT = '!!OMGYES!!%d!!'
     END_SHARE_PUBLISH = '!you.haz.teh.bacons!'
-        
+
 class CollabMsgHandler(DefaultCommandHandler):
     tgt_nick = None
     session_view = None
@@ -250,28 +251,31 @@ class CollabSessionCommand(sublime_plugin.WindowCommand):
     def run(self, init_irc, send_select=False):
         print "Blah blah"
         print send_select
-        if send_select and self.irc_client:
-            if not self.session_view:
-                self.session_view = self.irc_client.command_handler.session_view
-            print 'session view'
-            print self.session_view
-            # print 'active view'
-            # print self.window.active_view()
-            if self.session_view:
-                for region in self.session_view.sel():
-                    print '%d - %d' % (region.begin(), region.end())
-                    if self.irc_client.command_handler.tgt_nick:
-                        print "got to here"
-                        helpers.msg(self.irc_client, self.irc_client.command_handler.tgt_nick, 'SELECTION[%d,%d]' % (region.begin(), region.end()))
-            # else:
-            #     print 'not in active view!'
+        # print self.irc_client
+        # print self.irc_client.command_handler.session_view
+        if send_select:
+            if self.irc_client and self.irc_client.command_handler.session_view:
+                if not self.session_view:
+                    self.session_view = self.irc_client.command_handler.session_view
+                print 'session view'
+                print self.session_view
+                # print 'active view'
+                # print self.window.active_view()
+                if self.session_view:
+                    for region in self.session_view.sel():
+                        print '%d - %d' % (region.begin(), region.end())
+                        if self.irc_client.command_handler.tgt_nick:
+                            print "got to here"
+                            helpers.msg(self.irc_client, self.irc_client.command_handler.tgt_nick, 'SELECTION[%d,%d]' % (region.begin(), region.end()))
+                # else:
+                #     print 'not in active view!'
         else:
             if init_irc:
                 self.init()
             else:
-                if not self.irc_client and not self.irc_thread:
-                    print 'oh nos! initing irc session'
-                    self.init()
+                # if not self.irc_client and not self.irc_thread:
+                #     print 'oh nos! initing irc session'
+                #     self.init()
                 self.window.show_quick_panel(['Share active view (default)', 'Share other view...'], self.view_to_share)
 
     def view_to_share(self, choice_idx):
