@@ -23,37 +23,103 @@ import sublime, sublime_plugin
 import threading
 import logging
 import time
+import re
 from oyoyo import helpers
 from oyoyo.client import IRCClient 
 from oyoyo.cmdhandler import DefaultCommandHandler
+
+logging.basicConfig(level=logging.DEBUG)
+
+max_buffer_pattern = re.compile('^!!OMGYES!!([0-9]+)!!$')
+
+class Role:
+    HOST = 1
+    PARTNER = 2
         
 class CollabMsgHandler(DefaultCommandHandler):
     tgt_nick = None
+    session_view = None
+    session_role = None
+    max_buf_size = 0
 
     def privmsg(self, nick, chan, msg):
         print 'msg from: %s' % nick
-        print len(nick)
-        print len(chan)
-        print len(msg)
+        print msg
+        # print len(nick)
+        # print len(chan)
+        # print len(msg)
        # print 'only listening to: %s' % tgt_nick
         
         nick_seg = None
 
         if nick:
-            
             nick_seg = nick.split('!',1)[0]
 
         if self.tgt_nick and nick_seg == self.tgt_nick:
-            print "%s in %s said: %s" % (nick_seg, chan, msg)
+            if self.session_role == Role.HOST:
+                buffer_match = max_buffer_pattern.match(msg)
+                if buffer_match:
+                    self.max_buf_size = int(buffer_match.group(1))
+                    self.share_entire_view()
+                    # r = sublime.Region(400, 600)
+                    # s = self.session_view.substr(r)
+                    # self.session_view.show_at_center(r)
+                    # self.session_view.add_regions('junk', [r], 'comment', '', sublime.DRAW_OUTLINED)
+                    # sublime.set_timeout(lambda: self.share_entire_view(), 1000)
+            # if msg is !!OMGYES!!#!! then we start chunking out the view... commandhandler needs to know about the view!
+            else:
+                print "%s in %s said: %s" % (nick_seg, chan, msg)
         elif msg == '!want.bacon?':
-            helpers.msg(self.client, nick_seg, '!!OMGYES!!')
-            print 'I WANT BACON'
+            # if YES... need to prompt user for a choice... sublime dialog window i suppose
+            if sublime.ok_cancel_dialog('%s wants to share a file with you...' % nick_seg):
+                self.tgt_nick = nick_seg
+                self.session_role = Role.PARTNER
+                helpers.msg(self.client, nick_seg, '!!OMGYES!!%d!!' % (498 - (len(nick) + len(chan))))
+                print 'I WANT BACON'
+            else:
+                # helpers.msg(self.client, nick_seg, 'NOTHANKS.IMGOOD')
+                self.session_view = None
+                self.session_role = None
         else:
             print "%s from %s IS NOT WELCOMEin " % (nick_seg, chan)
 
     def welcome(self, *args):
-        print 'connected to irc!'
+        print 'connected to irc'
         helpers.join(self.client, "#subliminalcollaborator")
+
+    def share_next_chunk(self):
+        self.session_view.erase_regions('share_all_bacon')
+        self.session_view.show_at_center(self.chunk)
+        self.session_view.add_regions('share_all_bacon', [self.chunk], 'comment', '', sublime.DRAW_OUTLINED)
+        chunk_str = self.session_view.substr(self.chunk)
+        print chunk_str
+        if len(chunk_str) > 0:
+            helpers.msg(self.client, self.tgt_nick, chunk_str)
+
+    def post_share_cleanup(self):
+        self.session_view.erase_regions('share_all_bacon')
+        # self.session_view.set_read_only(False)
+        helpers.msg(self.client, self.tgt_nick, '!you.haz.teh.bacons!')
+
+    def share_entire_view(self):
+        # self.session_view.set_read_only(True)
+        chunk_min_pt = 0
+        chunk_max_pt = self.max_buf_size
+        self.chunk = sublime.Region(chunk_min_pt, self.max_buf_size)
+        if self.max_buf_size > chunk_max_pt:
+            self.chunk = sublime.Region(self.chunk.begin(), chunk_max_pt)
+        while self.chunk.begin() <= self.view_size:
+            sublime.set_timeout(lambda: self.share_next_chunk(), 150)
+            time.sleep(.1)
+            # helpers.msg(self.client, self.tgt_nick, chunk_str)
+            self.chunk = sublime.Region(self.chunk.end(), self.chunk.end() + self.max_buf_size)
+            if self.chunk.end() > self.view_size:
+                self.chunk = sublime.Region(self.chunk.begin(), self.view_size)
+        sublime.set_timeout(lambda: self.post_share_cleanup(), 100)
+        # self.session_view.erase_regions('share_all_bacon')
+        # self.session_view.set_read_only(False)
+        # helpers.msg(self.client, self.tgt_nick, '!you.haz.teh.bacons!')
+
 
 class IRCClientThread(threading.Thread): 
     def __init__(self, irc_client):
@@ -62,10 +128,10 @@ class IRCClientThread(threading.Thread):
         threading.Thread.__init__(self)
 
     def run(self):
-        logging.basicConfig(level=logging.DEBUG)
         conn = self.client.connect()
         while self.live:
             conn.next()
+        print 'disconnected from irc'
 
 settings = sublime.load_settings('Preferences.sublime-settings')
 # {
@@ -78,7 +144,18 @@ settings = sublime.load_settings('Preferences.sublime-settings')
 #         }
 #     }
 # }
-collab_config = settings.get('subliminal_collaborator_config', None)
+collab_config = settings.get('subliminal_collaborator_config', {
+        "irc": {
+            "host": "irc.pearsoncmg.com",
+            "port": 6667,
+            "pwd": "my9pv",
+            "nick": "sub_nick"
+        }
+    })
+irc_host = collab_config['irc']['host']
+irc_port = collab_config['irc']['port']
+irc_pwd = collab_config['irc']['pwd']
+irc_nick = collab_config['irc']['nick']
 
 class CollabSessionCommand(sublime_plugin.WindowCommand):
     irc_client = None
@@ -87,17 +164,15 @@ class CollabSessionCommand(sublime_plugin.WindowCommand):
     co_collab_nick = None
 
     def init(self):
-        print self.irc_client
-        print self.irc_thread
         if self.irc_client and self.irc_thread:
+            print 'disconnecting'
             self.irc_thread.live = False
             helpers.quit(self.irc_client)
             self.irc_thread.join(10)
             self.irc_client = None
             self.irc_thread = None
-            # print 'cleaned up connection'
-        self.irc_client = IRCClient(CollabMsgHandler, host="irc.pearsoncmg.com", port=6667, nick="subliminal_nick",
-                                passwd='my9pv', blocking=True)
+        self.irc_client = IRCClient(CollabMsgHandler, host=irc_host, port=irc_port, nick=irc_nick,
+                                passwd=irc_pwd, blocking=True)
         self.irc_thread = IRCClientThread(self.irc_client)
         self.irc_thread.start()
 
@@ -113,7 +188,7 @@ class CollabSessionCommand(sublime_plugin.WindowCommand):
     def view_to_share(self, choice_idx):
         if choice_idx < 1:
             self.session_view = self.window.active_view()
-            self.window.show_input_panel('Share with (IRC nick):', '', self.with_whom, None, None)
+            self.window.show_input_panel('Share with (IRC nick):', 'nick', self.with_whom, None, None)
         else:
             self.current_views = []
             self.current_view_names = []
@@ -135,8 +210,15 @@ class CollabSessionCommand(sublime_plugin.WindowCommand):
 
     def start_session(self):
         print 'you chose to share %s, with %s' % (self.session_view.file_name(), self.irc_client.command_handler.tgt_nick)
+        self.irc_client.command_handler.session_view = self.session_view
+        self.irc_client.command_handler.view_size = self.session_view.size()
+        self.irc_client.command_handler.session_role = Role.HOST
         helpers.msg(self.irc_client, self.co_collab_nick, '!want.bacon?')
 
+
+class TestCommand(sublime_plugin.TextCommand):
+    def run(self, edit):
+        print self.view.size()
 
 # class CollabSessionEventHandler(sublime_plugin.EventListener):
 

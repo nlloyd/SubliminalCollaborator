@@ -1,5 +1,6 @@
 import sublime, sublime_plugin
 import threading
+import time
 import logging
 from oyoyo import helpers
 from oyoyo.client import IRCClient 
@@ -26,33 +27,35 @@ class MyHandler(DefaultCommandHandler):
         print 'we have been welcomed!'
         helpers.join(self.client, "#subliminalcollaborator")
 
-cli = IRCClient(MyHandler, host="irc.pearsoncmg.com", port=6667, nick="subliminal_nick",
+cli = IRCClient(MyHandler, host="irc.pearsoncmg.com", port=6667, nick="asdf",
          passwd='my9pv',
          blocking=True)
 
+really_big_msg = 'abcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcdeabcde'
+
+
 class IRCClientThread(threading.Thread): 
     def __init__(self, irc_client):
-        self.loop = True
         self.client = irc_client
+        self.live = True
         threading.Thread.__init__(self)
 
     def run(self):
-        logging.basicConfig(level=logging.ERROR)
+        logging.basicConfig(level=logging.DEBUG)
         conn = self.client.connect()
-        print conn
-        while self.loop:
-            next = conn.next()
-            print self.loop
+        while self.live:
+            conn.next()
 
 irc_thread = IRCClientThread(cli)
 
 def launch():
     irc_thread.start()
+    time.sleep(5)
+    helpers.msg(cli, 'subliminal_nick', really_big_msg)
 
 def kill():
     irc_thread.loop = False
     helpers.quit(cli)
-    irc_thread.join(10)
 
 class IrcSandboxCommand(sublime_plugin.TextCommand):
     def run(self, view):
