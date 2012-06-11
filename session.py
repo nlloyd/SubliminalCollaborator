@@ -28,7 +28,18 @@ from base64 import b64encode, b64decode
 from oyoyo import helpers
 from oyoyo.client import IRCClient 
 from oyoyo.cmdhandler import DefaultCommandHandler
+from twisted.internet import protocol, reactor
 
+class Echo(protocol.Protocol):
+    def dataReceived(self, data):
+        self.transport.write(data)
+
+class EchoFactory(protocol.Factory):
+    def buildProtocol(self, addr):
+        return Echo()
+
+# reactor.listenTCP(1234, EchoFactory())
+# reactor.run()
 share_view_reply_pattern = re.compile('^!!OMGYES!!([0-9]+)!!$')
 view_sel_cmd_pattern = re.compile('^SELECTION\[([0-9]+),([0-9]+)\]$')
 view_set_syntax_pattern = re.compile('^SYNTAX (.*)$')
@@ -259,8 +270,8 @@ class CollabSessionCommand(sublime_plugin.WindowCommand):
         self.irc_thread.start()
 
     def run(self, init_irc, send_select=False):
-        print "Blah blah"
-        print send_select
+        # print "Blah blah"
+        # print send_select
         # print self.irc_client
         # print self.irc_client.command_handler.session_view
         if send_select:
