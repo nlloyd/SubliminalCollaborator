@@ -1,7 +1,28 @@
 SubliminalCollaborator
 ======================
 
-Sublime Text 2 Plugin for remote pair programming
+Sublime Text 2 Plugin for remote pair programming.
+
+This project is still in its infancy, but the intent is to make this into a fully featured and capable 
+code collaboration tool with minimal setup and infrastructure to get up and going.
+
+The current feature plans:
+- quickly share a file with another user identified via IM system (irc and jabber currently targetted)
+- support for HOST and PARTNER roles
+- HOST role features
+    - show currently viewed region of document to PARTNER
+    - show highlighted regions of text to PARTNER
+    - send edit/delete events to PARTNER as they occur
+    - swap HOST-PARTNER role with other user
+- PARTNER role features
+    - show highlighted regions of text to HOST ('tell me more about this that you just edited')
+    - 'follow' and 'unfollow' toggle (whether you follow the HOST view or not)
+    - request HOST to swap roles
+
+
+Show your support by donating!
+
+<a href='http://www.pledgie.com/campaigns/17989'><img alt='Click here to lend your support to: SubliminalCollaborator and make a donation at www.pledgie.com !' src='http://www.pledgie.com/campaigns/17989.png?skin_name=chrome' border='0' /></a>
 
 
 ## License
