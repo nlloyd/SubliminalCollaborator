@@ -24,11 +24,23 @@ import threading
 import logging
 import time
 import re
+import sys, os, platform
+
+# need the windows select.pyd binary
+if os.name == 'nt':
+    __file__ = os.path.normpath(os.path.abspath(__file__))
+    __path__ = os.path.dirname(__file__)
+    libs_path = os.path.join(__path__, 'libs', platform.architecture()[0])
+    if libs_path not in sys.path:
+        sys.path.insert(0, libs_path)
+
 from base64 import b64encode, b64decode
 from oyoyo import helpers
 from oyoyo.parse import parse_nick 
 from oyoyo.client import IRCClient 
 from oyoyo.cmdhandler import DefaultCommandHandler
+# from twisted.internet import iocpreactor
+# iocpreactor.install()
 from twisted.internet import protocol, reactor
 
 class Echo(protocol.Protocol):
@@ -39,8 +51,8 @@ class EchoFactory(protocol.Factory):
     def buildProtocol(self, addr):
         return Echo()
 
-# reactor.listenTCP(1234, EchoFactory())
-# reactor.run()
+#reactor.listenTCP(1234, EchoFactory())
+#reactor.run()
 share_view_reply_pattern = re.compile('^!!OMGYES!!([0-9]+)!!$')
 view_sel_cmd_pattern = re.compile('^SELECTION\[([0-9]+),([0-9]+)\]$')
 view_set_syntax_pattern = re.compile('^SYNTAX (.*)$')
