@@ -19,30 +19,97 @@
 #   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #   THE SOFTWARE.
+from zope.interface import Interface, Attribute
 
-'''
-Peer class:
-An interface-style class with method stubs representing what a "Peer" implementation is expected to do 
-(think P2P, one endpoint of a communication).
-'''
-class Peer:
-    def connect(self, params = {}):
-        pass
+class Peer(Interface):
+    """
+    One side of a peer-to-peer collaboration connection.
+    This is a direct connection with another peer endpoint for sending
+    view data and events.
+    """
 
-    def disconnect(self):
-        pass
+    def hostConnect(port = None):
+        """
+        Initiate a peer-to-peer session as the host by listening on the
+        given port for a connection.
 
-    def open_session(self, view):
-        pass
+        @param port: C{int} port number to listen on, or None for any available
 
-    def close_session(self):
-        pass
+        @return: the connected port number on success, -1 on failure
+        """
 
-    def send_view_update(self, center_on_region):
-        pass
+    def clientConnect(host, port):
+        """
+        Initiate a peer-to-peer session as the partner by connecting to the
+        host peer with the given host and port.
 
-    def send_selection_update(self, selected_regions):
-        pass
+        @param host: ip address of the host Peer
+        @param port: C{int} port number of the host Peer
 
-    def send_edit(self, edit_type, position, content):
-        pass
+        @return: True on success
+        """
+
+    def disconnect():
+        """
+        Disconnect from the peer-to-peer session.
+        """
+
+    def onDisconnected():
+        """
+        Callback method if we are disconnected.
+        """
+
+    def startCollab(view):
+        """
+        Send the provided C{sublime.View} contents to the connected peer.
+        """
+
+    def onStartCollab():
+        """
+        Callback method informing the peer to recieve the contents of a view.
+        """
+
+    def stopCollab():
+        """
+        Notify the connected peer that we are terminating the collaborating session.
+        """
+
+    def onStopCollab():
+        """
+        Callback method informing the peer that we are terminating a collaborating session.
+        """
+
+    def sendViewPositionUpdate(centerOnRegion):
+        """
+        Send a window view position update to the peer so they know what
+        we are looking at.
+
+        @param centerOnRegion: C{sublime.Region} of the current visible portion of the view to send to the peer.
+        """
+
+    def recvViewPositionUpdate():
+        """
+        """
+
+    def sendSelectionUpdate(selectedRegions):
+        """
+        Send currently selected regions to the peer.
+
+        @param selectedRegions: C{sublime.RegionSet} of all selected regions in the current view.
+        """
+
+    def recvSelectionUpdate():
+        """
+        """
+
+    def sendEdit(editType, content):
+        """
+        Send an edit event to the peer.
+
+        @param editType: C{str} insert, edit, delete
+        @param content: C{str} contents of the edit (None if delete editType)
+        """
+
+    def recvEdit():
+        """
+        """
