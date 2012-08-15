@@ -19,7 +19,7 @@
 #   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #   THE SOFTWARE.
-from zope.interface import Interface, Attribute
+from zope.interface import Interface
 
 class Peer(Interface):
     """
@@ -87,8 +87,11 @@ class Peer(Interface):
         @param centerOnRegion: C{sublime.Region} of the current visible portion of the view to send to the peer.
         """
 
-    def recvViewPositionUpdate():
+    def recvViewPositionUpdate(centerOnRegion):
         """
+        Callback method for handling view position updates from the peer.
+
+        @param centerOnRegion: C{sublime.Region} of the region to set as the current visible portion of the view.
         """
 
     def sendSelectionUpdate(selectedRegions):
@@ -98,8 +101,11 @@ class Peer(Interface):
         @param selectedRegions: C{sublime.RegionSet} of all selected regions in the current view.
         """
 
-    def recvSelectionUpdate():
+    def recvSelectionUpdate(selectedRegions):
         """
+        Callback method for handling selected regions updates from the peer.
+
+        @param selectedRegions: C{sublime.RegionSet} of all selected regions to be set.
         """
 
     def sendEdit(editType, content):
@@ -110,6 +116,10 @@ class Peer(Interface):
         @param content: C{str} contents of the edit (None if delete editType)
         """
 
-    def recvEdit():
+    def recvEdit(editType, content\):
         """
+        Callback method for handling edit events from the peer.
+
+        @param editType: C{str} insert, edit, delete
+        @param content: C{str} contents of the edit (None if delete editType)
         """
