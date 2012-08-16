@@ -294,7 +294,7 @@ class ReactorThread(threading.Thread):
             print "starting the reactor on a thread!"
             reactor.run(installSignalHandlers=0)
 
-f = LogBotFactory("subliminalcollaboration", 'my9pv')
+f = LogBotFactory("subliminalcollaboration", 'abc')
 reactor_thread = ReactorThread()
 reactor_thread.start()
 
@@ -307,7 +307,7 @@ class CollabTestCommand(sublime_plugin.TextCommand):
         print self.irc_con
         if not self.irc_con:
             print 'starting irc client'
-            self.irc_con = reactor.connectTCP("irc.pearsoncmg.com", 6667, f)
+            self.irc_con = reactor.connectTCP("localhost", 6667, f)
         else:
             'stopping irc client'
             self.irc_con.disconnect()
