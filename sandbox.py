@@ -20,11 +20,14 @@
 #   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #   THE SOFTWARE.
 import sublime, sublime_plugin
-import threading
-import logging
-import time
-import re
-import sys, os, platform
+# import threading
+# import logging
+# import time
+# import re
+
+
+# system imports
+import time, sys, os, platform, threading
 
 # need the windows select.pyd binary
 if os.name == 'nt':
@@ -41,7 +44,7 @@ if os.name == 'nt':
 # from oyoyo.cmdhandler import DefaultCommandHandler
 # from twisted.internet import iocpreactor
 # iocpreactor.install()
-from twisted.internet import protocol, reactor
+# from twisted.internet import protocol, reactor
 
 
 
@@ -52,9 +55,9 @@ from twisted.words.protocols import irc
 from twisted.internet import reactor, protocol, threads
 from twisted.python import log
 
-# system imports
-import time, sys
 
+# system imports
+import time, sys, os, platform, threading
 
 class MessageLogger:
     """
@@ -183,23 +186,24 @@ class ReactorThread(threading.Thread):
         reactor.stop()
 
 
-# if __name__ == '__main__':
-#     # initialize logging
-#     log.startLogging(sys.stdout)
-    
-#     # create factory protocol and application
-#     f = LogBotFactory(sys.argv[1], sys.argv[2])
+f = LogBotFactory("subliminalcollaboration", None)
+reactor.connectTCP("irc.something.somewhere", 6667, f) 
 
-#     # connect factory to this host and port
-#     reactor.connectTCP("irc.pearsoncmg.com", 6667, f)
+class CollabTestCommand(sublime_plugin.TextCommand):
+    thread = None
 
-#     # run bot
-#     reactor.run()
-
-f = LogBotFactory("nickschannel", None)
-reactor.connectTCP("irc.freenode.net", 6667, f) 
-thread = ReactorThread()
-# thread.start()
+    def run(self, edit):
+        print 'run collab'
+        if not self.thread:
+            print 'starting reactor'
+            self.thread = ReactorThread()
+            self.thread.start()
+        else:
+            reactor.stop()
+            self.thread.join()
+            self.thread = None
+        # for region in self.view.sel():
+        #     print '%d - %d' % (region.begin(), region.end())
 
 
 
