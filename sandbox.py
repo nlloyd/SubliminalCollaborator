@@ -51,13 +51,14 @@ if os.name == 'nt':
 
 
 # twisted imports
+from twisted.python import threadpool
 from twisted.words.protocols import irc
 from twisted.internet import reactor, protocol, threads
 from twisted.python import log
 
 
 # system imports
-import time, sys, os, platform, threading
+import time, sys, os, platform
 
 class MessageLogger:
     """
@@ -83,6 +84,8 @@ class LogBot(irc.IRCClient):
     """A logging IRC bot."""
     
     nickname = "twistedbot"
+    versionName = "subliminal_sandbox"
+    versionEnv = "sublime text 2"
     
     def connectionMade(self):
         irc.IRCClient.connectionMade(self)
@@ -99,6 +102,98 @@ class LogBot(irc.IRCClient):
 
 
     # callbacks for events
+    def created(self, when):
+        """
+        Called with creation date information about the server, usually at logon.
+
+        @type when: C{str}
+        @param when: A string describing when the server was created, probably.
+        """
+        print '[created]: %s' % when
+
+    def yourHost(self, info):
+        """
+        Called with daemon information about the server, usually at logon.
+
+        @type info: C{str}
+        @param when: A string describing what software the server is running, probably.
+        """
+        print '[info]: %s' % info
+
+    def myInfo(self, servername, version, umodes, cmodes):
+        """
+        Called with information about the server, usually at logon.
+
+        @type servername: C{str}
+        @param servername: The hostname of this server.
+
+        @type version: C{str}
+        @param version: A description of what software this server runs.
+
+        @type umodes: C{str}
+        @param umodes: All the available user modes.
+
+        @type cmodes: C{str}
+        @param cmodes: All the available channel modes.
+        """
+        print '[myInfo]: %s %s %s %s' % (servername, version, umodes, cmodes)
+
+    def luserClient(self, info):
+        """
+        Called with information about the number of connections, usually at logon.
+
+        @type info: C{str}
+        @param info: A description of the number of clients and servers
+        connected to the network, probably.
+        """
+        print '[luserClient]: %s' % info
+
+    def bounce(self, info):
+        """
+        Called with information about where the client should reconnect.
+
+        @type info: C{str}
+        @param info: A plaintext description of the address that should be
+        connected to.
+        """
+        print '[bounce]: %s' % info
+
+    def isupport(self, options):
+        """
+        Called with various information about what the server supports.
+
+        @type options: C{list} of C{str}
+        @param options: Descriptions of features or limits of the server, possibly
+        in the form "NAME=VALUE".
+        """
+        print '[isupport]:'
+        print options  
+
+    def luserChannels(self, channels):
+        """
+        Called with the number of channels existant on the server.
+
+        @type channels: C{int}
+        """
+        print '[luserChannels]: %d' % channels
+
+    def luserOp(self, ops):
+        """
+        Called with the number of ops logged on to the server.
+
+        @type ops: C{int}
+        """
+        print '[luserOp]: %d' % ops
+
+    def luserMe(self, info):
+        """
+        Called with information about the server connected to.
+
+        @type info: C{str}
+        @param info: A plaintext string describing the number of users and servers
+        connected to this server.
+        """
+        print '[luserMe]: %s' % info
 
     def signedOn(self):
         """Called when bot has succesfully signed on to server."""
@@ -150,6 +245,18 @@ class LogBot(irc.IRCClient):
         """
         return nickname + '^'
 
+    def dccDoSend(self, user, address, port, fileName, size, data):
+        """Called when I receive a DCC SEND offer from a client.
+
+        By default, I do nothing here."""
+        ## filename = path.basename(arg)
+        ## protocol = DccFileReceive(filename, size,
+        ##                           (user,channel,data),self.dcc_destdir)
+        ## reactor.clientTCP(address, port, protocol)
+        ## self.dcc_sessions.append(protocol)
+        print 'user: %s, addres: %s:%d, fileName: %s, data: %s' % (user, address, port, fileName, data)
+        # print 'hostname: %s' % self.hostname
+
 
 
 class LogBotFactory(protocol.ClientFactory):
@@ -158,50 +265,53 @@ class LogBotFactory(protocol.ClientFactory):
     A new protocol instance will be created each time we connect to the server.
     """
 
-    def __init__(self, channel, filename):
+    def __init__(self, channel, password):
         self.channel = channel
-        self.filename = filename
+        self.password = password
 
     def buildProtocol(self, addr):
         p = LogBot()
         p.factory = self
+        p.password = self.password
         return p
 
     def clientConnectionLost(self, connector, reason):
-        """If we get disconnected, reconnect to server."""
-        connector.connect()
+        # """If we get disconnected, reconnect to server."""
+        # connector.connect()
+        print 'disconnecting'
 
     def clientConnectionFailed(self, connector, reason):
         print "connection failed:", reason
-        reactor.stop()
+        # reactor.stop()
 
+import threading
 class ReactorThread(threading.Thread):
     def __init__(self):
         threading.Thread.__init__(self)
 
     def run(self):
-        print "starting the reactor on a thread!"
-        reactor.run(installSignalHandlers=0)
-        time.sleep(60)
-        reactor.stop()
+        if not reactor.running:
+            print "starting the reactor on a thread!"
+            reactor.run(installSignalHandlers=0)
 
+f = LogBotFactory("subliminalcollaboration", 'my9pv')
+reactor_thread = ReactorThread()
+reactor_thread.start()
 
-f = LogBotFactory("subliminalcollaboration", None)
-reactor.connectTCP("irc.something.somewhere", 6667, f) 
-
+# view.run_command('collab_test')
 class CollabTestCommand(sublime_plugin.TextCommand):
-    thread = None
+    irc_con = None
 
     def run(self, edit):
-        print 'run collab'
-        if not self.thread:
-            print 'starting reactor'
-            self.thread = ReactorThread()
-            self.thread.start()
+        print 'running collab_test'
+        print self.irc_con
+        if not self.irc_con:
+            print 'starting irc client'
+            self.irc_con = reactor.connectTCP("irc.pearsoncmg.com", 6667, f)
         else:
-            reactor.stop()
-            self.thread.join()
-            self.thread = None
+            'stopping irc client'
+            self.irc_con.disconnect()
+            self.irc_con = None
         # for region in self.view.sel():
         #     print '%d - %d' % (region.begin(), region.end())
 
