@@ -20,14 +20,7 @@
 #   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #   THE SOFTWARE.
 import sublime, sublime_plugin
-# import threading
-# import logging
-# import time
-# import re
-
-
-# system imports
-import time, sys, os, platform, threading
+import sys, os, platform
 
 # need the windows select.pyd binary
 if os.name == 'nt':
@@ -37,28 +30,14 @@ if os.name == 'nt':
     if libs_path not in sys.path:
         sys.path.insert(0, libs_path)
 
-# from base64 import b64encode, b64decode
-# from oyoyo import helpers
-# from oyoyo.parse import parse_nick 
-# from oyoyo.client import IRCClient 
-# from oyoyo.cmdhandler import DefaultCommandHandler
-# from twisted.internet import iocpreactor
-# iocpreactor.install()
-# from twisted.internet import protocol, reactor
-
-
-
-
-
 # twisted imports
 from twisted.python import threadpool
 from twisted.words.protocols import irc
 from twisted.internet import reactor, protocol, threads
 from twisted.python import log
 
-
 # system imports
-import time, sys, os, platform
+import time, threading
 
 class MessageLogger:
     """
@@ -282,9 +261,7 @@ class LogBotFactory(protocol.ClientFactory):
 
     def clientConnectionFailed(self, connector, reason):
         print "connection failed:", reason
-        # reactor.stop()
 
-import threading
 class ReactorThread(threading.Thread):
     def __init__(self):
         threading.Thread.__init__(self)
@@ -294,7 +271,7 @@ class ReactorThread(threading.Thread):
             print "starting the reactor on a thread!"
             reactor.run(installSignalHandlers=0)
 
-f = LogBotFactory("subliminalcollaboration", 'abc')
+f = LogBotFactory("subliminalcollaboration", 'passwd')
 reactor_thread = ReactorThread()
 reactor_thread.start()
 
