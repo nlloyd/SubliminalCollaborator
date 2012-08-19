@@ -22,8 +22,18 @@
 import sublime, sublime_plugin
 import sys, os, platform
 
+# this assures we use the included libs/twisted and libs/zope libraries
+# this is of particular importance on Mac OS X since an older version of twisted
+# is already installed in the OS
+__file__ = os.path.normpath(os.path.abspath(__file__))
+__path__ = os.path.dirname(__file__)
+libs_path = os.path.join(__path__, 'libs')
+if libs_path not in sys.path:
+    sys.path.insert(0, libs_path)
+
 # need the windows select.pyd binary
-if os.name == 'nt':
+from twisted.python import runtime
+if runtime.platform.isWindows():
     __file__ = os.path.normpath(os.path.abspath(__file__))
     __path__ = os.path.dirname(__file__)
     libs_path = os.path.join(__path__, 'libs', platform.architecture()[0])
@@ -269,11 +279,11 @@ class ReactorThread(threading.Thread):
     def run(self):
         if not reactor.running:
             print "starting the reactor on a thread!"
-            reactor.run(installSignalHandlers=0)
+            reactor.run(installSignalHandlers=False)
 
 f = LogBotFactory("subliminalcollaboration", 'passwd')
 reactor_thread = ReactorThread()
-reactor_thread.start()
+# reactor_thread.start()
 
 # view.run_command('collab_test')
 class CollabTestCommand(sublime_plugin.TextCommand):
@@ -284,7 +294,9 @@ class CollabTestCommand(sublime_plugin.TextCommand):
         print self.irc_con
         if not self.irc_con:
             print 'starting irc client'
-            self.irc_con = reactor.connectTCP("localhost", 6667, f)
+            self.irc_con = reactor.connectTCP("localhost", 6667, f, 5)
+            if not reactor_thread.is_alive():
+                reactor_thread.start()
         else:
             'stopping irc client'
             self.irc_con.disconnect()
