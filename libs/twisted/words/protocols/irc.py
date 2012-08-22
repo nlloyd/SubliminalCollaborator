@@ -1448,6 +1448,8 @@ class IRCClient(basic.LineReceiver):
             channel = channels[0]
             self.sendLine("NAMES %s" % channel)
             queue.setdefault(channel, []).append(currentDeferred)
+            print queue
+            print self._events
         else:
             # some servers do not support multiple channel names at once
             for channel in channels:
@@ -1896,6 +1898,7 @@ class IRCClient(basic.LineReceiver):
         if 'ALL' not in self._events['NAMES']:
             users = self._namreply.pop(channel, [])
             # get the deferred and fire it
+            print self._events
             currentDeferred = self._events['NAMES'][channel].pop(0)
             currentDeferred.callback({channel : users})
             # traditional callback
@@ -2543,6 +2546,7 @@ class IRCClient(basic.LineReceiver):
         """Determine the function to call for the given command and call
         it with the given arguments.
         """
+        print '%s, %s, %s' % (command, prefix, params)
         method = getattr(self, "irc_%s" % command, None)
         try:
             if method is not None:
