@@ -99,9 +99,14 @@ class SelectReactor(posixbase.PosixReactorBase, _extraBase):
         waiting for them.
         """
         try:
-            r, w, ignored = _select(self._reads.keys(),
-                                    self._writes.keys(),
-                                    [], timeout)
+            # nlloyd: fixes issue where select.select() gets locked up on an empty reactor in mac os x
+            if (len(self._reads) == 1) and (len(self._writes) == 0) and (type(self._reads.keys()[0]) == posixbase._UnixWaker):
+                sleep(1.0)
+                r, w = ([], [])
+            else:
+                r, w, ignored = _select(self._reads.keys(),
+                                        self._writes.keys(),
+                                        [], timeout)
         except ValueError:
             # Possibly a file descriptor has gone negative?
             self._preenDescriptors()
