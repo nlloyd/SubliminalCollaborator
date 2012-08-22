@@ -29,7 +29,7 @@ class IRCNegotiator(object):
     """
     implements(Negotiator)
 
-    def connect(host, port, username, password):
+    def connect(host, port, username, password, opts = {}):
         """
         Connect to an instant messaging server.
 

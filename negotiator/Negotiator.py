@@ -28,7 +28,7 @@ class Negotiator(Interface):
     in order to establish a direct peer-to-peer session with another user.
     """
 
-    def connect(host, port, username, password):
+    def connect(host, port, username, password, opts = {}):
         """
         Connect to an instant messaging server.
 
@@ -36,6 +36,8 @@ class Negotiator(Interface):
         @param port: C{int} port number of the host
         @param username: C{str} IM account username
         @param password: C{str} IM account password
+        @param opts: C{dict} of optional parameters, may be required 
+                     for some implementations
 
         @return: True on success
         """
