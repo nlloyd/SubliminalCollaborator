@@ -184,9 +184,13 @@ class LogBot(irc.IRCClient):
         """
         print '[luserMe]: %s' % info
 
+    def channelNames(self, channel, names):
+        print 'channel %s has the the following users: %s' % (channel, names)
+
     def signedOn(self):
         """Called when bot has succesfully signed on to server."""
         self.join(self.factory.channel)
+        self.names([self.factory.channel])
 
     def joined(self, channel):
         """This will get called when the bot joins the channel."""
@@ -201,6 +205,10 @@ class LogBot(irc.IRCClient):
         if channel == self.nickname:
             if msg == 'DIE':
                 reactor.stop()
+            if msg == 'show-names':
+                print 'showing names'
+                self.names(['#subliminalcollaboration'])
+                return
             msg = "It isn't nice to whisper!  Play nice with the group."
             self.msg(user, msg)
             return
@@ -283,20 +291,24 @@ class ReactorThread(threading.Thread):
 
 f = LogBotFactory("subliminalcollaboration", 'passwd')
 reactor_thread = ReactorThread()
-# reactor_thread.start()
+if not reactor_thread.is_alive():
+    reactor_thread.start()
 
 # view.run_command('collab_test')
 class CollabTestCommand(sublime_plugin.TextCommand):
     irc_con = None
 
-    def run(self, edit):
+    def run(self, edit):    
+        # if not reactor_thread.is_alive():
+        #     reactor_thread.start()
+        #     time.sleep(5.0)
         print 'running collab_test'
         print self.irc_con
         if not self.irc_con:
             print 'starting irc client'
             self.irc_con = reactor.connectTCP("localhost", 6667, f, 5)
-            if not reactor_thread.is_alive():
-                reactor_thread.start()
+            # if not reactor_thread.is_alive():
+            #     reactor_thread.start()
         else:
             'stopping irc client'
             self.irc_con.disconnect()
