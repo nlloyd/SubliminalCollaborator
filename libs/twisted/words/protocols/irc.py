@@ -37,7 +37,7 @@ import warnings
 import textwrap
 from os import path
 
-from twisted.internet import reactor, protocol, task
+from twisted.internet import reactor, protocol, task, defer
 from twisted.persisted import styles
 from twisted.protocols import basic
 from twisted.python import log, reflect, text
@@ -300,6 +300,7 @@ class IRC(protocol.Protocol):
                 continue
             if line[-1] == CR:
                 line = line[:-1]
+            print line
             prefix, command, params = parsemsg(line)
             # mIRC is a big pile of doo-doo
             command = command.upper()
@@ -1260,6 +1261,18 @@ class IRCClient(basic.LineReceiver):
         intact.
         """
 
+        
+    def channelNames(self, channel, names):
+        """Called when a list of users in the channel has been requested.
+
+        Also called when first joining a channel.
+
+        @param channel: the name of the channel where the users are in.
+        @param names: a list of users that are in the specified channel.
+        """
+        pass
+
+
     def left(self, channel):
         """
         Called when I have left a channel.
@@ -1416,6 +1429,33 @@ class IRCClient(basic.LineReceiver):
             self.sendLine("JOIN %s %s" % (channel, key))
         else:
             self.sendLine("JOIN %s" % (channel,))
+
+    def names(self, *channels):
+        """
+        Tells the server to give a list of users in the specified channels.
+
+        Multiple channels can be specified at one time, `channelNames` will be 
+        called multiple times for each channel.
+        """
+        currentDeferred = defer.Deferred()
+        queue = self._events.setdefault('NAMES', {})
+        # dump all names of all visible channels
+        if not channels:
+            allChannels = queue.setdefault('ALL', [])
+            allChannels.append(currentDeferred)
+            self.sendLine("NAMES")
+        elif len(channels) == 1:
+            channel = channels[0]
+            self.sendLine("NAMES %s" % channel)
+            queue.setdefault(channel, []).append(currentDeferred)
+        else:
+            # some servers do not support multiple channel names at once
+            for channel in channels:
+                self.sendLine("NAMES %s" % channel)
+                # append it multiple times for each channel
+                queue.setdefault('ALL', []).append(currentDeferred)
+
+        return currentDeferred
 
     def leave(self, channel, reason=None):
         """
@@ -1832,6 +1872,46 @@ class IRCClient(basic.LineReceiver):
         Called when the login was incorrect.
         """
         raise IRCPasswordMismatch("Password Incorrect.")
+ 
+
+    def irc_RPL_NAMREPLY(self, prefix, params):
+        """
+        Handles the raw NAMREPLY that is returned as answer to
+        the NAMES command. Accumulates users until ENDOFNAMES.
+        """
+        channel = params[2]
+        users = params[3].split()
+        self._namreply.setdefault(channel, [])
+        self._namreply[channel].extend(users)
+
+
+    def irc_RPL_ENDOFNAMES(self, prefix, params):
+        """
+        Handles the end of the NAMREPLY. This is called when all
+        NAMREPLYs have finished. It calls the higher-level
+        functions as well as fires the deferreds.
+        """
+        channel = params[1]
+        # is there an ongoing ALL event?
+        if 'ALL' not in self._events['NAMES']:
+            users = self._namreply.pop(channel, [])
+            # get the deferred and fire it
+            currentDeferred = self._events['NAMES'][channel].pop(0)
+            currentDeferred.callback({channel : users})
+            # traditional callback
+            self.channelNames(channel, users)
+        else:
+            currentDeferred = self._events['NAMES']['ALL'].pop(0)
+            # only call when that one was the last one in the queue
+            if not self._events['NAMES']['ALL']:
+                # fire callback
+                currentDeferred.callback(self._namreply)
+                # also call the traditional callback
+                for channel, users in self._namreply.iteritems():
+                    self.channelNames(channel, users)
+
+                # reset the NAMES reply now
+                self._namreply = {}
 
 
     def irc_RPL_WELCOME(self, prefix, params):
@@ -2405,6 +2485,10 @@ class IRCClient(basic.LineReceiver):
 
     def connectionMade(self):
         self.supported = ServerSupportedFeatures()
+        # container for deferreds
+        self._events = {}
+        # container for NAME replies
+        self._namreply = {}
         self._queue = []
         if self.performLogin:
             self.register(self.nickname)
