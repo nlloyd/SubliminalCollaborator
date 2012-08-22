@@ -54,6 +54,9 @@ MAX_COMMAND_LENGTH = 512
 
 CHANNEL_PREFIXES = '&#!+'
 
+NICK_PREFIXES = '~&@%+'
+
+
 class IRCBadMessage(Exception):
     pass
 
@@ -1422,6 +1425,10 @@ class IRCClient(basic.LineReceiver):
             C{'#'} will be prepended to it.
         @type key: C{str}
         @param key: If specified, the key used to join the channel.
+
+        @return: C{defer.Deferred} which will return in the result field a map 
+                 with the channel name as a key and a list of user nicknames 
+                 currently in the channel (including the client's)
         """
         if channel[0] not in CHANNEL_PREFIXES:
             channel = '#' + channel
@@ -1429,6 +1436,11 @@ class IRCClient(basic.LineReceiver):
             self.sendLine("JOIN %s %s" % (channel, key))
         else:
             self.sendLine("JOIN %s" % (channel,))
+
+        # setup a deferred and event queue entry to handle the 
+        currentDeferred = defer.Deferred()
+        queue = self._events.setdefault('NAMES', {})
+        queue.setdefault(channel, []).append(currentDeferred)
 
     def names(self, *channels):
         """
@@ -1448,8 +1460,6 @@ class IRCClient(basic.LineReceiver):
             channel = channels[0]
             self.sendLine("NAMES %s" % channel)
             queue.setdefault(channel, []).append(currentDeferred)
-            print queue
-            print self._events
         else:
             # some servers do not support multiple channel names at once
             for channel in channels:
@@ -1882,7 +1892,11 @@ class IRCClient(basic.LineReceiver):
         the NAMES command. Accumulates users until ENDOFNAMES.
         """
         channel = params[2]
-        users = params[3].split()
+        prefixed_users = params[3].split()
+        users = []
+        for prefixed_user in prefixed_users:
+            users.append(prefixed_user.lstrip(NICK_PREFIXES))
+        
         self._namreply.setdefault(channel, [])
         self._namreply[channel].extend(users)
 
@@ -1898,7 +1912,6 @@ class IRCClient(basic.LineReceiver):
         if 'ALL' not in self._events['NAMES']:
             users = self._namreply.pop(channel, [])
             # get the deferred and fire it
-            print self._events
             currentDeferred = self._events['NAMES'][channel].pop(0)
             currentDeferred.callback({channel : users})
             # traditional callback
@@ -2546,7 +2559,6 @@ class IRCClient(basic.LineReceiver):
         """Determine the function to call for the given command and call
         it with the given arguments.
         """
-        print '%s, %s, %s' % (command, prefix, params)
         method = getattr(self, "irc_%s" % command, None)
         try:
             if method is not None:
