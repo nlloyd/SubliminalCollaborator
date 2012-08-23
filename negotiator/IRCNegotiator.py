@@ -74,7 +74,6 @@ class IRCNegotiator(irc.IRCClient, protocol.ClientFactory):
         self.port = port
         self.password = password
         self.channel = kwargs['channel']
-        self.peerUsers = []
 
         self.clientConnection = reactor.connectTCP(self.host, self.port, self)
 
@@ -85,9 +84,11 @@ class IRCNegotiator(irc.IRCClient, protocol.ClientFactory):
 
         @return: True on success, None if in-process, False on failure
         """
-        if self.clientConnection and self._registered:
+        # fully connected for us means we have registered and joined a channel
+        # also that means we have a list of peer users (even if it is an empty list)
+        if self.clientConnection and self._registered and self.peerUsers:
             return True
-        elif self.clientConnection and not self._registered:
+        elif self.clientConnection and (not self._registered or not self.peerUsers):
             return None
         else:
             return False
@@ -99,6 +100,8 @@ class IRCNegotiator(irc.IRCClient, protocol.ClientFactory):
         """
         if self.clientConnection:
             self.clientConnection.disconnect()
+        self._registered = False
+        self.peerUsers = None
 
 
     def listUsers():
@@ -108,9 +111,10 @@ class IRCNegotiator(irc.IRCClient, protocol.ClientFactory):
         the users within a certain chat room or channel, or
         a previously stored local list of known users.
 
-        @return: C{Array} of usernames
+        @return: C{list} of usernames, or None if we are not connected yet
         """
-        pass
+        return self.peerUsers
+
 
     def getUserName():
         """
@@ -134,6 +138,7 @@ class IRCNegotiator(irc.IRCClient, protocol.ClientFactory):
         """
         pass
 
+
     def onNegotiateSession(username, host, port):
         """
         Callback method for incoming requests to start a peer-to-peer session.
@@ -152,3 +157,39 @@ class IRCNegotiator(irc.IRCClient, protocol.ClientFactory):
 
     def clientConnectionFailed(self, connector, reason):
         print 'IRCNegotiator: connection failed: %s' % reason
+
+    #*** irc.IRCClient method implementations ***#
+
+    def connectionMade(self):
+        irc.IRCClient.connectionMade(self)
+        print '[connected to server %s]' % self.host
+
+    def signedOn(self):
+        # join the channel after we have connected
+        # part of the Negotiator connection process
+        self.join(self.channel)
+
+    def channelNames(self, channel, names):
+        assert self.channel == channel.lstrip(irc.CHANNEL_PREFIXES)
+        self.peerUsers = names
+
+    def userJoined(self, user, channel):
+        assert self.channel == channel.lstrip(irc.CHANNEL_PREFIXES)
+        self.peerUsers.append(user.lstrip(irc.NICK_PREFIXES))
+
+    def userLeft(self, user, channel):
+        assert self.channel == channel.lstrip(irc.CHANNEL_PREFIXES)
+        self.peerUsers.remove(user.lstrip(irc.NICK_PREFIXES))
+
+    def userQuit(self, user, quitMessage):
+        assert self.channel == channel.lstrip(irc.CHANNEL_PREFIXES)
+        self.peerUsers.remove(user.lstrip(irc.NICK_PREFIXES))
+
+    def userKicked(self, kickee, channel, kicker, message):
+        assert self.channel == channel.lstrip(irc.CHANNEL_PREFIXES)
+        self.peerUsers.remove(kickee.lstrip(irc.NICK_PREFIXES))
+
+    def userRenamed(self, oldname, newname):
+        assert self.channel == channel.lstrip(irc.CHANNEL_PREFIXES)
+        self.peerUsers.remove(oldname.lstrip(irc.NICK_PREFIXES))
+        self.peerUsers.append(newname.lstrip(irc.NICK_PREFIXES))
