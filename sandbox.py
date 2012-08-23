@@ -72,8 +72,9 @@ class MessageLogger:
 class LogBot(irc.IRCClient):
     """A logging IRC bot."""
     
-    nickname = "twistedbot"
+    nickname = "twistdbot"
     versionName = "subliminal_sandbox"
+    versionNum = ''
     versionEnv = "sublime text 2"
     
     def connectionMade(self):
@@ -183,6 +184,7 @@ class LogBotFactory(protocol.ClientFactory):
         self.password = password
 
     def buildProtocol(self, addr):
+        print addr
         p = LogBot()
         p.factory = self
         p.password = self.password

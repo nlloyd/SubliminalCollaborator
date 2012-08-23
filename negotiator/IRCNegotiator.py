@@ -20,16 +20,36 @@
 #   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #   THE SOFTWARE.
 from zope.interface import implements
+from twisted.python import reactor, protocol, irc
+import set
 
-class IRCNegotiator(object):
+
+class IRCNegotiator(irc.IRCClient, protocol.ClientFactory):
     """
-    Representation of a peer-to-peer session negotiator.
-    Provides methods to communicate through an instant messaging layer
-    in order to establish a direct peer-to-peer session with another user.
+    IRC client implementation of the Negotiator interface.
+
+    Negotiators are both protocols and factories for themselves.
+    Not sure if this is the best way to do things but for now it
+    will do.
     """
     implements(Negotiator)
 
-    def connect(host, port, username, password, opts = {}):
+    #*** irc.IRCClient properties ***#
+    versionName = 'SubliminalCollaborator::IRCNegotiator'
+    versionNum = 'pre-alpha'
+    versionEnv = "Sublime Text 2"
+    #******#
+
+    clientConnection = None
+    host = None
+    port = None
+    password = None
+
+    peerUsers = None
+
+    #*** Negotiator method implementations ***#
+
+    def connect(host, port, username, password, **kwargs):
         """
         Connect to an instant messaging server.
 
@@ -37,14 +57,49 @@ class IRCNegotiator(object):
         @param port: C{int} port number of the host
         @param username: C{str} IM account username
         @param password: C{str} IM account password
+        @param kwargs: {'channel': 'channelNameStringWoutPrefix'}
 
         @return: True on success
         """
+        assert kwargs.has_key('channel')
+
+        # start a fresh connection
+        if self.clientConnection:
+            self.clientConnection.disconnect()
+
+        # irc.IRCClient member setting
+        self.nickname = username
+
+        self.host = host
+        self.port = port
+        self.password = password
+        self.channel = kwargs['channel']
+        self.peerUsers = []
+
+        self.clientConnection = reactor.connectTCP(self.host, self.port, self)
+
+
+    def isConnected():
+        """
+        Check if the connection is established and ready.
+
+        @return: True on success, None if in-process, False on failure
+        """
+        if self.clientConnection and self._registered:
+            return True
+        elif self.clientConnection and not self._registered:
+            return None
+        else:
+            return False
+            
 
     def disconnect():
         """
         Disconnect from the instant messaging server.
         """
+        if self.clientConnection:
+            self.clientConnection.disconnect()
+
 
     def listUsers():
         """
@@ -55,6 +110,16 @@ class IRCNegotiator(object):
 
         @return: C{Array} of usernames
         """
+        pass
+
+    def getUserName():
+        """
+        Return the final user nickname after connection to 
+        the IRC server.
+
+        @return: C{str} actual username
+        """
+        return self.nickname
 
     def negotiateSession(username):
         """
@@ -67,9 +132,23 @@ class IRCNegotiator(object):
         by listUsers(), the expectation is that successful execution of this function
         will result in the given username being added to the list of known users.
         """
+        pass
 
     def onNegotiateSession(username, host, port):
         """
         Callback method for incoming requests to start a peer-to-peer session.
         The username, host, and port of the requesting peer is provided as input.
         """
+        pass
+
+    #*** protocol.ClientFactory method implementations ***#
+
+    def buildProtocol(self, addr):
+        return self
+
+    def clientConnectionLost(self, connector, reason):
+        # may want to reconnect, but for now lets print why
+        print 'connection lost: %s' % reason
+
+    def clientConnectionFailed(self, connector, reason):
+        print 'IRCNegotiator: connection failed: %s' % reason

@@ -28,18 +28,23 @@ class Negotiator(Interface):
     in order to establish a direct peer-to-peer session with another user.
     """
 
-    def connect(host, port, username, password, opts = {}):
+    def connect(host, port, username, password, **kwargs):
         """
-        Connect to an instant messaging server.
+        Initiate the connection process to an instant messaging server.
 
         @param host: ip address or domain name of the host server
         @param port: C{int} port number of the host
         @param username: C{str} IM account username
         @param password: C{str} IM account password
-        @param opts: C{dict} of optional parameters, may be required 
+        @param kwargs: optional parameters, may be required 
                      for some implementations
+        """
 
-        @return: True on success
+    def isConnected():
+        """
+        Check if the connection is established and ready.
+
+        @return: True on success, None if in-process, False on failure
         """
 
     def disconnect():
@@ -55,6 +60,15 @@ class Negotiator(Interface):
         a previously stored local list of known users.
 
         @return: C{Array} of usernames
+        """
+
+    def getUserName():
+        """
+        Return your username on the IM server.
+        Could be different from what you initially set on connection, depending
+        on implementation.
+
+        @return: C{str} actual username
         """
 
     def negotiateSession(username):
