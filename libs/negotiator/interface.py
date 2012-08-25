@@ -81,6 +81,8 @@ class Negotiator(Interface):
         If the user identified by the given username is not in the C{Array} returned
         by listUsers(), the expectation is that successful execution of this function
         will result in the given username being added to the list of known users.
+
+        @return: C{peer.Peer} already connected to another C{peer.Peer}
         """
 
     def onNegotiateSession(username, host, port):
