@@ -73,8 +73,17 @@ def loadConfig():
     if not acctConfig.has('subliminal_collaborator'):
         acctConfig = acctConfigAlt
     accts = acctConfig.get('subliminal_collaborator', {})
+    configErrorList = []
     for protocol, acct_details in accts.items():
         for acct_detail in acct_details:
+            if not acct_detail.has_key('host'):
+                configErrorList.append('A %s protocol configuration is missing a host entry' % protocol)
+            if not acct_detail.has_key('port'):
+                configErrorList.append('A %s protocol configuration is missing a port entry' % protocol)
+            if not acct_detail.has_key('username'):
+                configErrorList.append('A %s protocol configuration is missing a username entry' % protocol)
+            if not acct_detail.has_key('password'):
+                configErrorList.append('A %s protocol configuration is missing a password entry' % protocol)
             clientKey = '%s:%s:%s' % (protocol, acct_detail['host'], acct_detail['username'])
             chatClientConfig[clientKey] = acct_detail
     acctConfig.clear_on_change('subliminal_collaborator')
@@ -82,10 +91,15 @@ def loadConfig():
     if acctConfig != acctConfigAlt:
         acctConfigAlt.clear_on_change('subliminal_collaborator')
         acctConfigAlt.add_on_change('subliminal_collaborator', loadConfig)
+    # report errors, if any
+    if len(configErrorList) > 0:
+        errorMsg = 'The following configuration errors were found:\n'
+        for error in configErrorList:
+            errorMsg = '%s%s\n' % (errorMsg, error)
+        sublime.error_message(errorMsg)
         
 
 loadConfig()
-print chatClientConfig
 
 
 # COMMANDS:
@@ -93,3 +107,9 @@ print chatClientConfig
 # - show active sessions
 # - close session
 # - disconnect from chat
+
+class SubCollaborateCommand(sublime_plugin.ApplicationCommand):
+
+    def run(self, command):
+        # command is one of: start-session, show-sessions, close-session, disconnect-chat
+        pass

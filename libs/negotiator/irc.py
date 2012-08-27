@@ -47,6 +47,7 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
     password = None
 
     peerUsers = None
+    unverifiedUsers = None
 
     #*** Negotiator method implementations ***#
 
@@ -102,9 +103,10 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
         """
         if self.clientConnection:
             reactor.callFromThread(self.clientConnection.disconnect)
-            print '[disconnected from server %s]' % self.host
+            print '[IRCNegotiator: disconnected from server %s]' % self.host
         self._registered = False
         self.peerUsers = None
+        self.unverifiedUsers = None
 
 
     def listUsers(self):
@@ -116,10 +118,11 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
 
         @return: C{list} of usernames, or None if we are not connected yet
         """
-        for user in self.peerUsers:
-            if self.nickname != user:
-                # self.msg(user, 'VERSION')
-                reactor.callFromThread(self.ctcpMakeQuery, user, [('VERSION', None)])
+        fullList = []
+        for peer in self.peerUsers:
+            fullList.append(peer)
+        for unverified in self.unverifiedUsers:
+            fullList.append('*' + unverified)
         return self.peerUsers
 
 
@@ -161,19 +164,19 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
 
     def clientConnectionLost(self, connector, reason):
         # may want to reconnect, but for now lets print why
-        print 'connection lost: %s' % reason
+        print '[IRCNegotiator: connection lost: %s]' % reason
         print type(reason)
         self.disconnect()
 
     def clientConnectionFailed(self, connector, reason):
-        print 'IRCNegotiator: connection failed: %s' % reason
+        print '[IRCNegotiator: connection failed: %s]' % reason
         self.disconnect()
 
     #*** irc.IRCClient method implementations ***#
 
     def connectionMade(self):
         irc.IRCClient.connectionMade(self)
-        print '[connected to server %s]' % self.host
+        print '[IRCNegotiator: connected to server %s]' % self.host
 
     def signedOn(self):
         # join the channel after we have connected
@@ -182,29 +185,55 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
 
     def channelNames(self, channel, names):
         assert self.channel == channel.lstrip(irc.CHANNEL_PREFIXES)
-        print 'omg channel names!'
-        self.peerUsers = names
+        self.unverifiedUsers = []
+        self.peerUsers = []
+        for name in names:
+            addUserToLists(name)
 
     def userJoined(self, user, channel):
         assert self.channel == channel.lstrip(irc.CHANNEL_PREFIXES)
-        self.peerUsers.append(user.lstrip(irc.NICK_PREFIXES))
+        addUserToLists(user)
 
     def userLeft(self, user, channel):
         assert self.channel == channel.lstrip(irc.CHANNEL_PREFIXES)
-        self.peerUsers.remove(user.lstrip(irc.NICK_PREFIXES))
+        dropUserFromLists(user)
 
     def userQuit(self, user, quitMessage):
-        self.peerUsers.remove(user.lstrip(irc.NICK_PREFIXES))
+        dropUserFromLists(user)
 
     def userKicked(self, kickee, channel, kicker, message):
         assert self.channel == channel.lstrip(irc.CHANNEL_PREFIXES)
-        self.peerUsers.remove(kickee.lstrip(irc.NICK_PREFIXES))
+        dropUserFromLists(user)
 
     def userRenamed(self, oldname, newname):
         assert self.channel == channel.lstrip(irc.CHANNEL_PREFIXES)
-        self.peerUsers.remove(oldname.lstrip(irc.NICK_PREFIXES))
-        self.peerUsers.append(newname.lstrip(irc.NICK_PREFIXES))
+        dropUserFromLists(oldname)
+        addUserToLists(newname)
 
     def ctcpReply_VERSION(self, user, channel, data):
         print 'reply from user: %s' % user
         print data
+        username = user.lstrip(irc.NICK_PREFIXES)
+        if data == ('%s:%s:%s' % (self.versionName, self.versionNum, self.versionEnv)):
+            self.peerUsers.append(username)
+            self.unverifiedUsers.remove(username)
+        elif (self.versionName in data) and (self.versionNum in data) and (self.versionEnv in data):
+            self.peerUsers.append(username)
+            self.unverifiedUsers.remove(username)
+        else:
+            # other client type, forget this user entirely
+            self.unverifiedUsers.remove(username)
+
+    #*** helper functions ***#
+
+    def dropUserFromLists(self, user):
+        username = user.lstrip(irc.NICK_PREFIXES)
+        if username in self.peerUsers:
+            self.peerUsers.remove(username)
+        if username in self.unverifiedUsers:
+            self.unverifiedUsers.remove(username)
+
+    def addUserToLists(self, user):
+        username = user.lstrip(irc.NICK_PREFIXES)
+        self.unverifiedUsers.append(username)
+        reactor.callFromThread(self.ctcpMakeQuery, user, [('VERSION', None)])
