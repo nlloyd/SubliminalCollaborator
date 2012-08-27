@@ -23,6 +23,16 @@ from zope.interface import implements
 from negotiator import interface
 from twisted.words.protocols import irc
 from twisted.internet import reactor, protocol, threads
+import logging, sys
+
+logger = logging.getLogger(__name__)
+logger.propagate = False
+# purge previous handlers set... for plugin reloading
+del logger.handlers[:]
+stdoutHandler = logging.StreamHandler(sys.stdout)
+stdoutHandler.setFormatter(logging.Formatter(fmt='[SubliminalCollaborator|IRC(%(levelname)s): %(message)s]'))
+logger.addHandler(stdoutHandler)
+logger.setLevel(logging.DEBUG)
 
 class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
     """
@@ -36,7 +46,7 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
 
     #*** irc.IRCClient properties ***#
     versionName = 'SubliminalCollaborator'
-    versionNum = 'pre-alpha'
+    versionNum = 'alpha'
     versionEnv = "Sublime Text 2"
     #******#
 
@@ -63,6 +73,9 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
         @return: True on success
         """
         assert kwargs.has_key('channel')
+
+        if self.isConnected():
+            return
 
         # start a fresh connection
         if self.clientConnection:
@@ -102,7 +115,7 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
         """
         if self.clientConnection:
             reactor.callFromThread(self.clientConnection.disconnect)
-            print '[IRCNegotiator: disconnected from server %s]' % self.host
+            logger.info('Disconnected from %s' % self.host)
         self._registered = False
         self.peerUsers = None
         self.unverifiedUsers = None
@@ -162,19 +175,21 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
         return self
 
     def clientConnectionLost(self, connector, reason):
-        # may want to reconnect, but for now lets print why
-        print '[IRCNegotiator: connection lost: %s]' % reason
-        self.disconnect()
+        reasonStr = reason.str()
+        if (not 'ConnectionDone' in reasonStr) and (not 'Connection was closed cleanly' in reasonStr):
+            # may want to reconnect, but for now lets print why 
+            logger.debug('Connection lost: %s' % reason)
+            self.disconnect()
 
     def clientConnectionFailed(self, connector, reason):
-        print '[IRCNegotiator: connection failed: %s]' % reason
+        logger.error('Connection failed: %s' % reason)
         self.disconnect()
 
     #*** irc.IRCClient method implementations ***#
 
     def connectionMade(self):
         irc.IRCClient.connectionMade(self)
-        print '[IRCNegotiator: connected to server %s]' % self.host
+        logger.info('Connected to %s' % self.host)
 
     def signedOn(self):
         # join the channel after we have connected
@@ -183,10 +198,12 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
 
     def channelNames(self, channel, names):
         assert self.channel == channel.lstrip(irc.CHANNEL_PREFIXES)
+        logger.debug('received initial user list %s' % names)
         self.unverifiedUsers = []
         self.peerUsers = []
         for name in names:
-            self.addUserToLists(name)
+            if name != self.nickname:
+                self.addUserToLists(name)
 
     def userJoined(self, user, channel):
         assert self.channel == channel.lstrip(irc.CHANNEL_PREFIXES)
@@ -209,16 +226,15 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
         self.addUserToLists(newname)
 
     def ctcpReply_VERSION(self, user, channel, data):
-        print 'reply from user: %s' % user
-        print data
         username = user.lstrip(irc.NICK_PREFIXES)
         if '!' in username:
             username = username.split('!', 1)[0]
         if data == ('%s:%s:%s' % (self.versionName, self.versionNum, self.versionEnv)):
-            print username
+            logger.debug('verified peer %s' % username)
             self.peerUsers.append(username)
             self.unverifiedUsers.remove(username)
         elif (self.versionName in data) and (self.versionNum in data) and (self.versionEnv in data):
+            logger.debug('verified peer %s' % username)
             self.peerUsers.append(username)
             self.unverifiedUsers.remove(username)
         else:
@@ -239,5 +255,5 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
         self.unverifiedUsers.append(username)
         reactor.callFromThread(self.ctcpMakeQuery, user, [('VERSION', None)])
 
-    def str():
+    def str(self):
         return 'irc:%s:%s' % (self.host, self.nickname)

@@ -30,7 +30,8 @@ class Negotiator(Interface):
 
     def connect(host, port, username, password, **kwargs):
         """
-        Initiate the connection process to an instant messaging server.
+        Initiate the connection process to an instant messaging server,
+        if not already connected.
 
         @param host: ip address or domain name of the host server
         @param port: C{int} port number of the host

@@ -146,31 +146,28 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand):
             logger.debug('No negotiator for %s, creating one' % targetClient)
             self.selectedNegotiator = negotiatorFactoryMap[targetClient.split(':', 1)[0]]()
             negotiatorInstances[targetClient] = self.selectedNegotiator
-        # now lets make sure we are connected to get the user list... and if we are not connected yet
-        # start that process
-        if self.selectedNegotiator.isConnected():
-            sublime.active_window().show_quick_panel(self.userList, self.openSession)
-        else:
-            self.selectedNegotiator.connect(**chatClientConfig[targetClient])
-            self.retryCounter = 0
+        # use our negotiator to connect to the chat server and wait to grab the userlist
+        self.selectedNegotiator.connect(**chatClientConfig[targetClient])
+        self.retryCounter = 0
+        self.openSession()
 
     def openSession(self, userIdx=None):
-        if not userIdx:
+        if userIdx == None:
             if not self.selectedNegotiator.isConnected():
-                if self.retryCounter > 30:
+                if self.retryCounter >= 30:
                     logger.warn('Failed to connect client %s' % self.selectedNegotiator.str())
                 else:
                     # increment retry count... 
                     self.retryCounter = self.retryCounter + 1
-                    logger.debug('Not connected yet to client %s, retry %d to connect' % (self.selectedNegotiator.str(), self.retryCounter))
-                    sublime.set_timeout(lambda: openSession, 1000)
+                    logger.debug('Not connected yet to client %s, recheck counter: %d' % (self.selectedNegotiator.str(), self.retryCounter))
+                    sublime.set_timeout(self.openSession, 1000)
             else:
                 # we are connected, retrieve and show current user list from target chat client negotiator
                 self.userList = self.selectedNegotiator.listUsers()
                 sublime.active_window().show_quick_panel(self.userList, self.openSession)
         else:
             # have a specified user, lets open a collaboration session!
-            logger.debug('Opening collaboration session with user %s on client %s' % (self.userList[userIdx], self.selectedNegotiator))
+            logger.debug('Opening collaboration session with user %s on client %s' % (self.userList[userIdx], self.selectedNegotiator.str()))
 
     def showSessions(self):
         pass
@@ -179,8 +176,8 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand):
         pass
 
     def disconnectChat(self, clientIdx=None):
-        if not clientIdx:
+        if clientIdx == None:
             self.chatClientKeys = negotiatorInstances.keys()
-            sublime.active_window().show_quick_panel(self.chatClientKeys, self.selectUser)
+            sublime.active_window().show_quick_panel(self.chatClientKeys, self.disconnectChat)
         else:
             negotiatorInstances[self.chatClientKeys[clientIdx]].disconnect()
