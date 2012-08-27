@@ -24,7 +24,6 @@ from negotiator import interface
 from twisted.words.protocols import irc
 from twisted.internet import reactor, protocol, threads
 
-
 class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
     """
     IRC client implementation of the Negotiator interface.
@@ -70,12 +69,12 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
             self.clientConnection.disconnect()
 
         # irc.IRCClient member setting
-        self.nickname = username
+        self.nickname = username.encode()
 
-        self.host = host
+        self.host = host.encode()
         self.port = port
-        self.password = password
-        self.channel = kwargs['channel']
+        self.password = password.encode()
+        self.channel = kwargs['channel'].encode()
 
         self.clientConnection = threads.blockingCallFromThread(reactor, reactor.connectTCP,
             self.host, self.port, self)
@@ -165,7 +164,6 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
     def clientConnectionLost(self, connector, reason):
         # may want to reconnect, but for now lets print why
         print '[IRCNegotiator: connection lost: %s]' % reason
-        print type(reason)
         self.disconnect()
 
     def clientConnectionFailed(self, connector, reason):
@@ -188,33 +186,36 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
         self.unverifiedUsers = []
         self.peerUsers = []
         for name in names:
-            addUserToLists(name)
+            self.addUserToLists(name)
 
     def userJoined(self, user, channel):
         assert self.channel == channel.lstrip(irc.CHANNEL_PREFIXES)
-        addUserToLists(user)
+        self.addUserToLists(user)
 
     def userLeft(self, user, channel):
         assert self.channel == channel.lstrip(irc.CHANNEL_PREFIXES)
-        dropUserFromLists(user)
+        self.dropUserFromLists(user)
 
     def userQuit(self, user, quitMessage):
-        dropUserFromLists(user)
+        self.dropUserFromLists(user)
 
     def userKicked(self, kickee, channel, kicker, message):
         assert self.channel == channel.lstrip(irc.CHANNEL_PREFIXES)
-        dropUserFromLists(user)
+        self.dropUserFromLists(user)
 
     def userRenamed(self, oldname, newname):
         assert self.channel == channel.lstrip(irc.CHANNEL_PREFIXES)
-        dropUserFromLists(oldname)
-        addUserToLists(newname)
+        self.dropUserFromLists(oldname)
+        self.addUserToLists(newname)
 
     def ctcpReply_VERSION(self, user, channel, data):
         print 'reply from user: %s' % user
         print data
         username = user.lstrip(irc.NICK_PREFIXES)
+        if '!' in username:
+            username = username.split('!', 1)[0]
         if data == ('%s:%s:%s' % (self.versionName, self.versionNum, self.versionEnv)):
+            print username
             self.peerUsers.append(username)
             self.unverifiedUsers.remove(username)
         elif (self.versionName in data) and (self.versionNum in data) and (self.versionEnv in data):
@@ -237,3 +238,6 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
         username = user.lstrip(irc.NICK_PREFIXES)
         self.unverifiedUsers.append(username)
         reactor.callFromThread(self.ctcpMakeQuery, user, [('VERSION', None)])
+
+    def str():
+        return 'irc:%s:%s' % (self.host, self.nickname)

@@ -42,7 +42,16 @@ if runtime.platform.isWindows():
 
 from negotiator import irc
 from twisted.internet import reactor
-import threading
+import threading, logging, sys
+
+logger = logging.getLogger(__name__)
+logger.propagate = False
+# purge previous handlers set... for plugin reloading
+del logger.handlers[:]
+stdoutHandler = logging.StreamHandler(sys.stdout)
+stdoutHandler.setFormatter(logging.Formatter(fmt='[SubliminalCollaborator(%(levelname)s): %(message)s]'))
+logger.addHandler(stdoutHandler)
+logger.setLevel(logging.DEBUG)
 
 class ReactorThread(threading.Thread):
     def __init__(self):
@@ -50,7 +59,7 @@ class ReactorThread(threading.Thread):
 
     def run(self):
         if not reactor.running:
-            print "[SubliminalCollaborator: starting the event reactor on a thread]"
+            logger.info('[SubliminalCollaborator: starting the event reactor on a thread]')
             reactor.run(installSignalHandlers=False)
 
 ReactorThread().start()
@@ -71,7 +80,10 @@ def loadConfig():
     acctConfig = sublime.load_settings('Accounts.sublime-settings')
     acctConfigAlt = sublime.load_settings('Preferences.sublime-settings')
     if not acctConfig.has('subliminal_collaborator'):
+        logger.info('loading configuration from Preferences.sublime-settings')
         acctConfig = acctConfigAlt
+    else:
+        logger.info('loading configuration from Accounts.sublime-settings')
     accts = acctConfig.get('subliminal_collaborator', {})
     configErrorList = []
     for protocol, acct_details in accts.items():
@@ -98,18 +110,77 @@ def loadConfig():
             errorMsg = '%s%s\n' % (errorMsg, error)
         sublime.error_message(errorMsg)
         
-
 loadConfig()
 
 
-# COMMANDS:
-# - start session
-# - show active sessions
-# - close session
-# - disconnect from chat
+class CollaborateCommand(sublime_plugin.ApplicationCommand):
+    chatClientKeys = []
+    sessionKeys = []
+    userList = []
+    selectedNegotiator = None
+    currentView = None
 
-class SubCollaborateCommand(sublime_plugin.ApplicationCommand):
+    def run(self, task):
+        method = getattr(self, task, None)
+        try:
+            if method is not None:
+                logger.debug('running collaborate task %s' % task)
+                method()
+            else:
+                logger.error('unknown plugin task %s' % task)
+        except:
+            logger.error('unknown plugin task %s' % task)
 
-    def run(self, command):
-        # command is one of: start-session, show-sessions, close-session, disconnect-chat
+    def startSession(self):
+        self.chatClientKeys = chatClientConfig.keys()
+        sublime.active_window().show_quick_panel(self.chatClientKeys, self.selectUser)
+
+    def selectUser(self, clientIdx):
+        targetClient = self.chatClientKeys[clientIdx]
+        logger.debug('select user from client %s' % targetClient)
+        self.selectedNegotiator = None
+        if negotiatorInstances.has_key(targetClient):
+            logger.debug('Found negotiator for %s, using it' % targetClient)
+            self.selectedNegotiator = negotiatorInstances[targetClient]
+        else:
+            logger.debug('No negotiator for %s, creating one' % targetClient)
+            self.selectedNegotiator = negotiatorFactoryMap[targetClient.split(':', 1)[0]]()
+            negotiatorInstances[targetClient] = self.selectedNegotiator
+        # now lets make sure we are connected to get the user list... and if we are not connected yet
+        # start that process
+        if self.selectedNegotiator.isConnected():
+            sublime.active_window().show_quick_panel(self.userList, self.openSession)
+        else:
+            self.selectedNegotiator.connect(**chatClientConfig[targetClient])
+            self.retryCounter = 0
+
+    def openSession(self, userIdx=None):
+        if not userIdx:
+            if not self.selectedNegotiator.isConnected():
+                if self.retryCounter > 30:
+                    logger.warn('Failed to connect client %s' % self.selectedNegotiator.str())
+                else:
+                    # increment retry count... 
+                    self.retryCounter = self.retryCounter + 1
+                    logger.debug('Not connected yet to client %s, retry %d to connect' % (self.selectedNegotiator.str(), self.retryCounter))
+                    sublime.set_timeout(lambda: openSession, 1000)
+            else:
+                # we are connected, retrieve and show current user list from target chat client negotiator
+                self.userList = self.selectedNegotiator.listUsers()
+                sublime.active_window().show_quick_panel(self.userList, self.openSession)
+        else:
+            # have a specified user, lets open a collaboration session!
+            logger.debug('Opening collaboration session with user %s on client %s' % (self.userList[userIdx], self.selectedNegotiator))
+
+    def showSessions(self):
         pass
+
+    def closeSession(self):
+        pass
+
+    def disconnectChat(self, clientIdx=None):
+        if not clientIdx:
+            self.chatClientKeys = negotiatorInstances.keys()
+            sublime.active_window().show_quick_panel(self.chatClientKeys, self.selectUser)
+        else:
+            negotiatorInstances[self.chatClientKeys[clientIdx]].disconnect()
