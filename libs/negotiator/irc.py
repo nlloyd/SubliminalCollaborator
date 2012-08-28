@@ -22,7 +22,7 @@
 from zope.interface import implements
 from negotiator import interface
 from twisted.words.protocols import irc
-from twisted.internet import reactor, protocol, threads
+from twisted.internet import reactor, protocol, threads, main
 import logging, sys
 
 logger = logging.getLogger(__name__)
@@ -114,6 +114,8 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
         Disconnect from the instant messaging server.
         """
         if self.clientConnection:
+            if self.clientConnection.state == 'disconnected':
+                return
             reactor.callFromThread(self.clientConnection.disconnect)
             logger.info('Disconnected from %s' % self.host)
         self._registered = False
@@ -175,14 +177,14 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
         return self
 
     def clientConnectionLost(self, connector, reason):
-        reasonStr = reason.str()
-        if (not 'ConnectionDone' in reasonStr) and (not 'Connection was closed cleanly' in reasonStr):
-            # may want to reconnect, but for now lets print why 
-            logger.debug('Connection lost: %s' % reason)
+        if type(main.CONNECTION_DONE) == reason.type:
             self.disconnect()
+        else:
+            # may want to reconnect, but for now lets print why
+            logger.error('Connection lost: %s - %s' % (reason.type, reason.value))
 
     def clientConnectionFailed(self, connector, reason):
-        logger.error('Connection failed: %s' % reason)
+        logger.error('Connection failed: %s - %s' % (reason.type, reason.value))
         self.disconnect()
 
     #*** irc.IRCClient method implementations ***#
