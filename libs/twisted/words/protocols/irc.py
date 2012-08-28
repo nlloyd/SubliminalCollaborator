@@ -2378,7 +2378,7 @@ class IRCClient(basic.LineReceiver):
         if len(data) < 3:
             raise IRCBadMessage, "malformed DCC CHAT request: %r" % (data,)
 
-        (filename, address, port) = data[:3]
+        (protocol, address, port) = data[:3]
 
         address = dccParseAddress(address)
         try:
@@ -2386,7 +2386,7 @@ class IRCClient(basic.LineReceiver):
         except ValueError:
             raise IRCBadMessage, "Indecipherable port %r" % (port,)
 
-        self.dccDoChat(user, channel, address, port, data)
+        self.dccDoChat(user, channel, protocol, address, port, data)
 
     ### The dccDo methods are the slightly higher-level siblings of
     ### common dcc_ methods; the arguments have been parsed for them.
@@ -2413,7 +2413,7 @@ class IRCClient(basic.LineReceiver):
         request made by us.  By default it will do nothing."""
         pass
 
-    def dccDoChat(self, user, channel, address, port, data):
+    def dccDoChat(self, user, channel, protocol, address, port, data):
         pass
         #factory = DccChatFactory(self, queryData=(user, channel, data))
         #reactor.connectTCP(address, port, factory)

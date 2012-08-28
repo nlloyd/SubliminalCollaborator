@@ -23,7 +23,7 @@ from zope.interface import implements
 from negotiator import interface
 from twisted.words.protocols import irc
 from twisted.internet import reactor, protocol, threads, main
-import logging, sys
+import logging, sys, socket
 
 logger = logging.getLogger(__name__)
 logger.propagate = False
@@ -57,6 +57,8 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
 
     peerUsers = None
     unverifiedUsers = None
+
+    hostAddressList = socket.gethostbyname_ex(socket.gethostname())[2]
 
     #*** Negotiator method implementations ***#
 
@@ -161,7 +163,11 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
         by listUsers(), the expectation is that successful execution of this function
         will result in the given username being added to the list of known users.
         """
-        pass
+        if (not username in self.peerUsers) and (not username in self.unverifiedUsers):
+            self.addUserToLists(username)
+        ipaddress = socket.gethostbyname_ex(socket.gethostname())[2][0]
+        port = 9876
+        reactor.callFromThread(self.ctcpMakeQuery, username, [('DCC CHAT', 'collaborate %s %d' % (ipaddress, port))])
 
 
     def onNegotiateSession(self, username, host, port):
@@ -242,6 +248,15 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
         else:
             # other client type, forget this user entirely
             self.unverifiedUsers.remove(username)
+
+    def dccDoChat(self, user, channel, protocol, address, port, data):
+        username = user.lstrip(irc.NICK_PREFIXES)
+        if '!' in username:
+            username = username.split('!', 1)[0]
+        logger.debug('received dcc chat from %s, protocol %s, address %s, port %d' % (username, protocol, address, port))
+        #factory = DccChatFactory(self, queryData=(user, channel, data))
+        #reactor.connectTCP(address, port, factory)
+        #self.dcc_sessions.append(factory)
 
     #*** helper functions ***#
 

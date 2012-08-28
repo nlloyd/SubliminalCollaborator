@@ -168,6 +168,7 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand):
         else:
             # have a specified user, lets open a collaboration session!
             logger.debug('Opening collaboration session with user %s on client %s' % (self.userList[userIdx], self.selectedNegotiator.str()))
+            self.selectedNegotiator.negotiateSession(self.userList[userIdx])
 
     def showSessions(self):
         pass
