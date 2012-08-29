@@ -1,6 +1,11 @@
 [
     {
         "command": "collaborate",
+        "caption": "Collaborate: Connect to Chat Server", 
+        "args": { "task": "connectChat" }
+    },
+    {
+        "command": "collaborate",
         "caption": "Collaborate: Start New Session", 
         "args": { "task": "startSession" }
     },
@@ -16,7 +21,7 @@
     },
     {
         "command": "collaborate",
-        "caption": "Collaborate: Disconnect from Chat", 
+        "caption": "Collaborate: Disconnect from Chat Server", 
         "args": { "task": "disconnectChat" }
     }
 ]

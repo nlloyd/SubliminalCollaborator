@@ -62,7 +62,7 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
 
     hostAddressList = socket.gethostbyname_ex(socket.gethostname())[2]
 
-    def __init__(self, negotiateCallback):
+    def __init__(self, negotiateCallback=None):
         self.negotiateCallback = negotiateCallback
 
     #*** Negotiator method implementations ***#
@@ -96,8 +96,9 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
         self.password = password.encode()
         self.channel = kwargs['channel'].encode()
 
-        self.clientConnection = threads.blockingCallFromThread(reactor, reactor.connectTCP,
-            self.host, self.port, self)
+        # self.clientConnection = threads.blockingCallFromThread(reactor, reactor.connectTCP,
+        #     self.host, self.port, self)
+        self.clientConnection = reactor.connectTCP(self.host, self.port, self)
 
 
     def isConnected(self):
@@ -123,7 +124,8 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
         if self.clientConnection:
             if self.clientConnection.state == 'disconnected':
                 return
-            reactor.callFromThread(self.clientConnection.disconnect)
+            # reactor.callFromThread(self.clientConnection.disconnect)
+            self.clientConnection.disconnect()
             logger.info('Disconnected from %s' % self.host)
         self._registered = False
         self.peerUsers = None
@@ -170,7 +172,7 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
         """
         if (not username in self.peerUsers) and (not username in self.unverifiedUsers):
             self.addUserToLists(username)
-        session = base.BasePeer()
+        session = base.BasePeer(username)
         port = session.hostConnect()
         logger.debug('Negotiating collab session with %s on port %d' % (username, port))
         ipaddress = self.hostAddressList[0]
@@ -184,9 +186,8 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
         The username, host, and port of the requesting peer is provided as input.
         """
         logger.info('Establishing session with %s at %s:%d' % (username, host, port))
-        session = base.BasePeer()
+        session = base.BasePeer(username)
         session.clientConnect(host, port)
-        logger.debug('connected to peer')
         self.negotiateCallback(session)
 
     #*** protocol.ClientFactory method implementations ***#
@@ -208,7 +209,7 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
     #*** irc.IRCClient method implementations ***#
 
     def connectionMade(self):
-        irc.IRCClient.connectionMade(self)
+        reactor.callFromThread(irc.IRCClient.connectionMade, self)
         logger.info('Connected to %s' % self.host)
 
     def signedOn(self):

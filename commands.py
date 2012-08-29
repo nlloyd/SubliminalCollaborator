@@ -32,7 +32,7 @@ if libs_path not in sys.path:
     sys.path.insert(0, libs_path)
 
 # need the windows select.pyd binary
-from twisted.python import runtime
+from twisted.python import runtime, log
 if runtime.platform.isWindows():
     __file__ = os.path.normpath(os.path.abspath(__file__))
     __path__ = os.path.dirname(__file__)
@@ -43,6 +43,8 @@ if runtime.platform.isWindows():
 from negotiator import irc
 from twisted.internet import reactor
 import threading, logging, sys
+
+# log.startLogging(sys.stdout)
 
 logger = logging.getLogger(__name__)
 logger.propagate = False
@@ -71,12 +73,14 @@ negotiatorFactoryMap = {
 #*** globals for preferences and session variables ***#
 # config dictionary, key is protocol:host:username, value is config dict
 chatClientConfig = {}
+connectAllOnStartup = False
 # key is same as config dictionary with value equallying live negotiator instances
 negotiatorInstances = {}
 sessions = {}
 
 
 def loadConfig():
+    global connectAllOnStartup
     acctConfig = sublime.load_settings('Accounts.sublime-settings')
     acctConfigAlt = sublime.load_settings('Preferences.sublime-settings')
     if not acctConfig.has('subliminal_collaborator'):
@@ -87,6 +91,9 @@ def loadConfig():
     accts = acctConfig.get('subliminal_collaborator', {})
     configErrorList = []
     for protocol, acct_details in accts.items():
+        if protocol == 'connect_all_on_startup':
+            connectAllOnStartup = acct_details
+            continue
         for acct_detail in acct_details:
             if not acct_detail.has_key('host'):
                 configErrorList.append('A %s protocol configuration is missing a host entry' % protocol)
@@ -109,8 +116,22 @@ def loadConfig():
         for error in configErrorList:
             errorMsg = '%s%s\n' % (errorMsg, error)
         sublime.error_message(errorMsg)
+
+
+def connectAllChat():
+    logger.info('Connecting to all configured chat servers')
+    chatClientKeys = chatClientConfig.keys()
+    for connectedClient in negotiatorInstances.keys():
+        chatClientKeys.remove(connectedClient)
+    for client in chatClientKeys:
+        logger.info('Connecting to chat %s' % client)
+        negotiatorInstances[client] = negotiatorFactoryMap[client.split(':', 1)[0]]()
+        negotiatorInstances[client].connect(**chatClientConfig[client])
         
 loadConfig()
+
+if connectAllOnStartup:
+    connectAllChat()
 
 
 class CollaborateCommand(sublime_plugin.ApplicationCommand):
@@ -147,6 +168,7 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand):
             self.selectedNegotiator = negotiatorFactoryMap[targetClient.split(':', 1)[0]](self.openSession)
             negotiatorInstances[targetClient] = self.selectedNegotiator
         # use our negotiator to connect to the chat server and wait to grab the userlist
+        self.selectedNegotiator.negotiateCallback = self.openSession
         self.selectedNegotiator.connect(**chatClientConfig[targetClient])
         self.retryCounter = 0
         self.connectToUser()
@@ -166,19 +188,60 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand):
                 self.userList = self.selectedNegotiator.listUsers()
                 sublime.active_window().show_quick_panel(self.userList, self.connectToUser)
         else:
-            # have a specified user, lets open a collaboration session!
-            logger.debug('Opening collaboration session with user %s on client %s' % (self.userList[userIdx], self.selectedNegotiator.str()))
-            session = self.selectedNegotiator.negotiateSession(self.userList[userIdx])
+            if sessions.has_key(self.selectedNegotiator.str()) and sessions[self.selectedNegotiator.str()].has_key(self.userList[userIdx]):
+                # TODO status bar: already have a session for this user!
+                return
+            else:
+                # have a specified user, lets open a collaboration session!
+                logger.debug('Opening collaboration session with user %s on client %s' % (self.userList[userIdx], self.selectedNegotiator.str()))
+                session = self.selectedNegotiator.negotiateSession(self.userList[userIdx])
 
-    def openSession(self, connectedPeer):
-        print connectedPeer
-        connectedPeer.disconnect()
+    def openSession(self, session):
+        protocolSessions = None
+        if sessions.has_key(self.selectedNegotiator.str()):
+            protocolSessions = sessions[self.selectedNegotiator.str()]
+        else:
+            protocolSessions = {}
+        protocolSessions[session.str()] = session
+        sessions[self.selectedNegotiator.str()] = protocolSessions
 
-    def showSessions(self):
-        pass
+    def showSessions(self, idx=None):
+        if idx == None:
+            sessionList = []
+            for client in sessions.keys():
+                for user in sessions[client].keys():
+                    sessionList.append('%s -> %s' % (client, user))
+            sublime.active_window().show_quick_panel(sessionList, self.showSessions)
 
-    def closeSession(self):
-        pass
+    def closeSession(self, idx=None):
+        if idx == None:
+            self.killList = []
+            for client in sessions.keys():
+                for user in sessions[client].keys():
+                    self.killList.append('%s -> %s' % (client, user))
+            sublime.active_window().show_quick_panel(self.killList, self.closeSession)
+        else:
+            clientAndUser = self.killList[idx]
+            client, user = clientAndUser.split(' -> ')
+            sessionToKill = sessions[client].pop(user)
+            sessionToKill.disconnect()
+
+    def connectChat(self, clientIdx=None):
+        if clientIdx == None:
+            self.chatClientKeys = chatClientConfig.keys()
+            for connectedKeys in negotiatorInstances.keys():
+                self.chatClientKeys.remove(connectedKeys)
+            self.chatClientKeys.append('ALL')
+            sublime.active_window().show_quick_panel(self.chatClientKeys, self.connectChat)
+        else:
+            targetClient = self.chatClientKeys[clientIdx]
+            if targetClient == 'ALL':
+                connectAllChat()
+            elif not negotiatorInstances.has_key(targetClient):
+                logger.info('Connecting to chat %s' % targetClient)
+                negotiatorInstances[targetClient] = negotiatorFactoryMap[targetClient.split(':', 1)[0]](self.openSession)
+            else:
+                logger.info('Already connected to chat %s' % targetClient)
 
     def disconnectChat(self, clientIdx=None):
         if clientIdx == None:

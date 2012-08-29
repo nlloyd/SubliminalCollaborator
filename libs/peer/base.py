@@ -34,7 +34,72 @@ stdoutHandler.setFormatter(logging.Formatter(fmt='[SubliminalCollaborator|Peer(%
 logger.addHandler(stdoutHandler)
 logger.setLevel(logging.DEBUG)
 
+
+#################################################################################
 MAGIC_NUMBER = 9
+
+CLIENT = 'client'
+SERVER = 'server'
+PARTNER_ROLE = 'partner'
+HOST_ROLE = 'host'
+
+# states #
+STATE_CONNECTING = 'connecting'
+STATE_CONNECTED = 'connected'
+STATE_DISCONNECTING = 'disconnecting'
+STATE_DISCONNECTED = 'disconnected'
+
+#*** constants representing message types and sub-types ***#
+
+#--- message types ---#
+# sent by client-peer on connection, sent back by server as ACK
+CONNECTED = 0
+# sent by client-peer prior to disconnect, sent back by server as ACK
+DISCONNECT = 1
+# sent to signal to the peer to prepare to receive a view, payloadSize == number of chunks to expect total
+SHARE_VIEW = 2
+# sent in reply to a SHARE_VIEW
+SHARE_VIEW_ACK = 3
+# chunk of view data
+VIEW_CHUNK = 4
+# sent in reply to a VIEW_CHUNK, with payloadSize indicating what was received
+VIEW_CHUNK_ACK = 5
+# sent instead of VIEW_CHUNK if sent != recvd payload sizes
+VIEW_CHUNK_ERROR = 6
+# sent to signal to the peer that the entire view has been sent
+END_OF_VIEW = 7
+END_OF_VIEW_ACK = 8
+# view selection payload
+SELECTION = 9
+# edit event payload
+EDIT = 10
+
+#--- message sub-types ---#
+EDIT_TYPE_NA = 11  # not applicable, sent by all but EDIT
+# TODO figure out the rest
+
+symbolic_to_numeric = {
+    'CONNECTED': 0,
+    'DISCONNECT': 1,
+    'SHARE_VIEW': 2,
+    'SHARE_VIEW_ACK': 3,
+    'VIEW_CHUNK': 4,
+    'VIEW_CHUNK_ACK': 5,
+    'VIEW_CHUNK_ERROR': 6,
+    'END_OF_VIEW': 7,
+    'END_OF_VIEW_ACK': 8,
+    'SELECTION': 9,
+    'EDIT': 10,
+    'EDIT_TYPE_NA': 11
+}
+
+# tyvm twisted/words/protocols/irc.py for this handy dandy trick!
+numeric_to_symbolic = {}
+for k, v in symbolic_to_numeric.items():
+    numeric_to_symbolic[v] = k
+
+#################################################################################
+
 
 # build off of the Int32StringReceiver to leverage its unprocessed buffer handling
 class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.ServerFactory):
@@ -60,8 +125,21 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
 
     # connection can be an IListeningPort or IConnector
     connection = None
+    host = None
+    port = None
 
+    # CLIENT or SERVER
+    peerType = None
+    # HOST_ROLE or PARTNER_ROLE
+    role = None
+    # STATE_CONNECTING, STATE_CONNECTED, STATE_DISCONNECTED
+    state = None
+
+    sharingWithUser = None
     view = None
+
+    def __init__(self, username):
+        self.sharingWithUser = username
 
     def hostConnect(self, port = 0):
         """
@@ -72,7 +150,10 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
 
         @return: the connected port number
         """
-        self.connection = threads.blockingCallFromThread(reactor, reactor.listenTCP, port, self)
+        self.peerType = SERVER
+        self.role = HOST_ROLE
+        self.state = STATE_CONNECTING
+        self.connection = reactor.listenTCP(port, self)
         logger.info('Listening for peers on port %d' % self.connection.getHost().port)
         return self.connection.getHost().port
 
@@ -85,19 +166,22 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         @param port: C{int} port number of the host Peer
         """
         logger.info('Connecting to peer at %s:%d' % (host, port))
-        self.connection = threads.blockingCallFromThread(reactor, reactor.connectTCP, host, port, self)
+        self.host = host
+        self.port = port
+        self.peerType = CLIENT
+        self.role = PARTNER_ROLE
+        self.state = STATE_CONNECTING
+        self.connection = reactor.connectTCP(self.host, self.port, self)
 
     def disconnect(self):
         """
         Disconnect from the peer-to-peer session.
         """
-        # TODO send message
-        if interfaces.IListeningPort.providedBy(self.connection):
-            self.connection.stopListening()
-        elif interfaces.IConnector.providedBy(self.connection):
-            self.connection.disconnect()
-        else:
-            logger.error('wtf is this we are disconnecting?: %s' % type(self.connection))
+        if self.state == STATE_DISCONNECTING:
+            if self.peerType == SERVER:
+                self.connection.stopListening()
+            elif self.peerType == CLIENT:
+                self.connection.disconnect()
 
     def onDisconnected(self):
         """
@@ -180,15 +264,36 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         """
         pass
 
+    def recvd_CONNECTED(self, messageSubType, payload):
+        if self.peerType == CLIENT:
+            if self.state == STATE_CONNECTING:
+                self.state = STATE_CONNECTED
+                logger.info('Connected to peer: %s' % self.sharingWithUser)
+            else:
+                logger.error('Received CONNECTED message from server-peer when in state %s' % self.state)
+        else:
+            # client is connected, send ACK and set our state to be connected
+            self.sendMessage(CONNECTED)
+            self.state = STATE_CONNECTED
+            logger.info('Connected to peer: %s' % self.sharingWithUser)
+
+    def recvdUnknown(self, messageType, messageSubType, payload):
+        logger.warn('Received unknown message: %s, %s, %s' % (messageType, messageSubType, payload))
+
     #*** basic.Int32StringReceiver method implementations ***#
 
     def stringReceived(self, data):
-        print data
         magicNumber, msgTypeNum, msgSubTypeNum = struct.unpack(self.messageHeaderFmt, data[:self.messageHeaderSize])
         assert magicNumber == MAGIC_NUMBER
         msgType = numeric_to_symbolic[msgTypeNum]
         msgSubType = numeric_to_symbolic[msgSubTypeNum]
-        logger.debug('RECVD: %d, %s, %s, %d' % (magicNumber, msgType, msgSubType, len(data[self.messageHeaderSize:])))
+        payload = data[self.messageHeaderSize:]
+        logger.debug('RECVD: %s, %s, %d' % (msgType, msgSubType, len(payload)))
+        method = getattr(self, "recvd_%s" % msgType, None)
+        if method is not None:
+            method(msgSubType, payload)
+        else:
+            self.recvdUnknown(msgType, msgSubType, payload)
 
     def connectionLost(self, reason):
         if type(protocol.connectionDone) == reason.type:
@@ -200,16 +305,15 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
     #*** protocol.Factory method implementations ***#
 
     def buildProtocol(self, addr):
+        if self.peerType == CLIENT:
+            logger.info('Connected to peer at %s:%d' % (self.host, self.port))
+            self.sendMessage(CONNECTED)
         return self
 
     #*** protocol.ClientFactory method implementations ***#
 
-    def startedConnecting(self, connector):
-        logger.info('Connected to peer at %s:%d' % (host, port))
-        threads.callFromThread(self.sendString, struct.pack(self.messageHeaderFmt, CONNECTED, EDIT_TYPE_NA))
-        logger.debug('Sent ack to host-peer')
-
     def clientConnectionLost(self, connector, reason):
+        print protocol.connectionDone
         if type(protocol.connectionDone) == reason.type:
             self.disconnect()
         else:
@@ -220,51 +324,11 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         logger.error('Connection failed: %s - %s' % (reason.type, reason.value))
         self.disconnect()
 
-#*** constants representing message types and sub-types ***#
+    #*** helper functions ***#
 
-#--- message types ---#
-# sent by client-peer on connection, sent back by server as ACK
-CONNECTED = 0
-# sent by client-peer prior to disconnect, sent back by server as ACK
-DISCONNECT = 1
-# sent to signal to the peer to prepare to receive a view, payloadSize == number of chunks to expect total
-SHARE_VIEW = 2
-# sent in reply to a SHARE_VIEW
-SHARE_VIEW_ACK = 3
-# chunk of view data
-VIEW_CHUNK = 4
-# sent in reply to a VIEW_CHUNK, with payloadSize indicating what was received
-VIEW_CHUNK_ACK = 5
-# sent instead of VIEW_CHUNK if sent != recvd payload sizes
-VIEW_CHUNK_ERROR = 6
-# sent to signal to the peer that the entire view has been sent
-END_OF_VIEW = 7
-END_OF_VIEW_ACK = 8
-# view selection payload
-SELECTION = 9
-# edit event payload
-EDIT = 10
+    def sendMessage(self, messageType, messageSubType=EDIT_TYPE_NA, payload=''):
+        logger.debug('SEND: %s-%s[%s]' % (numeric_to_symbolic[messageType], numeric_to_symbolic[messageSubType], payload))
+        reactor.callFromThread(self.sendString, struct.pack(self.messageHeaderFmt, MAGIC_NUMBER, messageType, messageSubType) + payload)
 
-#--- message sub-types ---#
-EDIT_TYPE_NA = 0  # not applicable, sent by all but EDIT
-# TODO figure out the rest
-
-symbolic_to_numeric = {
-    'CONNECTED': 0,
-    'DISCONNECT': 1,
-    'SHARE_VIEW': 2,
-    'SHARE_VIEW_ACK': 3,
-    'VIEW_CHUNK': 4,
-    'VIEW_CHUNK_ACK': 5,
-    'VIEW_CHUNK_ERROR': 6,
-    'END_OF_VIEW': 7,
-    'END_OF_VIEW_ACK': 8,
-    'SELECTION': 9,
-    'EDIT': 10,
-    'EDIT_TYPE_NA': 0
-}
-
-# tyvm twisted/words/protocols/irc.py for this handy dandy trick!
-numeric_to_symbolic = {}
-for k, v in symbolic_to_numeric.items():
-    numeric_to_symbolic[v] = k
+    def str(self):
+        return self.sharingWithUser
