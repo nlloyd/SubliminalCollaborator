@@ -116,7 +116,7 @@ class Peer(Interface):
         @param content: C{str} contents of the edit (None if delete editType)
         """
 
-    def recvEdit(editType, content\):
+    def recvEdit(editType, content):
         """
         Callback method for handling edit events from the peer.
 

@@ -21,8 +21,8 @@
 #   THE SOFTWARE.
 from zope.interface import implements
 from peer import interface
-from twisted.internet import reactor, protocol, threads, main
-from twisted.protocols import Int32StringReceiver
+from twisted.internet import reactor, protocol, threads, interfaces
+from twisted.protocols import basic
 import logging, sys, socket, struct
 
 logger = logging.getLogger(__name__)
@@ -37,7 +37,7 @@ logger.setLevel(logging.DEBUG)
 MAGIC_NUMBER = 9
 
 # build off of the Int32StringReceiver to leverage its unprocessed buffer handling
-class Peer(basic.Int32StringReceiver, protocol.Factory):
+class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.ServerFactory):
     """
     One side of a peer-to-peer collaboration connection.
     This is a direct connection with another peer endpoint for sending
@@ -45,16 +45,14 @@ class Peer(basic.Int32StringReceiver, protocol.Factory):
     """
     implements(interface.Peer)
 
-    messageHeaderFmt = '!HBBL'
-        """
-        Message header structure in struct format:
-        '!HBB'
+    # Message header structure in struct format:
+    # '!HBB'
 
-        elements:
-        - magicNumber: 9, http://futurama.wikia.com/wiki/Number_9_man
-        - messageType: see constants below
-        - messageSubType: see constants below, 0 in all but edit-messages
-        """
+    # elements:
+    # - magicNumber: 9, http://futurama.wikia.com/wiki/Number_9_man
+    # - messageType: see constants below
+    # - messageSubType: see constants below, 0 in all but edit-messages
+    messageHeaderFmt = '!HBB'
     messageHeaderSize = struct.calcsize(messageHeaderFmt)
 
     lastRecvdPayloadSize = 0
@@ -63,7 +61,9 @@ class Peer(basic.Int32StringReceiver, protocol.Factory):
     # connection can be an IListeningPort or IConnector
     connection = None
 
-    def hostConnect(port = 0):
+    view = None
+
+    def hostConnect(self, port = 0):
         """
         Initiate a peer-to-peer session as the host by listening on the
         given port for a connection.
@@ -74,56 +74,62 @@ class Peer(basic.Int32StringReceiver, protocol.Factory):
         """
         self.connection = threads.blockingCallFromThread(reactor, reactor.listenTCP, port, self)
         logger.info('Listening for peers on port %d' % self.connection.getHost().port)
+        return self.connection.getHost().port
 
-    def clientConnect(host, port):
+    def clientConnect(self, host, port):
         """
         Initiate a peer-to-peer session as the partner by connecting to the
         host peer with the given host and port.
 
         @param host: ip address of the host Peer
         @param port: C{int} port number of the host Peer
-
-        @return: True on success
         """
-        pass
+        logger.info('Connecting to peer at %s:%d' % (host, port))
+        self.connection = threads.blockingCallFromThread(reactor, reactor.connectTCP, host, port, self)
 
-    def disconnect():
+    def disconnect(self):
         """
         Disconnect from the peer-to-peer session.
         """
-        pass
+        # TODO send message
+        if interfaces.IListeningPort.providedBy(self.connection):
+            self.connection.stopListening()
+        elif interfaces.IConnector.providedBy(self.connection):
+            self.connection.disconnect()
+        else:
+            logger.error('wtf is this we are disconnecting?: %s' % type(self.connection))
 
-    def onDisconnected():
+    def onDisconnected(self):
         """
         Callback method if we are disconnected.
         """
         pass
 
-    def startCollab(view):
+    def startCollab(self, view):
         """
         Send the provided C{sublime.View} contents to the connected peer.
         """
         pass
 
-    def onStartCollab():
+    def onStartCollab(self):
         """
         Callback method informing the peer to recieve the contents of a view.
         """
         pass
 
-    def stopCollab():
+    def stopCollab(self):
         """
         Notify the connected peer that we are terminating the collaborating session.
         """
         pass
 
-    def onStopCollab():
+    def onStopCollab(self):
         """
         Callback method informing the peer that we are terminating a collaborating session.
         """
         pass
 
-    def sendViewPositionUpdate(centerOnRegion):
+    def sendViewPositionUpdate(self, centerOnRegion):
         """
         Send a window view position update to the peer so they know what
         we are looking at.
@@ -132,7 +138,7 @@ class Peer(basic.Int32StringReceiver, protocol.Factory):
         """
         pass
 
-    def recvViewPositionUpdate(centerOnRegion):
+    def recvViewPositionUpdate(self, centerOnRegion):
         """
         Callback method for handling view position updates from the peer.
 
@@ -140,7 +146,7 @@ class Peer(basic.Int32StringReceiver, protocol.Factory):
         """
         pass
 
-    def sendSelectionUpdate(selectedRegions):
+    def sendSelectionUpdate(self, selectedRegions):
         """
         Send currently selected regions to the peer.
 
@@ -148,7 +154,7 @@ class Peer(basic.Int32StringReceiver, protocol.Factory):
         """
         pass
 
-    def recvSelectionUpdate(selectedRegions):
+    def recvSelectionUpdate(self, selectedRegions):
         """
         Callback method for handling selected regions updates from the peer.
 
@@ -156,7 +162,7 @@ class Peer(basic.Int32StringReceiver, protocol.Factory):
         """
         pass
 
-    def sendEdit(editType, content):
+    def sendEdit(self, editType, content):
         """
         Send an edit event to the peer.
 
@@ -165,7 +171,7 @@ class Peer(basic.Int32StringReceiver, protocol.Factory):
         """
         pass
 
-    def recvEdit(editType, content):
+    def recvEdit(self, editType, content):
         """
         Callback method for handling edit events from the peer.
 
@@ -177,16 +183,42 @@ class Peer(basic.Int32StringReceiver, protocol.Factory):
     #*** basic.Int32StringReceiver method implementations ***#
 
     def stringReceived(self, data):
+        print data
         magicNumber, msgTypeNum, msgSubTypeNum = struct.unpack(self.messageHeaderFmt, data[:self.messageHeaderSize])
         assert magicNumber == MAGIC_NUMBER
         msgType = numeric_to_symbolic[msgTypeNum]
         msgSubType = numeric_to_symbolic[msgSubTypeNum]
-        print 'RECVD: %d, %s, %s, %d' % (magicNumber, msgType, msgSubType, len(data[self.messageHeaderSize:]))
+        logger.debug('RECVD: %d, %s, %s, %d' % (magicNumber, msgType, msgSubType, len(data[self.messageHeaderSize:])))
+
+    def connectionLost(self, reason):
+        if type(protocol.connectionDone) == reason.type:
+            self.disconnect()
+        else:
+            # may want to reconnect, but for now lets print why
+            logger.error('Connection lost: %s - %s' % (reason.type, reason.value))
 
     #*** protocol.Factory method implementations ***#
 
     def buildProtocol(self, addr):
         return self
+
+    #*** protocol.ClientFactory method implementations ***#
+
+    def startedConnecting(self, connector):
+        logger.info('Connected to peer at %s:%d' % (host, port))
+        threads.callFromThread(self.sendString, struct.pack(self.messageHeaderFmt, CONNECTED, EDIT_TYPE_NA))
+        logger.debug('Sent ack to host-peer')
+
+    def clientConnectionLost(self, connector, reason):
+        if type(protocol.connectionDone) == reason.type:
+            self.disconnect()
+        else:
+            # may want to reconnect, but for now lets print why
+            logger.error('Connection lost: %s - %s' % (reason.type, reason.value))
+
+    def clientConnectionFailed(self, connector, reason):
+        logger.error('Connection failed: %s - %s' % (reason.type, reason.value))
+        self.disconnect()
 
 #*** constants representing message types and sub-types ***#
 
@@ -218,18 +250,18 @@ EDIT_TYPE_NA = 0  # not applicable, sent by all but EDIT
 # TODO figure out the rest
 
 symbolic_to_numeric = {
-    'CONNECTED' = 0,
-    'DISCONNECT' = 1,
-    'SHARE_VIEW' = 2,
-    'SHARE_VIEW_ACK' = 3,
-    'VIEW_CHUNK' = 4,
-    'VIEW_CHUNK_ACK' = 5,
-    'VIEW_CHUNK_ERROR' = 6,
-    'END_OF_VIEW' = 7,
-    'END_OF_VIEW_ACK' = 8,
-    'SELECTION' = 9,
-    'EDIT' = 10,
-    'EDIT_TYPE_NA' = 0
+    'CONNECTED': 0,
+    'DISCONNECT': 1,
+    'SHARE_VIEW': 2,
+    'SHARE_VIEW_ACK': 3,
+    'VIEW_CHUNK': 4,
+    'VIEW_CHUNK_ACK': 5,
+    'VIEW_CHUNK_ERROR': 6,
+    'END_OF_VIEW': 7,
+    'END_OF_VIEW_ACK': 8,
+    'SELECTION': 9,
+    'EDIT': 10,
+    'EDIT_TYPE_NA': 0
 }
 
 # tyvm twisted/words/protocols/irc.py for this handy dandy trick!

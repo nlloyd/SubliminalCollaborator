@@ -59,7 +59,7 @@ class ReactorThread(threading.Thread):
 
     def run(self):
         if not reactor.running:
-            logger.info('[SubliminalCollaborator: starting the event reactor on a thread]')
+            logger.info('Starting the event reactor on a thread')
             reactor.run(installSignalHandlers=False)
 
 ReactorThread().start()
@@ -144,14 +144,14 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand):
             self.selectedNegotiator = negotiatorInstances[targetClient]
         else:
             logger.debug('No negotiator for %s, creating one' % targetClient)
-            self.selectedNegotiator = negotiatorFactoryMap[targetClient.split(':', 1)[0]]()
+            self.selectedNegotiator = negotiatorFactoryMap[targetClient.split(':', 1)[0]](self.openSession)
             negotiatorInstances[targetClient] = self.selectedNegotiator
         # use our negotiator to connect to the chat server and wait to grab the userlist
         self.selectedNegotiator.connect(**chatClientConfig[targetClient])
         self.retryCounter = 0
-        self.openSession()
+        self.connectToUser()
 
-    def openSession(self, userIdx=None):
+    def connectToUser(self, userIdx=None):
         if userIdx == None:
             if not self.selectedNegotiator.isConnected():
                 if self.retryCounter >= 30:
@@ -160,15 +160,19 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand):
                     # increment retry count... 
                     self.retryCounter = self.retryCounter + 1
                     logger.debug('Not connected yet to client %s, recheck counter: %d' % (self.selectedNegotiator.str(), self.retryCounter))
-                    sublime.set_timeout(self.openSession, 1000)
+                    sublime.set_timeout(self.connectToUser, 1000)
             else:
                 # we are connected, retrieve and show current user list from target chat client negotiator
                 self.userList = self.selectedNegotiator.listUsers()
-                sublime.active_window().show_quick_panel(self.userList, self.openSession)
+                sublime.active_window().show_quick_panel(self.userList, self.connectToUser)
         else:
             # have a specified user, lets open a collaboration session!
             logger.debug('Opening collaboration session with user %s on client %s' % (self.userList[userIdx], self.selectedNegotiator.str()))
-            self.selectedNegotiator.negotiateSession(self.userList[userIdx])
+            session = self.selectedNegotiator.negotiateSession(self.userList[userIdx])
+
+    def openSession(self, connectedPeer):
+        print connectedPeer
+        connectedPeer.disconnect()
 
     def showSessions(self):
         pass

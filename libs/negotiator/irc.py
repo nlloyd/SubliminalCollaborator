@@ -21,8 +21,9 @@
 #   THE SOFTWARE.
 from zope.interface import implements
 from negotiator import interface
+from peer import base
 from twisted.words.protocols import irc
-from twisted.internet import reactor, protocol, threads, main
+from twisted.internet import reactor, protocol, threads
 import logging, sys, socket
 
 logger = logging.getLogger(__name__)
@@ -50,6 +51,7 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
     versionEnv = "Sublime Text 2"
     #******#
 
+    negotiateCallback = None
     clientConnection = None
     host = None
     port = None
@@ -59,6 +61,9 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
     unverifiedUsers = None
 
     hostAddressList = socket.gethostbyname_ex(socket.gethostname())[2]
+
+    def __init__(self, negotiateCallback):
+        self.negotiateCallback = negotiateCallback
 
     #*** Negotiator method implementations ***#
 
@@ -165,9 +170,12 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
         """
         if (not username in self.peerUsers) and (not username in self.unverifiedUsers):
             self.addUserToLists(username)
-        ipaddress = socket.gethostbyname_ex(socket.gethostname())[2][0]
-        port = 9876
+        session = base.BasePeer()
+        port = session.hostConnect()
+        logger.debug('Negotiating collab session with %s on port %d' % (username, port))
+        ipaddress = self.hostAddressList[0]
         reactor.callFromThread(self.ctcpMakeQuery, username, [('DCC CHAT', 'collaborate %s %d' % (ipaddress, port))])
+        self.negotiateCallback(session)
 
 
     def onNegotiateSession(self, username, host, port):
@@ -175,7 +183,11 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
         Callback method for incoming requests to start a peer-to-peer session.
         The username, host, and port of the requesting peer is provided as input.
         """
-        pass
+        logger.info('Establishing session with %s at %s:%d' % (username, host, port))
+        session = base.BasePeer()
+        session.clientConnect(host, port)
+        logger.debug('connected to peer')
+        self.negotiateCallback(session)
 
     #*** protocol.ClientFactory method implementations ***#
 
@@ -183,7 +195,7 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
         return self
 
     def clientConnectionLost(self, connector, reason):
-        if type(main.CONNECTION_DONE) == reason.type:
+        if type(protocol.connectionDone) == reason.type:
             self.disconnect()
         else:
             # may want to reconnect, but for now lets print why
@@ -206,12 +218,12 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
 
     def channelNames(self, channel, names):
         assert self.channel == channel.lstrip(irc.CHANNEL_PREFIXES)
-        logger.debug('received initial user list %s' % names)
+        names.remove(self.nickname)
+        logger.debug('Received initial user list %s' % names)
         self.unverifiedUsers = []
         self.peerUsers = []
         for name in names:
-            if name != self.nickname:
-                self.addUserToLists(name)
+            self.addUserToLists(name)
 
     def userJoined(self, user, channel):
         assert self.channel == channel.lstrip(irc.CHANNEL_PREFIXES)
@@ -254,9 +266,8 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
         if '!' in username:
             username = username.split('!', 1)[0]
         logger.debug('received dcc chat from %s, protocol %s, address %s, port %d' % (username, protocol, address, port))
-        #factory = DccChatFactory(self, queryData=(user, channel, data))
-        #reactor.connectTCP(address, port, factory)
-        #self.dcc_sessions.append(factory)
+        if protocol == 'collaborate':
+            self.onNegotiateSession(username, address, port)
 
     #*** helper functions ***#
 

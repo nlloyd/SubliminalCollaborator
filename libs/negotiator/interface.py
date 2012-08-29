@@ -72,7 +72,7 @@ class Negotiator(Interface):
         @return: C{str} actual username
         """
 
-    def negotiateSession(username):
+    def negotiateSession(username, view):
         """
         Negotiate through the instant messaging layer a direct peer-to-peer connection
         with the user that has the given username.  Note the username in question must
