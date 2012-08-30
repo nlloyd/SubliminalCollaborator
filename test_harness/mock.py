@@ -23,32 +23,47 @@ from negotiator import irc
 from twisted.internet import reactor
 import time, threading, logging, sys, signal
 
-def callback(obj):
-    print type(obj)
+logger = logging.getLogger(__name__)
+logger.propagate = False
 
-def runMockSubliminalCollaborator(host, port, username, password, channel):
-    if type(port) == str:
-        port = int(port)
-    print 'Creating negotiator instance'
-    negotiator = irc.IRCNegotiator(callback, callback)
-    print 'Connecting to negotiator instance'
-    negotiator.connect(host, port, username, password, channel=channel)
-
-def main(argv):
-    if len(argv) < 4:
-        print 'Invalid argument count: at least 4 expected, got %d' % len(argv)
-        return
-
+def configureLogging():
     log.startLogging(sys.stdout)
 
-    logger = logging.getLogger(__name__)
-    logger.propagate = False
+    global logger
     # purge previous handlers set... for plugin reloading
     del logger.handlers[:]
     stdoutHandler = logging.StreamHandler(sys.stdout)
     stdoutHandler.setFormatter(logging.Formatter(fmt='[SubliminalCollaborator(%(levelname)s): %(message)s]'))
     logger.addHandler(stdoutHandler)
     logger.setLevel(logging.DEBUG)
+
+
+def callback(obj):
+    print type(obj)
+
+def runMockSubliminalCollaborator(host, port, username, password, channel, isHost=False):
+    if type(port) == str:
+        port = int(port)
+    negotiator = irc.IRCNegotiator(callback, callback)
+    negotiator.connect(host, port, username, password, channel=channel)
+    if bool(isHost):
+        reactor.callLater(5.0, runHostBehavior, negotiator)
+
+def runHostBehavior(negotiator):
+        users = negotiator.listUsers()
+        while len(users) == 0:
+            return
+        logger.info('Initiating collaboration session with %s' % users[0])
+        negotiator.negotiateSession(users[0])
+
+
+def main(argv):
+    if len(argv) < 4:
+        print 'python mock.py host port username password channel? isHost=False'
+        return
+
+    configureLogging()
+    print argv
 
     reactor.callLater(2.0, runMockSubliminalCollaborator, *argv)
     reactor.run()

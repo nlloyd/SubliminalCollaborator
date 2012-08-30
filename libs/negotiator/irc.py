@@ -144,11 +144,13 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
         @return: C{list} of usernames, or None if we are not connected yet
         """
         fullList = []
-        for peer in self.peerUsers:
-            fullList.append(peer)
-        for unverified in self.unverifiedUsers:
-            fullList.append('*' + unverified)
-        return self.peerUsers
+        if self.peerUsers:
+            for peer in self.peerUsers:
+                fullList.append(peer)
+        if self.unverifiedUsers:
+            for unverified in self.unverifiedUsers:
+                fullList.append('*' + unverified)
+        return fullList
 
 
     def getUserName(self):
@@ -181,7 +183,7 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
         reactor.callFromThread(self.ctcpMakeQuery, username, [('DCC CHAT', 'collaborate %s %d' % (ipaddress, port))])
         self.negotiateCallback(session)
 
-    def onNegotiateSession(self, username, host, port, accepted=None):
+    def onNegotiateSession(self, accepted, username, host, port):
         """
         Callback method for incoming requests to start a peer-to-peer session.
         The username, host, and port of the requesting peer is provided as input.
@@ -190,13 +192,13 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
             # we need user input on whether to accept, so we use chained callbacks to get that input
             # and end up back here with what we need
             deferredTrueNegotiate = defer.Deferred()
-            deferredTrueNegotiate.addCallback(self.onNegotiateSession)
             sessionParams = {
                 'username': username,
                 'host': host,
                 'port': port
             }
-            self.onNegotiateCallback(deferredTrueNegotiate, sessionParams)
+            deferredTrueNegotiate.addCallback(self.onNegotiateSession, **sessionParams)
+            self.onNegotiateCallback(deferredTrueNegotiate, username)
         if accepted:
             logger.info('Establishing session with %s at %s:%d' % (username, host, port))
             session = base.BasePeer(username)
@@ -282,7 +284,7 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
             username = username.split('!', 1)[0]
         logger.debug('received dcc chat from %s, protocol %s, address %s, port %d' % (username, protocol, address, port))
         if protocol == 'collaborate':
-            self.onNegotiateSession(username, address, port)
+            self.onNegotiateSession(None, username, address, port)
 
     #*** helper functions ***#
 

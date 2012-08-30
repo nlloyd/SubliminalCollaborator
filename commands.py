@@ -103,7 +103,7 @@ def loadConfig():
                 configErrorList.append('A %s protocol configuration is missing a username entry' % protocol)
             if not acct_detail.has_key('password'):
                 configErrorList.append('A %s protocol configuration is missing a password entry' % protocol)
-            clientKey = '%s:%s:%s' % (protocol, acct_detail['host'], acct_detail['username'])
+            clientKey = '%s|%s@%s:%d' % (protocol, acct_detail['username'], acct_detail['host'], acct_detail['port'])
             chatClientConfig[clientKey] = acct_detail
     acctConfig.clear_on_change('subliminal_collaborator')
     acctConfig.add_on_change('subliminal_collaborator', loadConfig)
@@ -206,15 +206,18 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand):
         protocolSessions[session.str()] = session
         sessions[self.selectedNegotiator.str()] = protocolSessions
 
-    def acceptSessionRequest(self, deferredOnNegotiateCallback, sessionParams):
+    def acceptSessionRequest(self, deferredOnNegotiateCallback, username):
         self.deferredOnNegotiateCallback = deferredOnNegotiateCallback
-        self.sessionParams = sessionParams
-        self.acceptOrReject = ['%s wants to collaborate with you!' % sessionParams['username'], 'No thanks!']
-        sublime.active_window().show_quick_panel(self.acceptOrReject, self.doAcceptOrRejectSession)
+        self.acceptOrReject = ['%s wants to collaborate with you!' % username, 'No thanks!']
+        sublime.set_timeout(self.doAcceptOrRejectSession, 1000)
 
     def doAcceptOrRejectSession(self, idx=None):
-        self.sessionParams['accepted'] = (idx == 0)
-        self.deferredOnNegotiateCallback.callback(**sessionParams)
+        if idx == None:
+            print 'showing quick panel'
+            print self.acceptOrReject
+            sublime.active_window().show_quick_panel(self.acceptOrReject, self.doAcceptOrRejectSession)
+        print self.deferredOnNegotiateCallback
+        self.deferredOnNegotiateCallback.callback(idx == 0)
         self.sessionParams = None
         self.deferredOnNegotiateCallback = None
 
@@ -263,7 +266,7 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand):
                     negotiatorInstance.onNegotiateCallback = self.acceptSessionRequest
             elif not negotiatorInstances.has_key(targetClient):
                 logger.info('Connecting to chat %s' % targetClient)
-                negotiatorInstances[targetClient] = negotiatorFactoryMap[targetClient.split(':', 1)[0]](self.openSession, self.acceptSessionRequest)
+                negotiatorInstances[targetClient] = negotiatorFactoryMap[targetClient.split('|', 1)[0]](self.openSession, self.acceptSessionRequest)
                 negotiatorInstances[targetClient].connect(**chatClientConfig[targetClient])
             else:
                 logger.info('Already connected to chat %s' % targetClient)
