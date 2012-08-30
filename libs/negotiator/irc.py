@@ -23,7 +23,7 @@ from zope.interface import implements
 from negotiator import interface
 from peer import base
 from twisted.words.protocols import irc
-from twisted.internet import reactor, protocol, threads
+from twisted.internet import reactor, protocol, error
 import logging, sys, socket
 
 logger = logging.getLogger(__name__)
@@ -50,6 +50,8 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
     versionNum = 'alpha'
     versionEnv = "Sublime Text 2"
     #******#
+
+    connectionFailed = False
 
     negotiateCallback = None
     clientConnection = None
@@ -96,8 +98,6 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
         self.password = password.encode()
         self.channel = kwargs['channel'].encode()
 
-        # self.clientConnection = threads.blockingCallFromThread(reactor, reactor.connectTCP,
-        #     self.host, self.port, self)
         self.clientConnection = reactor.connectTCP(self.host, self.port, self)
 
 
@@ -124,8 +124,7 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
         if self.clientConnection:
             if self.clientConnection.state == 'disconnected':
                 return
-            # reactor.callFromThread(self.clientConnection.disconnect)
-            self.clientConnection.disconnect()
+            reactor.callFromThread(self.clientConnection.disconnect)
             logger.info('Disconnected from %s' % self.host)
         self._registered = False
         self.peerUsers = None
@@ -196,7 +195,7 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
         return self
 
     def clientConnectionLost(self, connector, reason):
-        if type(protocol.connectionDone) == reason.type:
+        if error.ConnectionDone == reason.type:
             self.disconnect()
         else:
             # may want to reconnect, but for now lets print why
@@ -204,6 +203,7 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
 
     def clientConnectionFailed(self, connector, reason):
         logger.error('Connection failed: %s - %s' % (reason.type, reason.value))
+        self.connectionFailed = True
         self.disconnect()
 
     #*** irc.IRCClient method implementations ***#

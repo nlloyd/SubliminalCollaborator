@@ -21,6 +21,72 @@
 #   THE SOFTWARE.
 from zope.interface import Interface
 
+
+#################################################################################
+MAGIC_NUMBER = 9
+
+CLIENT = 'client'
+SERVER = 'server'
+PARTNER_ROLE = 'partner'
+HOST_ROLE = 'host'
+
+# states #
+STATE_CONNECTING = 'connecting'
+STATE_CONNECTED = 'connected'
+STATE_DISCONNECTING = 'disconnecting'
+STATE_DISCONNECTED = 'disconnected'
+
+#*** constants representing message types and sub-types ***#
+
+#--- message types ---#
+# sent by client-peer on connection, sent back by server as ACK
+CONNECTED = 0
+# sent by client-peer prior to disconnect, sent back by server as ACK
+DISCONNECT = 1
+# sent to signal to the peer to prepare to receive a view, payloadSize == number of chunks to expect total
+SHARE_VIEW = 2
+# sent in reply to a SHARE_VIEW
+SHARE_VIEW_ACK = 3
+# chunk of view data
+VIEW_CHUNK = 4
+# sent in reply to a VIEW_CHUNK, with payloadSize indicating what was received
+VIEW_CHUNK_ACK = 5
+# sent instead of VIEW_CHUNK if sent != recvd payload sizes
+VIEW_CHUNK_ERROR = 6
+# sent to signal to the peer that the entire view has been sent
+END_OF_VIEW = 7
+END_OF_VIEW_ACK = 8
+# view selection payload
+SELECTION = 9
+# edit event payload
+EDIT = 10
+
+#--- message sub-types ---#
+EDIT_TYPE_NA = 11  # not applicable, sent by all but EDIT
+# TODO figure out the rest
+
+symbolic_to_numeric = {
+    'CONNECTED': 0,
+    'DISCONNECT': 1,
+    'SHARE_VIEW': 2,
+    'SHARE_VIEW_ACK': 3,
+    'VIEW_CHUNK': 4,
+    'VIEW_CHUNK_ACK': 5,
+    'VIEW_CHUNK_ERROR': 6,
+    'END_OF_VIEW': 7,
+    'END_OF_VIEW_ACK': 8,
+    'SELECTION': 9,
+    'EDIT': 10,
+    'EDIT_TYPE_NA': 11
+}
+
+# tyvm twisted/words/protocols/irc.py for this handy dandy trick!
+numeric_to_symbolic = {}
+for k, v in symbolic_to_numeric.items():
+    numeric_to_symbolic[v] = k
+
+#################################################################################
+
 class Peer(Interface):
     """
     One side of a peer-to-peer collaboration connection.
@@ -54,7 +120,7 @@ class Peer(Interface):
         Disconnect from the peer-to-peer session.
         """
 
-    def onDisconnected():
+    def recvd_DISCONNECT():
         """
         Callback method if we are disconnected.
         """

@@ -150,13 +150,15 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand):
             else:
                 logger.error('unknown plugin task %s' % task)
         except:
-            logger.error('unknown plugin task %s' % task)
+            logger.error(sys.exc_info())
 
     def startSession(self):
         self.chatClientKeys = chatClientConfig.keys()
         sublime.active_window().show_quick_panel(self.chatClientKeys, self.selectUser)
 
     def selectUser(self, clientIdx):
+        if clientIdx < 0:
+            return
         targetClient = self.chatClientKeys[clientIdx]
         logger.debug('select user from client %s' % targetClient)
         self.selectedNegotiator = None
@@ -167,9 +169,8 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand):
             logger.debug('No negotiator for %s, creating one' % targetClient)
             self.selectedNegotiator = negotiatorFactoryMap[targetClient.split(':', 1)[0]](self.openSession)
             negotiatorInstances[targetClient] = self.selectedNegotiator
+            self.selectedNegotiator.connect(**chatClientConfig[targetClient])
         # use our negotiator to connect to the chat server and wait to grab the userlist
-        self.selectedNegotiator.negotiateCallback = self.openSession
-        self.selectedNegotiator.connect(**chatClientConfig[targetClient])
         self.retryCounter = 0
         self.connectToUser()
 
@@ -187,7 +188,7 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand):
                 # we are connected, retrieve and show current user list from target chat client negotiator
                 self.userList = self.selectedNegotiator.listUsers()
                 sublime.active_window().show_quick_panel(self.userList, self.connectToUser)
-        else:
+        elif userIdx > -1:
             if sessions.has_key(self.selectedNegotiator.str()) and sessions[self.selectedNegotiator.str()].has_key(self.userList[userIdx]):
                 # TODO status bar: already have a session for this user!
                 return
@@ -211,35 +212,46 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand):
             for client in sessions.keys():
                 for user in sessions[client].keys():
                     sessionList.append('%s -> %s' % (client, user))
+            if len(sessionList) == 0:
+                sessionList = ['*** No Active Sessions ***']
             sublime.active_window().show_quick_panel(sessionList, self.showSessions)
 
-    def closeSession(self, idx=None):
+    def endSession(self, idx=None):
         if idx == None:
             self.killList = []
             for client in sessions.keys():
                 for user in sessions[client].keys():
                     self.killList.append('%s -> %s' % (client, user))
-            sublime.active_window().show_quick_panel(self.killList, self.closeSession)
-        else:
+            if len(self.killList) == 0:
+                self.killList = ['*** No Active Sessions ***']
+            sublime.active_window().show_quick_panel(self.killList, self.endSession)
+        elif idx > -1:
             clientAndUser = self.killList[idx]
+            if clientAndUser == '*** No Active Sessions ***':
+                return
             client, user = clientAndUser.split(' -> ')
+            logger.info('Closing session with user %s on chat %s' % (user, client))
             sessionToKill = sessions[client].pop(user)
             sessionToKill.disconnect()
 
     def connectChat(self, clientIdx=None):
         if clientIdx == None:
             self.chatClientKeys = chatClientConfig.keys()
-            for connectedKeys in negotiatorInstances.keys():
-                self.chatClientKeys.remove(connectedKeys)
+            for connectedKey in negotiatorInstances.keys():
+                if not negotiatorInstances[connectedKey].connectionFailed:
+                    self.chatClientKeys.remove(connectedKey)
             self.chatClientKeys.append('ALL')
             sublime.active_window().show_quick_panel(self.chatClientKeys, self.connectChat)
-        else:
+        elif clientIdx > -1:
             targetClient = self.chatClientKeys[clientIdx]
             if targetClient == 'ALL':
                 connectAllChat()
+                for negotiatorInstance in negotiatorInstances.values():
+                    negotiatorInstance.negotiateCallback = self.openSession
             elif not negotiatorInstances.has_key(targetClient):
                 logger.info('Connecting to chat %s' % targetClient)
                 negotiatorInstances[targetClient] = negotiatorFactoryMap[targetClient.split(':', 1)[0]](self.openSession)
+                negotiatorInstances[targetClient].connect(**chatClientConfig[targetClient])
             else:
                 logger.info('Already connected to chat %s' % targetClient)
 
@@ -247,5 +259,5 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand):
         if clientIdx == None:
             self.chatClientKeys = negotiatorInstances.keys()
             sublime.active_window().show_quick_panel(self.chatClientKeys, self.disconnectChat)
-        else:
-            negotiatorInstances[self.chatClientKeys[clientIdx]].disconnect()
+        elif clientIdx > -1:
+            negotiatorInstances.pop(self.chatClientKeys[clientIdx]).disconnect()

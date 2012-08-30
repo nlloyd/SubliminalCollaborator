@@ -29,7 +29,9 @@ def callback(obj):
 def runMockSubliminalCollaborator(host, port, username, password, channel):
     if type(port) == str:
         port = int(port)
+    print 'Creating negotiator instance'
     negotiator = irc.IRCNegotiator(callback)
+    print 'Connecting to negotiator instance'
     negotiator.connect(host, port, username, password, channel=channel)
 
 def main(argv):
@@ -47,7 +49,8 @@ def main(argv):
     stdoutHandler.setFormatter(logging.Formatter(fmt='[SubliminalCollaborator(%(levelname)s): %(message)s]'))
     logger.addHandler(stdoutHandler)
     logger.setLevel(logging.DEBUG)
-    reactor.callInThread(runMockSubliminalCollaborator, *argv)
+
+    reactor.callLater(2.0, runMockSubliminalCollaborator, *argv)
     reactor.run()
 
 if __name__ == "__main__":

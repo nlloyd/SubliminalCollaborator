@@ -16,8 +16,8 @@
     },
     {
         "command": "collaborate",
-        "caption": "Collaborate: Close Active Session", 
-        "args": { "task": "closeSession" }
+        "caption": "Collaborate: End Active Session", 
+        "args": { "task": "endSession" }
     },
     {
         "command": "collaborate",

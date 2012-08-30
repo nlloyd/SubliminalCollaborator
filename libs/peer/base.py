@@ -21,7 +21,7 @@
 #   THE SOFTWARE.
 from zope.interface import implements
 from peer import interface
-from twisted.internet import reactor, protocol, threads, interfaces
+from twisted.internet import reactor, protocol, error, interfaces
 from twisted.protocols import basic
 import logging, sys, socket, struct
 
@@ -33,72 +33,6 @@ stdoutHandler = logging.StreamHandler(sys.stdout)
 stdoutHandler.setFormatter(logging.Formatter(fmt='[SubliminalCollaborator|Peer(%(levelname)s): %(message)s]'))
 logger.addHandler(stdoutHandler)
 logger.setLevel(logging.DEBUG)
-
-
-#################################################################################
-MAGIC_NUMBER = 9
-
-CLIENT = 'client'
-SERVER = 'server'
-PARTNER_ROLE = 'partner'
-HOST_ROLE = 'host'
-
-# states #
-STATE_CONNECTING = 'connecting'
-STATE_CONNECTED = 'connected'
-STATE_DISCONNECTING = 'disconnecting'
-STATE_DISCONNECTED = 'disconnected'
-
-#*** constants representing message types and sub-types ***#
-
-#--- message types ---#
-# sent by client-peer on connection, sent back by server as ACK
-CONNECTED = 0
-# sent by client-peer prior to disconnect, sent back by server as ACK
-DISCONNECT = 1
-# sent to signal to the peer to prepare to receive a view, payloadSize == number of chunks to expect total
-SHARE_VIEW = 2
-# sent in reply to a SHARE_VIEW
-SHARE_VIEW_ACK = 3
-# chunk of view data
-VIEW_CHUNK = 4
-# sent in reply to a VIEW_CHUNK, with payloadSize indicating what was received
-VIEW_CHUNK_ACK = 5
-# sent instead of VIEW_CHUNK if sent != recvd payload sizes
-VIEW_CHUNK_ERROR = 6
-# sent to signal to the peer that the entire view has been sent
-END_OF_VIEW = 7
-END_OF_VIEW_ACK = 8
-# view selection payload
-SELECTION = 9
-# edit event payload
-EDIT = 10
-
-#--- message sub-types ---#
-EDIT_TYPE_NA = 11  # not applicable, sent by all but EDIT
-# TODO figure out the rest
-
-symbolic_to_numeric = {
-    'CONNECTED': 0,
-    'DISCONNECT': 1,
-    'SHARE_VIEW': 2,
-    'SHARE_VIEW_ACK': 3,
-    'VIEW_CHUNK': 4,
-    'VIEW_CHUNK_ACK': 5,
-    'VIEW_CHUNK_ERROR': 6,
-    'END_OF_VIEW': 7,
-    'END_OF_VIEW_ACK': 8,
-    'SELECTION': 9,
-    'EDIT': 10,
-    'EDIT_TYPE_NA': 11
-}
-
-# tyvm twisted/words/protocols/irc.py for this handy dandy trick!
-numeric_to_symbolic = {}
-for k, v in symbolic_to_numeric.items():
-    numeric_to_symbolic[v] = k
-
-#################################################################################
 
 
 # build off of the Int32StringReceiver to leverage its unprocessed buffer handling
@@ -150,9 +84,9 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
 
         @return: the connected port number
         """
-        self.peerType = SERVER
-        self.role = HOST_ROLE
-        self.state = STATE_CONNECTING
+        self.peerType = interface.SERVER
+        self.role = interface.HOST_ROLE
+        self.state = interface.STATE_CONNECTING
         self.connection = reactor.listenTCP(port, self)
         logger.info('Listening for peers on port %d' % self.connection.getHost().port)
         return self.connection.getHost().port
@@ -168,26 +102,34 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         logger.info('Connecting to peer at %s:%d' % (host, port))
         self.host = host
         self.port = port
-        self.peerType = CLIENT
-        self.role = PARTNER_ROLE
-        self.state = STATE_CONNECTING
+        self.peerType = interface.CLIENT
+        self.role = interface.PARTNER_ROLE
+        self.state = interface.STATE_CONNECTING
         self.connection = reactor.connectTCP(self.host, self.port, self)
 
     def disconnect(self):
         """
         Disconnect from the peer-to-peer session.
         """
-        if self.state == STATE_DISCONNECTING:
-            if self.peerType == SERVER:
-                self.connection.stopListening()
-            elif self.peerType == CLIENT:
-                self.connection.disconnect()
+        if self.state == interface.STATE_DISCONNECTED:
+            # already disconnected!
+            return
+        self.state = interface.STATE_DISCONNECTING
+        if self.peerType == interface.SERVER:
+            reactor.callFromThread(self.connection.stopListening)
+            logger.debug('Telling peer to disconnect')
+            self.sendMessage(interface.DISCONNECT)
+        elif self.peerType == interface.CLIENT:
+            reactor.callFromThread(self.connection.disconnect)
 
-    def onDisconnected(self):
+    def recvd_DISCONNECT(self, messsageSubType=None, payload=''):
         """
-        Callback method if we are disconnected.
+        Callback method if we receive a DISCONNECT message.
         """
-        pass
+        logger.debug('Disconnecting from peer at %s:%d' % (self.host, self.port))
+        self.disconnect()
+        self.state = interface.STATE_DISCONNECTED
+        logger.info('Disconnected from peer %s' % self.sharingWithUser)
 
     def startCollab(self, view):
         """
@@ -265,16 +207,16 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         pass
 
     def recvd_CONNECTED(self, messageSubType, payload):
-        if self.peerType == CLIENT:
-            if self.state == STATE_CONNECTING:
-                self.state = STATE_CONNECTED
+        if self.peerType == interface.CLIENT:
+            if self.state == interface.STATE_CONNECTING:
+                self.state = interface.STATE_CONNECTED
                 logger.info('Connected to peer: %s' % self.sharingWithUser)
             else:
                 logger.error('Received CONNECTED message from server-peer when in state %s' % self.state)
         else:
             # client is connected, send ACK and set our state to be connected
-            self.sendMessage(CONNECTED)
-            self.state = STATE_CONNECTED
+            self.sendMessage(interface.CONNECTED)
+            self.state = interface.STATE_CONNECTED
             logger.info('Connected to peer: %s' % self.sharingWithUser)
 
     def recvdUnknown(self, messageType, messageSubType, payload):
@@ -284,9 +226,9 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
 
     def stringReceived(self, data):
         magicNumber, msgTypeNum, msgSubTypeNum = struct.unpack(self.messageHeaderFmt, data[:self.messageHeaderSize])
-        assert magicNumber == MAGIC_NUMBER
-        msgType = numeric_to_symbolic[msgTypeNum]
-        msgSubType = numeric_to_symbolic[msgSubTypeNum]
+        assert magicNumber == interface.MAGIC_NUMBER
+        msgType = interface.numeric_to_symbolic[msgTypeNum]
+        msgSubType = interface.numeric_to_symbolic[msgSubTypeNum]
         payload = data[self.messageHeaderSize:]
         logger.debug('RECVD: %s, %s, %d' % (msgType, msgSubType, len(payload)))
         method = getattr(self, "recvd_%s" % msgType, None)
@@ -296,7 +238,11 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
             self.recvdUnknown(msgType, msgSubType, payload)
 
     def connectionLost(self, reason):
-        if type(protocol.connectionDone) == reason.type:
+        if self.peerType == interface.CLIENT:
+            # ignore this, clientConnectionLost() below will also be called
+            return
+        self.state = interface.STATE_DISCONNECTED
+        if error.ConnectionDone == reason.type:
             self.disconnect()
         else:
             # may want to reconnect, but for now lets print why
@@ -305,16 +251,16 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
     #*** protocol.Factory method implementations ***#
 
     def buildProtocol(self, addr):
-        if self.peerType == CLIENT:
-            logger.info('Connected to peer at %s:%d' % (self.host, self.port))
-            self.sendMessage(CONNECTED)
+        if self.peerType == interface.CLIENT:
+            logger.debug('Connected to peer at %s:%d' % (self.host, self.port))
+            self.sendMessage(interface.CONNECTED)
         return self
 
     #*** protocol.ClientFactory method implementations ***#
 
     def clientConnectionLost(self, connector, reason):
-        print protocol.connectionDone
-        if type(protocol.connectionDone) == reason.type:
+        self.state = interface.STATE_DISCONNECTED
+        if error.ConnectionDone == reason.type:
             self.disconnect()
         else:
             # may want to reconnect, but for now lets print why
@@ -326,9 +272,9 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
 
     #*** helper functions ***#
 
-    def sendMessage(self, messageType, messageSubType=EDIT_TYPE_NA, payload=''):
-        logger.debug('SEND: %s-%s[%s]' % (numeric_to_symbolic[messageType], numeric_to_symbolic[messageSubType], payload))
-        reactor.callFromThread(self.sendString, struct.pack(self.messageHeaderFmt, MAGIC_NUMBER, messageType, messageSubType) + payload)
+    def sendMessage(self, messageType, messageSubType=interface.EDIT_TYPE_NA, payload=''):
+        logger.debug('SEND: %s-%s[%s]' % (interface.numeric_to_symbolic[messageType], interface.numeric_to_symbolic[messageSubType], payload))
+        reactor.callFromThread(self.sendString, struct.pack(self.messageHeaderFmt, interface.MAGIC_NUMBER, messageType, messageSubType) + payload)
 
     def str(self):
         return self.sharingWithUser
