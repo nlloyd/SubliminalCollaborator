@@ -23,7 +23,7 @@ from zope.interface import implements
 from negotiator import interface
 from peer import base
 from twisted.words.protocols import irc
-from twisted.internet import reactor, protocol, error
+from twisted.internet import reactor, protocol, error, defer
 import logging, sys, socket
 
 logger = logging.getLogger(__name__)
@@ -54,6 +54,8 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
     connectionFailed = False
 
     negotiateCallback = None
+    onNegotiateCallback = None
+
     clientConnection = None
     host = None
     port = None
@@ -64,8 +66,9 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
 
     hostAddressList = socket.gethostbyname_ex(socket.gethostname())[2]
 
-    def __init__(self, negotiateCallback=None):
+    def __init__(self, negotiateCallback=None, onNegotiateCallback=None):
         self.negotiateCallback = negotiateCallback
+        self.onNegotiateCallback = onNegotiateCallback
 
     #*** Negotiator method implementations ***#
 
@@ -178,16 +181,27 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
         reactor.callFromThread(self.ctcpMakeQuery, username, [('DCC CHAT', 'collaborate %s %d' % (ipaddress, port))])
         self.negotiateCallback(session)
 
-
-    def onNegotiateSession(self, username, host, port):
+    def onNegotiateSession(self, username, host, port, accepted=None):
         """
         Callback method for incoming requests to start a peer-to-peer session.
         The username, host, and port of the requesting peer is provided as input.
         """
-        logger.info('Establishing session with %s at %s:%d' % (username, host, port))
-        session = base.BasePeer(username)
-        session.clientConnect(host, port)
-        self.negotiateCallback(session)
+        if not self.onNegotiateCallback == None and accepted == None:
+            # we need user input on whether to accept, so we use chained callbacks to get that input
+            # and end up back here with what we need
+            deferredTrueNegotiate = defer.Deferred()
+            deferredTrueNegotiate.addCallback(self.onNegotiateSession)
+            sessionParams = {
+                'username': username,
+                'host': host,
+                'port': port
+            }
+            self.onNegotiateCallback(deferredTrueNegotiate, sessionParams)
+        if accepted:
+            logger.info('Establishing session with %s at %s:%d' % (username, host, port))
+            session = base.BasePeer(username)
+            session.clientConnect(host, port)
+            self.negotiateCallback(session)
 
     #*** protocol.ClientFactory method implementations ***#
 
@@ -285,4 +299,4 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
         reactor.callFromThread(self.ctcpMakeQuery, user, [('VERSION', None)])
 
     def str(self):
-        return 'irc:%s:%s' % (self.host, self.nickname)
+        return 'irc|%s@%s:%d' % (self.nickname, self.host, self.port)

@@ -86,7 +86,7 @@ class Negotiator(Interface):
         @return: C{peer.Peer} already connected to another C{peer.Peer}
         """
 
-    def onNegotiateSession(username, host, port):
+    def onNegotiateSession(username, host, port, accepted):
         """
         Callback method for incoming requests to start a peer-to-peer session.
         The username, host, and port of the requesting peer is provided as input.

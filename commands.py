@@ -167,7 +167,7 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand):
             self.selectedNegotiator = negotiatorInstances[targetClient]
         else:
             logger.debug('No negotiator for %s, creating one' % targetClient)
-            self.selectedNegotiator = negotiatorFactoryMap[targetClient.split(':', 1)[0]](self.openSession)
+            self.selectedNegotiator = negotiatorFactoryMap[targetClient.split(':', 1)[0]](self.openSession, self.acceptSessionRequest)
             negotiatorInstances[targetClient] = self.selectedNegotiator
             self.selectedNegotiator.connect(**chatClientConfig[targetClient])
         # use our negotiator to connect to the chat server and wait to grab the userlist
@@ -206,6 +206,18 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand):
         protocolSessions[session.str()] = session
         sessions[self.selectedNegotiator.str()] = protocolSessions
 
+    def acceptSessionRequest(self, deferredOnNegotiateCallback, sessionParams):
+        self.deferredOnNegotiateCallback = deferredOnNegotiateCallback
+        self.sessionParams = sessionParams
+        self.acceptOrReject = ['%s wants to collaborate with you!' % sessionParams['username'], 'No thanks!']
+        sublime.active_window().show_quick_panel(self.acceptOrReject, self.doAcceptOrRejectSession)
+
+    def doAcceptOrRejectSession(self, idx=None):
+        self.sessionParams['accepted'] = (idx == 0)
+        self.deferredOnNegotiateCallback.callback(**sessionParams)
+        self.sessionParams = None
+        self.deferredOnNegotiateCallback = None
+
     def showSessions(self, idx=None):
         if idx == None:
             sessionList = []
@@ -240,17 +252,18 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand):
             for connectedKey in negotiatorInstances.keys():
                 if not negotiatorInstances[connectedKey].connectionFailed:
                     self.chatClientKeys.remove(connectedKey)
-            self.chatClientKeys.append('ALL')
+            self.chatClientKeys.append('*** ALL ***')
             sublime.active_window().show_quick_panel(self.chatClientKeys, self.connectChat)
         elif clientIdx > -1:
             targetClient = self.chatClientKeys[clientIdx]
-            if targetClient == 'ALL':
+            if targetClient == '*** ALL ***':
                 connectAllChat()
                 for negotiatorInstance in negotiatorInstances.values():
                     negotiatorInstance.negotiateCallback = self.openSession
+                    negotiatorInstance.onNegotiateCallback = self.acceptSessionRequest
             elif not negotiatorInstances.has_key(targetClient):
                 logger.info('Connecting to chat %s' % targetClient)
-                negotiatorInstances[targetClient] = negotiatorFactoryMap[targetClient.split(':', 1)[0]](self.openSession)
+                negotiatorInstances[targetClient] = negotiatorFactoryMap[targetClient.split(':', 1)[0]](self.openSession, self.acceptSessionRequest)
                 negotiatorInstances[targetClient].connect(**chatClientConfig[targetClient])
             else:
                 logger.info('Already connected to chat %s' % targetClient)

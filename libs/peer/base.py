@@ -72,6 +72,10 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
     sharingWithUser = None
     view = None
 
+    # callback method instances
+    switchRole = None
+    peerInitiatedDisconnect = None
+
     def __init__(self, username):
         self.sharingWithUser = username
 
