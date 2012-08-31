@@ -198,7 +198,15 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand):
                 session = self.selectedNegotiator.negotiateSession(self.userList[userIdx])
 
     def openSession(self, session):
+        print 'negotiateCallback'
         protocolSessions = None
+        # if we dont have a selected negotiator then the session was not initiated by us, so
+        # search for the negotiator that knows about the initiating peer
+        if self.selectedNegotiator == None:
+            for negotiatorInstance in negotiatorInstances.values():
+                if session.sharingWithUser in negotiatorInstance.listUsers():
+                    self.selectedNegotiator = negotiatorInstance
+                    break
         if sessions.has_key(self.selectedNegotiator.str()):
             protocolSessions = sessions[self.selectedNegotiator.str()]
         else:
@@ -207,19 +215,13 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand):
         sessions[self.selectedNegotiator.str()] = protocolSessions
 
     def acceptSessionRequest(self, deferredOnNegotiateCallback, username):
+        print 'onNegotiateCallback'
         self.deferredOnNegotiateCallback = deferredOnNegotiateCallback
         self.acceptOrReject = ['%s wants to collaborate with you!' % username, 'No thanks!']
         sublime.set_timeout(self.doAcceptOrRejectSession, 1000)
 
-    def doAcceptOrRejectSession(self, idx=None):
-        if idx == None:
-            print 'showing quick panel'
-            print self.acceptOrReject
-            sublime.active_window().show_quick_panel(self.acceptOrReject, self.doAcceptOrRejectSession)
-        print self.deferredOnNegotiateCallback
-        self.deferredOnNegotiateCallback.callback(idx == 0)
-        self.sessionParams = None
-        self.deferredOnNegotiateCallback = None
+    def doAcceptOrRejectSession(self):
+        sublime.active_window().show_quick_panel(self.acceptOrReject, self.deferredOnNegotiateCallback.callback)
 
     def showSessions(self, idx=None):
         if idx == None:

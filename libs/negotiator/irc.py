@@ -183,12 +183,15 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
         reactor.callFromThread(self.ctcpMakeQuery, username, [('DCC CHAT', 'collaborate %s %d' % (ipaddress, port))])
         self.negotiateCallback(session)
 
-    def onNegotiateSession(self, accepted, username, host, port):
+    def onNegotiateSession(self, rejected, username, host, port):
         """
         Callback method for incoming requests to start a peer-to-peer session.
         The username, host, and port of the requesting peer is provided as input.
+
+        The value for 'rejected' is provided via a roundabout sequence of callback methods
+        which poll for user input.
         """
-        if not self.onNegotiateCallback == None and accepted == None:
+        if (not self.onNegotiateCallback == None) and (rejected == None):
             # we need user input on whether to accept, so we use chained callbacks to get that input
             # and end up back here with what we need
             deferredTrueNegotiate = defer.Deferred()
@@ -199,11 +202,14 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
             }
             deferredTrueNegotiate.addCallback(self.onNegotiateSession, **sessionParams)
             self.onNegotiateCallback(deferredTrueNegotiate, username)
-        if accepted:
+        if rejected == False:
             logger.info('Establishing session with %s at %s:%d' % (username, host, port))
             session = base.BasePeer(username)
             session.clientConnect(host, port)
             self.negotiateCallback(session)
+        elif rejected == True:
+            logger.info('Rejected session with %s at %s:%d' % (username, host, port))
+            self.msg(username, 'REJECTED')
 
     #*** protocol.ClientFactory method implementations ***#
 
@@ -219,6 +225,8 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
 
     def clientConnectionFailed(self, connector, reason):
         logger.error('Connection failed: %s - %s' % (reason.type, reason.value))
+        if error.ConnectionRefusedError == reason.type:
+            pass
         self.connectionFailed = True
         self.disconnect()
 
@@ -267,11 +275,11 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
         if '!' in username:
             username = username.split('!', 1)[0]
         if data == ('%s:%s:%s' % (self.versionName, self.versionNum, self.versionEnv)):
-            logger.debug('verified peer %s' % username)
+            logger.debug('Verified peer %s' % username)
             self.peerUsers.append(username)
             self.unverifiedUsers.remove(username)
         elif (self.versionName in data) and (self.versionNum in data) and (self.versionEnv in data):
-            logger.debug('verified peer %s' % username)
+            logger.debug('Verified peer %s' % username)
             self.peerUsers.append(username)
             self.unverifiedUsers.remove(username)
         else:
@@ -282,7 +290,7 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
         username = user.lstrip(irc.NICK_PREFIXES)
         if '!' in username:
             username = username.split('!', 1)[0]
-        logger.debug('received dcc chat from %s, protocol %s, address %s, port %d' % (username, protocol, address, port))
+        logger.debug('Received dcc chat from %s, protocol %s, address %s, port %d' % (username, protocol, address, port))
         if protocol == 'collaborate':
             self.onNegotiateSession(None, username, address, port)
 
