@@ -75,9 +75,11 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
     # callback method instances
     switchRole = None
     peerInitiatedDisconnect = None
+    failedToInitConnectCallback = None
 
-    def __init__(self, username):
+    def __init__(self, username, failedToInitConnectCallback=None):
         self.sharingWithUser = username
+        self.failedToInitConnectCallback = failedToInitConnectCallback
 
     def hostConnect(self, port = 0):
         """
@@ -272,6 +274,9 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
 
     def clientConnectionFailed(self, connector, reason):
         logger.error('Connection failed: %s - %s' % (reason.type, reason.value))
+        if error.ConnectionRefusedError == reason.type:
+            if (self.peerType == interface.CLIENT) and (not self.failedToInitConnectCallback == None):
+                self.failedToInitConnectCallback(self.sharingWithUser)
         self.disconnect()
 
     #*** helper functions ***#

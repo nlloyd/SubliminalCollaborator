@@ -41,8 +41,10 @@ if runtime.platform.isWindows():
         sys.path.insert(0, libs_path)
 
 from negotiator import irc
+from peer.interface import STATE_DISCONNECTED
+import peer.interface
 from twisted.internet import reactor
-import threading, logging, sys
+import threading, logging
 
 # log.startLogging(sys.stdout)
 
@@ -77,6 +79,26 @@ connectAllOnStartup = False
 # key is same as config dictionary with value equallying live negotiator instances
 negotiatorInstances = {}
 sessions = {}
+sessionsLock = threading.Lock()
+
+class SessionCleanupThread(threading.Thread):
+    def __init__(self):
+        threading.Thread.__init__(self)
+
+    def run(self):
+        global sessions
+        global sessionsLock
+        time.sleep(5.0)
+        # runs for as long as the reactor is running
+        while reactor.running:
+            sessionsLock.acquire()
+            for sessionsKey, protocolSessions in sessions.items():
+                for sessionKey, session in protocolSessions.items():
+                    if session.state == STATE_DISCONNECTED:
+                        sessions[sessionsKey].pop(sessionKey)
+            sessionsLock.release()
+            time.sleep(30.0)
+
 
 
 def loadConfig():
@@ -167,7 +189,7 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand):
             self.selectedNegotiator = negotiatorInstances[targetClient]
         else:
             logger.debug('No negotiator for %s, creating one' % targetClient)
-            self.selectedNegotiator = negotiatorFactoryMap[targetClient.split(':', 1)[0]](self.openSession, self.acceptSessionRequest)
+            self.selectedNegotiator = negotiatorFactoryMap[targetClient.split(':', 1)[0]](self.openSession, self.acceptSessionRequest, self.killHostedSession)
             negotiatorInstances[targetClient] = self.selectedNegotiator
             self.selectedNegotiator.connect(**chatClientConfig[targetClient])
         # use our negotiator to connect to the chat server and wait to grab the userlist
@@ -198,7 +220,6 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand):
                 session = self.selectedNegotiator.negotiateSession(self.userList[userIdx])
 
     def openSession(self, session):
-        print 'negotiateCallback'
         protocolSessions = None
         # if we dont have a selected negotiator then the session was not initiated by us, so
         # search for the negotiator that knows about the initiating peer
@@ -215,7 +236,6 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand):
         sessions[self.selectedNegotiator.str()] = protocolSessions
 
     def acceptSessionRequest(self, deferredOnNegotiateCallback, username):
-        print 'onNegotiateCallback'
         self.deferredOnNegotiateCallback = deferredOnNegotiateCallback
         self.acceptOrReject = ['%s wants to collaborate with you!' % username, 'No thanks!']
         sublime.set_timeout(self.doAcceptOrRejectSession, 1000)
@@ -232,6 +252,14 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand):
             if len(sessionList) == 0:
                 sessionList = ['*** No Active Sessions ***']
             sublime.active_window().show_quick_panel(sessionList, self.showSessions)
+
+    def killHostedSession(self, protocol, username):
+        sessionsLock.acquire()
+        if sessions[protocol].has_key(username):
+            toKill = sessions[protocol].pop(username)
+            logger.debug('Cleaning up state hosted session with %s' % username)
+            toKill.disconnect()
+        sessionsLock.release()
 
     def endSession(self, idx=None):
         if idx == None:
@@ -266,9 +294,10 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand):
                 for negotiatorInstance in negotiatorInstances.values():
                     negotiatorInstance.negotiateCallback = self.openSession
                     negotiatorInstance.onNegotiateCallback = self.acceptSessionRequest
+                    negotiatorInstance.rejectedOrFailedCallback = self.killHostedSession
             elif not negotiatorInstances.has_key(targetClient):
                 logger.info('Connecting to chat %s' % targetClient)
-                negotiatorInstances[targetClient] = negotiatorFactoryMap[targetClient.split('|', 1)[0]](self.openSession, self.acceptSessionRequest)
+                negotiatorInstances[targetClient] = negotiatorFactoryMap[targetClient.split('|', 1)[0]](self.openSession, self.acceptSessionRequest, self.killHostedSession)
                 negotiatorInstances[targetClient].connect(**chatClientConfig[targetClient])
             else:
                 logger.info('Already connected to chat %s' % targetClient)

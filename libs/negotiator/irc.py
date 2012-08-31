@@ -55,6 +55,7 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
 
     negotiateCallback = None
     onNegotiateCallback = None
+    rejectedOrFailedCallback = None
 
     clientConnection = None
     host = None
@@ -66,9 +67,10 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
 
     hostAddressList = socket.gethostbyname_ex(socket.gethostname())[2]
 
-    def __init__(self, negotiateCallback=None, onNegotiateCallback=None):
+    def __init__(self, negotiateCallback=None, onNegotiateCallback=None, rejectedOrFailedCallback=None):
         self.negotiateCallback = negotiateCallback
         self.onNegotiateCallback = onNegotiateCallback
+        self.rejectedOrFailedCallback = rejectedOrFailedCallback
 
     #*** Negotiator method implementations ***#
 
@@ -163,7 +165,7 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
         return self.nickname
 
 
-    def negotiateSession(self, username):
+    def negotiateSession(self, username, tryNext=False):
         """
         Negotiate through the instant messaging layer a direct peer-to-peer connection
         with the user that has the given username.  Note the username in question must
@@ -176,10 +178,16 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
         """
         if (not username in self.peerUsers) and (not username in self.unverifiedUsers):
             self.addUserToLists(username)
+        if not tryNext:
+            self.hostAddressToTryQueue = self.hostAddressList
+        if len(self.hostAddressToTryQueue) == 0:
+            logger.warn('Unable to connect to peer %s, all host addresses tried and failed!')
+            # TODO error reporting in UI
+            self.msg(username, 'NO-GOOD-HOST-IP')
+        ipaddress = self.hostAddressToTryQueue.pop()
         session = base.BasePeer(username)
         port = session.hostConnect()
         logger.debug('Negotiating collab session with %s on port %d' % (username, port))
-        ipaddress = self.hostAddressList[0]
         reactor.callFromThread(self.ctcpMakeQuery, username, [('DCC CHAT', 'collaborate %s %d' % (ipaddress, port))])
         self.negotiateCallback(session)
 
@@ -204,7 +212,7 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
             self.onNegotiateCallback(deferredTrueNegotiate, username)
         if rejected == False:
             logger.info('Establishing session with %s at %s:%d' % (username, host, port))
-            session = base.BasePeer(username)
+            session = base.BasePeer(username, self.sendPeerFailedToConnect)
             session.clientConnect(host, port)
             self.negotiateCallback(session)
         elif rejected == True:
@@ -225,8 +233,6 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
 
     def clientConnectionFailed(self, connector, reason):
         logger.error('Connection failed: %s - %s' % (reason.type, reason.value))
-        if error.ConnectionRefusedError == reason.type:
-            pass
         self.connectionFailed = True
         self.disconnect()
 
@@ -270,15 +276,32 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
         self.dropUserFromLists(oldname)
         self.addUserToLists(newname)
 
+    def privmsg(self, user, channel, message):
+        username = user.lstrip(irc.NICK_PREFIXES)
+        if '!' in username:
+            username = username.split('!', 1)[0]
+        logger.debug('Received %s from %s' % (message, username))
+        if message == 'TRY-NEXT-HOST-IP':
+            if not self.rejectedOrFailedCallback == None:
+                # kill previous session through a callback
+                self.rejectedOrFailedCallback(self.str(), username)
+            self.negotiateSession(username, True)
+        elif message == 'NO-GOOD-HOST-IP':
+            # client recvd from server... report error and cleanup any half-made sessions
+            logger.warn('All connections to all possible host ip addresses failed.')
+            if not self.rejectedOrFailedCallback == None:
+                self.rejectedOrFailedCallback(self.str(), username)
+        elif message == 'REJECTED':
+            # server recvd from client... report rejected and cleanup any half-made sessions
+            logger.info('Request to share with user %s was rejected.' % username)
+            if not self.rejectedOrFailedCallback == None:
+                self.rejectedOrFailedCallback(self.str(), username)
+
     def ctcpReply_VERSION(self, user, channel, data):
         username = user.lstrip(irc.NICK_PREFIXES)
         if '!' in username:
             username = username.split('!', 1)[0]
-        if data == ('%s:%s:%s' % (self.versionName, self.versionNum, self.versionEnv)):
-            logger.debug('Verified peer %s' % username)
-            self.peerUsers.append(username)
-            self.unverifiedUsers.remove(username)
-        elif (self.versionName in data) and (self.versionNum in data) and (self.versionEnv in data):
+        if (data == ('%s:%s:%s' % (self.versionName, self.versionNum, self.versionEnv))) or ((self.versionName in data) and (self.versionNum in data) and (self.versionEnv in data)):
             logger.debug('Verified peer %s' % username)
             self.peerUsers.append(username)
             self.unverifiedUsers.remove(username)
@@ -307,6 +330,9 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
         username = user.lstrip(irc.NICK_PREFIXES)
         self.unverifiedUsers.append(username)
         reactor.callFromThread(self.ctcpMakeQuery, user, [('VERSION', None)])
+
+    def sendPeerFailedToConnect(self, username):
+        self.msg(username, 'TRY-NEXT-HOST-IP')
 
     def str(self):
         return 'irc|%s@%s:%d' % (self.nickname, self.host, self.port)

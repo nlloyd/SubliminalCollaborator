@@ -61,10 +61,24 @@ def configureLogging():
 def callback(obj):
     print type(obj)
 
+def negotiateCallback(obj):
+    print 'negotiateCallback'
+    print type(obj)
+
+def onNegotiateCallback(obj1, obj2):
+    print 'onNegotiateCallback'
+    print type(obj1)
+    print type(obj2)
+
+def rejectedCallback(obj1, obj2):
+    print 'rejectedCallback'
+    print type(obj1)
+    print type(obj2)
+
 def runMockSubliminalCollaborator(host, port, username, password, channel, isHost=False):
     if type(port) == str:
         port = int(port)
-    negotiator = irc.IRCNegotiator(callback, callback)
+    negotiator = irc.IRCNegotiator(negotiateCallback, onNegotiateCallback, rejectedCallback)
     negotiator.connect(host, port, username, password, channel=channel)
     if bool(isHost):
         reactor.callLater(5.0, runHostBehavior, negotiator)
