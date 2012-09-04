@@ -51,24 +51,21 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
     versionEnv = "Sublime Text 2"
     #******#
 
-    connectionFailed = False
-
     negotiateCallback = None
     onNegotiateCallback = None
     rejectedOrFailedCallback = None
 
-    clientConnection = None
-    host = None
-    port = None
-    password = None
-
-    peerUsers = None
-    unverifiedUsers = None
-
-    def __init__(self, negotiateCallback=None, onNegotiateCallback=None, rejectedOrFailedCallback=None):
-        self.negotiateCallback = negotiateCallback
-        self.onNegotiateCallback = onNegotiateCallback
-        self.rejectedOrFailedCallback = rejectedOrFailedCallback
+    def __init__(self):
+        # self.negotiateCallback = negotiateCallback
+        # self.onNegotiateCallback = onNegotiateCallback
+        # self.rejectedOrFailedCallback = rejectedOrFailedCallback
+        self.clientConnection = None
+        self.host = None
+        self.port = None
+        self.password = None
+        self.peerUsers = None
+        self.unverifiedUsers = None
+        self.connectionFailed = False
 
     #*** Negotiator method implementations ***#
 

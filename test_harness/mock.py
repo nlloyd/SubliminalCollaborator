@@ -29,6 +29,8 @@ __path__ = os.path.dirname(__file__)
 libs_path = os.path.join(os.path.split(__path__)[0], 'libs')
 if libs_path not in sys.path:
     sys.path.insert(0, libs_path)
+if __file__ not in sys.path:
+    sys.path.append(__path__) 
 
 # need the windows select.pyd binary
 from twisted.python import runtime, log
@@ -42,7 +44,7 @@ if runtime.platform.isWindows():
 from negotiator import irc
 from peer import interface
 from twisted.internet import reactor, error
-import time, threading, logging, sys, signal
+import time, threading, logging, sys
 
 logger = logging.getLogger(__name__)
 logger.propagate = False
@@ -72,7 +74,10 @@ def negotiateCallback_retry(session):
     session.state = interface.STATE_DISCONNECTING
     session.disconnect()
 
-def onNegotiateCallback_accept(deferredOnNegotiateCallback, username):
+def onNegotiateCallback_accept(obj1, deferredOnNegotiateCallback, username):
+    print obj1
+    print deferredOnNegotiateCallback
+    print username
     print 'onNegotiateCallback_accept: %s, %s' % (deferredOnNegotiateCallback, username)
     deferredOnNegotiateCallback.callback(0)
 
@@ -94,7 +99,10 @@ def runMockSubliminalCollaborator(host, port, username, password, channel, isHos
         onNegotiateCallback = onNegotiateCallback_reject
     elif sessionBehavior == 'retry':
         negotiateCallback = negotiateCallback_retry
-    negotiator = irc.IRCNegotiator(negotiateCallback, onNegotiateCallback, rejectedCallback)
+    irc.IRCNegotiator.negotiateCallback = negotiateCallback
+    irc.IRCNegotiator.onNegotiateCallback = onNegotiateCallback
+    irc.IRCNegotiator.rejectedOrFailedCallback = rejectedCallback
+    negotiator = irc.IRCNegotiator()
     negotiator.connect(host, port, username, password, channel=channel)
     if isHost in ['True','true']:
         print 'running as mock host'

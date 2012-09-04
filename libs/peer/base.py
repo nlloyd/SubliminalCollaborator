@@ -23,8 +23,8 @@ from zope.interface import implements
 from peer import interface
 from twisted.internet import reactor, protocol, error, interfaces
 from twisted.protocols import basic
+from sublime import Region
 import logging, sys, socket, struct
-import sublime
 
 logger = logging.getLogger(__name__)
 logger.propagate = False
@@ -164,7 +164,7 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         self.toAck = [interface.SHARE_VIEW]
         self.sendMessage(interface.SHARE_VIEW)
         while begin < totalToSend:
-            chunkToSend = self.view.substr(sublime.Region(begin, end))
+            chunkToSend = self.view.substr(Region(begin, end))
             self.toAck.append(interface.VIEW_CHUNK)
             self.sendMessage(interface.VIEW_CHUNK, payload=chunkToSend)
             begin = begin + MAX_CHUNK_SIZE
@@ -323,7 +323,7 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
     #*** helper functions ***#
 
     def sendMessage(self, messageType, messageSubType=interface.EDIT_TYPE_NA, payload=''):
-        logger.debug('SEND: %s-%s[%s]' % (interface.numeric_to_symbolic[messageType], interface.numeric_to_symbolic[messageSubType], payload))
+        logger.debug('SEND: %s-%s[%d]' % (interface.numeric_to_symbolic[messageType], interface.numeric_to_symbolic[messageSubType], len(payload)))
         reactor.callFromThread(self.sendString, struct.pack(self.messageHeaderFmt, interface.MAGIC_NUMBER, messageType, messageSubType) + payload)
 
     def str(self):

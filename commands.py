@@ -164,6 +164,12 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand):
     selectedNegotiator = None
     currentView = None
 
+    def __init__(self):
+        sublime_plugin.ApplicationCommand.__init__(self)
+        irc.IRCNegotiator.negotiateCallback = self.openSession
+        irc.IRCNegotiator.onNegotiateCallback = self.acceptSessionRequest
+        irc.IRCNegotiator.rejectedOrFailedCallback = self.killHostedSession
+
     def run(self, task):
         method = getattr(self, task, None)
         try:
@@ -190,7 +196,7 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand):
             self.selectedNegotiator = negotiatorInstances[targetClient]
         else:
             logger.debug('No negotiator for %s, creating one' % targetClient)
-            self.selectedNegotiator = negotiatorFactoryMap[targetClient.split(':', 1)[0]](self.openSession, self.acceptSessionRequest, self.killHostedSession)
+            self.selectedNegotiator = negotiatorFactoryMap[targetClient.split(':', 1)[0]]()
             negotiatorInstances[targetClient] = self.selectedNegotiator
             self.selectedNegotiator.connect(**chatClientConfig[targetClient])
         # use our negotiator to connect to the chat server and wait to grab the userlist
@@ -236,7 +242,7 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand):
         protocolSessions[session.str()] = session
         sessions[self.selectedNegotiator.str()] = protocolSessions
         self.newSession = session
-        sublime.set_timeout(self.shareView, 0)
+        # sublime.set_timeout(self.shareView, 0)
 
     def shareView(self, idx=None):
         if idx == None:
@@ -321,13 +327,9 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand):
             targetClient = self.chatClientKeys[clientIdx]
             if targetClient == '*** ALL ***':
                 connectAllChat()
-                for negotiatorInstance in negotiatorInstances.values():
-                    negotiatorInstance.negotiateCallback = self.openSession
-                    negotiatorInstance.onNegotiateCallback = self.acceptSessionRequest
-                    negotiatorInstance.rejectedOrFailedCallback = self.killHostedSession
             elif not negotiatorInstances.has_key(targetClient):
                 logger.info('Connecting to chat %s' % targetClient)
-                negotiatorInstances[targetClient] = negotiatorFactoryMap[targetClient.split('|', 1)[0]](self.openSession, self.acceptSessionRequest, self.killHostedSession)
+                negotiatorInstances[targetClient] = negotiatorFactoryMap[targetClient.split('|', 1)[0]]()
                 negotiatorInstances[targetClient].connect(**chatClientConfig[targetClient])
             else:
                 logger.info('Already connected to chat %s' % targetClient)
