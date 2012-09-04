@@ -41,7 +41,7 @@ if runtime.platform.isWindows():
         sys.path.insert(0, libs_path)
 
 from negotiator import irc
-from peer.interface import STATE_CONNECTED, STATE_DISCONNECTED, STATE_REJECT_TRIGGERED_DISCONNECTING
+from peer.interface import STATE_CONNECTED, STATE_DISCONNECTED, STATE_REJECT_TRIGGERED_DISCONNECTING, SERVER
 import peer.interface
 from twisted.internet import reactor
 import threading, logging, time
@@ -242,7 +242,8 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand):
         protocolSessions[session.str()] = session
         sessions[self.selectedNegotiator.str()] = protocolSessions
         self.newSession = session
-        # sublime.set_timeout(self.shareView, 0)
+        if session.peerType == SERVER:
+            sublime.set_timeout(self.shareView, 0)
 
     def shareView(self, idx=None):
         if idx == None:

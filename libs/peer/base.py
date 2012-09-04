@@ -49,9 +49,6 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
     """
     implements(interface.Peer)
 
-    # time (in seconds) between heartbeat requests
-    heartbeat = 5.0
-
     # Message header structure in struct format:
     # '!HBB'
 
@@ -62,28 +59,23 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
     messageHeaderFmt = '!HBB'
     messageHeaderSize = struct.calcsize(messageHeaderFmt)
 
-    # connection can be an IListeningPort or IConnector
-    connection = None
-    host = None
-    port = None
-
-    # CLIENT or SERVER
-    peerType = None
-    # HOST_ROLE or PARTNER_ROLE
-    role = None
-    # STATE_CONNECTING, STATE_CONNECTED, STATE_DISCONNECTED
-    state = None
-
-    sharingWithUser = None
-    view = None
-
-    # callback method instances
+    # registered callback methods
     switchRole = None
     peerInitiatedDisconnect = None
-    failedToInitConnectCallback = None
 
     def __init__(self, username, failedToInitConnectCallback=None):
         self.sharingWithUser = username
+        # connection can be an IListeningPort or IConnector
+        self.connection = None
+        self.host = None
+        self.port = None
+        # CLIENT or SERVER
+        self.peerType = None
+        # HOST_ROLE or PARTNER_ROLE
+        self.role = None
+        # STATE_CONNECTING, STATE_CONNECTED, STATE_DISCONNECTED
+        self.state = None
+        self.view = None
         self.failedToInitConnectCallback = failedToInitConnectCallback
 
     def hostConnect(self, port = 0):
@@ -118,6 +110,19 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         self.role = interface.PARTNER_ROLE
         self.state = interface.STATE_CONNECTING
         self.connection = reactor.connectTCP(self.host, self.port, self)
+
+    def recvd_CONNECTED(self, messageSubType, payload):
+        if self.peerType == interface.CLIENT:
+            if self.state == interface.STATE_CONNECTING:
+                self.state = interface.STATE_CONNECTED
+                logger.info('Connected to peer: %s' % self.sharingWithUser)
+            else:
+                logger.error('Received CONNECTED message from server-peer when in state %s' % self.state)
+        else:
+            # client is connected, send ACK and set our state to be connected
+            self.sendMessage(interface.CONNECTED)
+            self.state = interface.STATE_CONNECTED
+            logger.info('Connected to peer: %s' % self.sharingWithUser)
 
     def disconnect(self):
         """
@@ -242,27 +247,16 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         """
         pass
 
-    def recvd_CONNECTED(self, messageSubType, payload):
-        if self.peerType == interface.CLIENT:
-            if self.state == interface.STATE_CONNECTING:
-                self.state = interface.STATE_CONNECTED
-                logger.info('Connected to peer: %s' % self.sharingWithUser)
-            else:
-                logger.error('Received CONNECTED message from server-peer when in state %s' % self.state)
-        else:
-            # client is connected, send ACK and set our state to be connected
-            self.sendMessage(interface.CONNECTED)
-            self.state = interface.STATE_CONNECTED
-            logger.info('Connected to peer: %s' % self.sharingWithUser)
-
     def recvd_SHARE_VIEW(self, messageSubType, payload):
-        pass
+        # just for testing...
+        self.tmpview = open('/tmp/test-shared-view.txt', 'w+')
 
     def recvd_VIEW_CHUNK(self, messageSubType, payload):
-        pass
+        self.tmpview.write(payload)
 
     def recvd_END_OF_VIEW(self, messageSubType, payload):
-        pass
+        self.tmpview.flush()
+        self.tmpview.close()
 
     def recvdUnknown(self, messageType, messageSubType, payload):
         logger.warn('Received unknown message: %s, %s, %s' % (messageType, messageSubType, payload))
@@ -274,8 +268,6 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         msgSubType = interface.numeric_to_symbolic[msgSubTypeNum]
         payload = data[self.messageHeaderSize:]
         logger.debug('RECVD: %s, %s, %d' % (msgType, msgSubType, len(payload)))
-        if len(payload) > 0:
-            logger.debug('RECVD PAYLOAD: %s' % payload)
         method = getattr(self, "recvd_%s" % msgType, None)
         if method is not None:
             method(msgSubType, payload)
@@ -324,7 +316,7 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
 
     def sendMessage(self, messageType, messageSubType=interface.EDIT_TYPE_NA, payload=''):
         logger.debug('SEND: %s-%s[%d]' % (interface.numeric_to_symbolic[messageType], interface.numeric_to_symbolic[messageSubType], len(payload)))
-        reactor.callFromThread(self.sendString, struct.pack(self.messageHeaderFmt, interface.MAGIC_NUMBER, messageType, messageSubType) + payload)
+        reactor.callFromThread(self.sendString, struct.pack(self.messageHeaderFmt, interface.MAGIC_NUMBER, messageType, messageSubType) + payload.encode())
 
     def str(self):
         return self.sharingWithUser

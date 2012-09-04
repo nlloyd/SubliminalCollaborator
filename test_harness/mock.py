@@ -64,20 +64,18 @@ class MockFailure(object):
     def __init__(self, type):
         self.type = type
 
-def negotiateCallback_accept(obj):
+def negotiateCallback_accept(caller, session):
     print 'negotiateCallback_accept'
-    print type(obj)
+    print caller
+    print session
 
-def negotiateCallback_retry(session):
+def negotiateCallback_retry(caller, session):
     print 'negotiateCallback_retry'
     session.clientConnectionFailed(None, MockFailure(error.ConnectionRefusedError))
     session.state = interface.STATE_DISCONNECTING
     session.disconnect()
 
-def onNegotiateCallback_accept(obj1, deferredOnNegotiateCallback, username):
-    print obj1
-    print deferredOnNegotiateCallback
-    print username
+def onNegotiateCallback_accept(caller, deferredOnNegotiateCallback, username):
     print 'onNegotiateCallback_accept: %s, %s' % (deferredOnNegotiateCallback, username)
     deferredOnNegotiateCallback.callback(0)
 
