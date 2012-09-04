@@ -65,8 +65,6 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
     peerUsers = None
     unverifiedUsers = None
 
-    hostAddressList = socket.gethostbyname_ex(socket.gethostname())[2]
-
     def __init__(self, negotiateCallback=None, onNegotiateCallback=None, rejectedOrFailedCallback=None):
         self.negotiateCallback = negotiateCallback
         self.onNegotiateCallback = onNegotiateCallback
@@ -179,7 +177,7 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
         if (not username in self.peerUsers) and (not username in self.unverifiedUsers):
             self.addUserToLists(username)
         if not tryNext:
-            self.hostAddressToTryQueue = self.hostAddressList
+            self.hostAddressToTryQueue = socket.gethostbyname_ex(socket.gethostname())[2]
         if len(self.hostAddressToTryQueue) == 0:
             logger.warn('Unable to connect to peer %s, all host addresses tried and failed!')
             # TODO error reporting in UI

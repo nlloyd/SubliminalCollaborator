@@ -24,6 +24,7 @@ from peer import interface
 from twisted.internet import reactor, protocol, error, interfaces
 from twisted.protocols import basic
 import logging, sys, socket, struct
+import sublime
 
 logger = logging.getLogger(__name__)
 logger.propagate = False
@@ -35,6 +36,10 @@ logger.addHandler(stdoutHandler)
 logger.setLevel(logging.DEBUG)
 
 
+# in bytes
+MAX_CHUNK_SIZE = 512
+
+
 # build off of the Int32StringReceiver to leverage its unprocessed buffer handling
 class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.ServerFactory):
     """
@@ -43,6 +48,9 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
     view data and events.
     """
     implements(interface.Peer)
+
+    # time (in seconds) between heartbeat requests
+    heartbeat = 5.0
 
     # Message header structure in struct format:
     # '!HBB'
@@ -53,9 +61,6 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
     # - messageSubType: see constants below, 0 in all but edit-messages
     messageHeaderFmt = '!HBB'
     messageHeaderSize = struct.calcsize(messageHeaderFmt)
-
-    lastRecvdPayloadSize = 0
-    lastSendPayloadSize = 0
 
     # connection can be an IListeningPort or IConnector
     connection = None
@@ -94,8 +99,9 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         self.role = interface.HOST_ROLE
         self.state = interface.STATE_CONNECTING
         self.connection = reactor.listenTCP(port, self)
-        logger.info('Listening for peers on port %d' % self.connection.getHost().port)
-        return self.connection.getHost().port
+        self.port = self.connection.getHost().port
+        logger.info('Listening for peers on port %d' % self.port)
+        return self.port
 
     def clientConnect(self, host, port):
         """
@@ -120,19 +126,27 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         if self.state == interface.STATE_DISCONNECTED:
             # already disconnected!
             return
+        earlierState = self.state
         self.state = interface.STATE_DISCONNECTING
         if self.peerType == interface.SERVER:
             reactor.callFromThread(self.connection.stopListening)
-            logger.debug('Telling peer to disconnect')
-            self.sendMessage(interface.DISCONNECT)
+            if not earlierState == interface.STATE_REJECT_TRIGGERED_DISCONNECTING:
+                logger.debug('Telling peer to disconnect')
+                self.sendMessage(interface.DISCONNECT)
         elif self.peerType == interface.CLIENT:
+            logger.debug('Closing client-side connection')
+            # self.connection.disconnect()
+            self.sendMessage(interface.DISCONNECT)
             reactor.callFromThread(self.connection.disconnect)
 
     def recvd_DISCONNECT(self, messsageSubType=None, payload=''):
         """
         Callback method if we receive a DISCONNECT message.
         """
-        logger.debug('Disconnecting from peer at %s:%d' % (self.host, self.port))
+        if self.peerType == interface.CLIENT:
+            logger.debug('Disconnecting from peer at %s:%d' % (self.host, self.port))
+        else:
+            logger.debug('Disconnecting from peer at %d' % self.port)
         self.disconnect()
         self.state = interface.STATE_DISCONNECTED
         logger.info('Disconnected from peer %s' % self.sharingWithUser)
@@ -141,7 +155,23 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         """
         Send the provided C{sublime.View} contents to the connected peer.
         """
-        pass
+        self.view = view
+        self.view.set_read_only(True)
+        totalToSend = self.view.size()
+        begin = 0
+        end = MAX_CHUNK_SIZE
+        logger.info('Sharing view %s with %s' % (self.view.file_name(), self.sharingWithUser))
+        self.toAck = [interface.SHARE_VIEW]
+        self.sendMessage(interface.SHARE_VIEW)
+        while begin < totalToSend:
+            chunkToSend = self.view.substr(sublime.Region(begin, end))
+            self.toAck.append(interface.VIEW_CHUNK)
+            self.sendMessage(interface.VIEW_CHUNK, payload=chunkToSend)
+            begin = begin + MAX_CHUNK_SIZE
+            end = end + MAX_CHUNK_SIZE
+        self.toAck.append(interface.END_OF_VIEW)
+        self.sendMessage(interface.END_OF_VIEW)
+        self.view.set_read_only(False)
 
     def onStartCollab(self):
         """
@@ -225,10 +255,17 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
             self.state = interface.STATE_CONNECTED
             logger.info('Connected to peer: %s' % self.sharingWithUser)
 
+    def recvd_SHARE_VIEW(self, messageSubType, payload):
+        pass
+
+    def recvd_VIEW_CHUNK(self, messageSubType, payload):
+        pass
+
+    def recvd_END_OF_VIEW(self, messageSubType, payload):
+        pass
+
     def recvdUnknown(self, messageType, messageSubType, payload):
         logger.warn('Received unknown message: %s, %s, %s' % (messageType, messageSubType, payload))
-
-    #*** basic.Int32StringReceiver method implementations ***#
 
     def stringReceived(self, data):
         magicNumber, msgTypeNum, msgSubTypeNum = struct.unpack(self.messageHeaderFmt, data[:self.messageHeaderSize])
@@ -237,6 +274,8 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         msgSubType = interface.numeric_to_symbolic[msgSubTypeNum]
         payload = data[self.messageHeaderSize:]
         logger.debug('RECVD: %s, %s, %d' % (msgType, msgSubType, len(payload)))
+        if len(payload) > 0:
+            logger.debug('RECVD PAYLOAD: %s' % payload)
         method = getattr(self, "recvd_%s" % msgType, None)
         if method is not None:
             method(msgSubType, payload)
@@ -257,6 +296,7 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
     #*** protocol.Factory method implementations ***#
 
     def buildProtocol(self, addr):
+        logger.debug('building protocol for %s' % self.peerType)
         if self.peerType == interface.CLIENT:
             logger.debug('Connected to peer at %s:%d' % (self.host, self.port))
             self.sendMessage(interface.CONNECTED)
@@ -274,6 +314,7 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
 
     def clientConnectionFailed(self, connector, reason):
         logger.error('Connection failed: %s - %s' % (reason.type, reason.value))
+        self.state = interface.STATE_DISCONNECTED
         if error.ConnectionRefusedError == reason.type:
             if (self.peerType == interface.CLIENT) and (not self.failedToInitConnectCallback == None):
                 self.failedToInitConnectCallback(self.sharingWithUser)

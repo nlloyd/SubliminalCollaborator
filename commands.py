@@ -41,10 +41,10 @@ if runtime.platform.isWindows():
         sys.path.insert(0, libs_path)
 
 from negotiator import irc
-from peer.interface import STATE_DISCONNECTED
+from peer.interface import STATE_CONNECTED, STATE_DISCONNECTED, STATE_REJECT_TRIGGERED_DISCONNECTING
 import peer.interface
 from twisted.internet import reactor
-import threading, logging
+import threading, logging, time
 
 # log.startLogging(sys.stdout)
 
@@ -95,11 +95,12 @@ class SessionCleanupThread(threading.Thread):
             for sessionsKey, protocolSessions in sessions.items():
                 for sessionKey, session in protocolSessions.items():
                     if session.state == STATE_DISCONNECTED:
-                        sessions[sessionsKey].pop(sessionKey)
+                        deadSession = sessions[sessionsKey].pop(sessionKey)
+                        logger.debug('Cleaning up dead session: %s' % deadSession.str())
             sessionsLock.release()
             time.sleep(30.0)
 
-
+SessionCleanupThread().start()
 
 def loadConfig():
     global connectAllOnStartup
@@ -234,6 +235,33 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand):
             protocolSessions = {}
         protocolSessions[session.str()] = session
         sessions[self.selectedNegotiator.str()] = protocolSessions
+        self.newSession = session
+        sublime.set_timeout(self.shareView, 0)
+
+    def shareView(self, idx=None):
+        if idx == None:
+            views = sublime.active_window().views()
+            self.viewsByName = {}
+            self.viewNames = []
+            for view in views:
+                if view.file_name() == None:
+                    name = 'no-file-name %d' % view.id()
+                    self.viewsByName[name] = view
+                    self.viewNames.append(name)
+                else:
+                    self.viewsByName[view.file_name()] = view
+                    self.viewNames.append(view.file_name())
+            sublime.active_window().show_quick_panel(self.viewNames, self.shareView)
+        else:
+            if idx >= -1:
+                chosenViewName = self.viewNames[idx]
+                chosenView = self.viewsByName[chosenViewName]
+                self.newSession.startCollab(chosenView)                
+            else:
+                self.newSession.disconnect()
+                self.newSession = None
+            self.viewNames = None
+            self.viewsByName = None
 
     def acceptSessionRequest(self, deferredOnNegotiateCallback, username):
         self.deferredOnNegotiateCallback = deferredOnNegotiateCallback
@@ -248,7 +276,8 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand):
             sessionList = []
             for client in sessions.keys():
                 for user in sessions[client].keys():
-                    sessionList.append('%s -> %s' % (client, user))
+                    if sessions[client][user].state == STATE_CONNECTED:
+                        sessionList.append('%s -> %s' % (client, user))
             if len(sessionList) == 0:
                 sessionList = ['*** No Active Sessions ***']
             sublime.active_window().show_quick_panel(sessionList, self.showSessions)
@@ -258,6 +287,7 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand):
         if sessions[protocol].has_key(username):
             toKill = sessions[protocol].pop(username)
             logger.debug('Cleaning up state hosted session with %s' % username)
+            toKill.state = STATE_REJECT_TRIGGERED_DISCONNECTING
             toKill.disconnect()
         sessionsLock.release()
 

@@ -40,7 +40,8 @@ if runtime.platform.isWindows():
         sys.path.insert(0, libs_path)
 
 from negotiator import irc
-from twisted.internet import reactor
+from peer import interface
+from twisted.internet import reactor, error
 import time, threading, logging, sys, signal
 
 logger = logging.getLogger(__name__)
@@ -57,31 +58,49 @@ def configureLogging():
     logger.addHandler(stdoutHandler)
     logger.setLevel(logging.DEBUG)
 
+class MockFailure(object):
+    def __init__(self, type):
+        self.type = type
 
-def callback(obj):
+def negotiateCallback_accept(obj):
+    print 'negotiateCallback_accept'
     print type(obj)
 
-def negotiateCallback(obj):
-    print 'negotiateCallback'
-    print type(obj)
+def negotiateCallback_retry(session):
+    print 'negotiateCallback_retry'
+    session.clientConnectionFailed(None, MockFailure(error.ConnectionRefusedError))
+    session.state = interface.STATE_DISCONNECTING
+    session.disconnect()
 
-def onNegotiateCallback(obj1, obj2):
-    print 'onNegotiateCallback'
-    print type(obj1)
-    print type(obj2)
+def onNegotiateCallback_accept(deferredOnNegotiateCallback, username):
+    print 'onNegotiateCallback_accept: %s, %s' % (deferredOnNegotiateCallback, username)
+    deferredOnNegotiateCallback.callback(0)
+
+def onNegotiateCallback_reject(deferredOnNegotiateCallback, username):
+    print 'onNegotiateCallbackReject: %s, %s' % (deferredOnNegotiateCallback, username)
+    deferredOnNegotiateCallback.callback(1)
 
 def rejectedCallback(obj1, obj2):
-    print 'rejectedCallback'
-    print type(obj1)
-    print type(obj2)
+    print 'rejectedCallback: %s ,%s' % (obj1, obj2)
 
-def runMockSubliminalCollaborator(host, port, username, password, channel, isHost=False):
+def runMockSubliminalCollaborator(host, port, username, password, channel, isHost=False, sessionBehavior='accept'):
     if type(port) == str:
         port = int(port)
+    negotiateCallback = negotiateCallback_accept
+    onNegotiateCallback = None
+    if sessionBehavior == 'accept':
+        onNegotiateCallback = onNegotiateCallback_accept
+    elif sessionBehavior == 'reject':
+        onNegotiateCallback = onNegotiateCallback_reject
+    elif sessionBehavior == 'retry':
+        negotiateCallback = negotiateCallback_retry
     negotiator = irc.IRCNegotiator(negotiateCallback, onNegotiateCallback, rejectedCallback)
     negotiator.connect(host, port, username, password, channel=channel)
-    if bool(isHost):
+    if isHost in ['True','true']:
+        print 'running as mock host'
         reactor.callLater(5.0, runHostBehavior, negotiator)
+    else:
+        print 'running as mock client with session behavior set to %s' % sessionBehavior
 
 def runHostBehavior(negotiator):
         users = negotiator.listUsers()
@@ -93,7 +112,7 @@ def runHostBehavior(negotiator):
 
 def main(argv):
     if len(argv) < 4:
-        print 'python mock.py host port username password channel? isHost=False'
+        print 'python mock.py host port username password channel? isHost=False sessionBehavior=accept|reject|retry'
         return
 
     configureLogging()

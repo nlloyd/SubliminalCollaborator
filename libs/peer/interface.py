@@ -33,6 +33,7 @@ HOST_ROLE = 'host'
 # states #
 STATE_CONNECTING = 'connecting'
 STATE_CONNECTED = 'connected'
+STATE_REJECT_TRIGGERED_DISCONNECTING = 'disconnecting-on-rejected'
 STATE_DISCONNECTING = 'disconnecting'
 STATE_DISCONNECTED = 'disconnected'
 
@@ -43,7 +44,7 @@ STATE_DISCONNECTED = 'disconnected'
 CONNECTED = 0
 # sent by client-peer prior to disconnect, sent back by server as ACK
 DISCONNECT = 1
-# sent to signal to the peer to prepare to receive a view, payloadSize == number of chunks to expect total
+# sent to signal to the peer to prepare to receive a view
 SHARE_VIEW = 2
 # sent in reply to a SHARE_VIEW
 SHARE_VIEW_ACK = 3
