@@ -273,7 +273,7 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
     def recvd_END_OF_VIEW(self, messageSubType, payload):
         self.view.end_edit(self.viewPopulateEdit)
         self.viewPopulateEdit = None
-        self.view.set_read_only(False)
+        # self.view.set_read_only(False)
         self.sendMessage(interface.END_OF_VIEW_ACK)
         self.onStartCollab()
 
