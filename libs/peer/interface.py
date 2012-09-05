@@ -55,7 +55,7 @@ VIEW_CHUNK_ACK = 5
 # sent to signal to the peer that the entire view has been sent
 END_OF_VIEW = 6
 END_OF_VIEW_ACK = 7
-# sent in reply to an END_OF_VIEW_ACK to indicate that the ACK data did not match what was sent
+# sent in reply to an END_OF_VIEW_ACK to indicate that the bytes sent != bytes recvd
 BAD_VIEW_SEND = 8
 # send the syntax config associated with the shared file
 SYNTAX = 9

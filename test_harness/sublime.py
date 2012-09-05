@@ -21,6 +21,7 @@
 #   THE SOFTWARE.
 
 # this is a collection of mock sublime api functions and classes
+from StringIO import StringIO
 
 class Region(object):
 
@@ -39,3 +40,58 @@ class Region(object):
 
     def empty(self):
         return self.a == self.b
+
+class View(object):
+
+    def __init__(self):
+        self.name = 'NONAME'
+        self.readOnly = False
+        self.scratch = False
+        self.size = 0
+        self.viewContents = StringIO()
+
+    def load_faux_view(self, filepath):
+        f = open(filepath, 'r')
+        if len(self.viewContents.getvalue()) > 0:
+            self.viewContents.close()
+            self.viewContents = StringIO()
+        self.viewContents.write(f.read())
+        f.close()
+
+    def set_name(self, name):
+        self.name = name
+
+    def set_read_only(self, readOnly):
+        self.readOnly = readOnly
+
+    def set_scratch(self, scratch):
+        self.scratch = scratch
+
+    def substr(self, region):
+        return self.viewContents.getvalue()[region.begin():region.end()]
+
+    def size(self):
+        return self.size
+
+    def begin_edit(self):
+        mockEdit = open('/tmp/%s' % self.name, 'w+')
+        return mockEdit
+
+    def insert(self, edit, point, string):
+        mockEdit.seek(point, 0)
+        mockEdit.write(string)
+        self.viewContents.write(string)
+        self.size = self.size + len(string)
+
+    def end_edit(self, edit):
+        edit.flush()
+        edit.close()
+
+class Window(object):
+
+    def new_file():
+        return View()
+
+def active_window():
+    return Window()
+

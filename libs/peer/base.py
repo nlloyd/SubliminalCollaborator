@@ -166,15 +166,14 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         begin = 0
         end = MAX_CHUNK_SIZE
         logger.info('Sharing view %s with %s' % (self.view.file_name(), self.sharingWithUser))
-        self.toAck = [interface.SHARE_VIEW]
+        self.toAck = []
         self.sendMessage(interface.SHARE_VIEW)
         while begin < totalToSend:
             chunkToSend = self.view.substr(sublime.Region(begin, end))
-            self.toAck.append(interface.VIEW_CHUNK)
+            self.toAck.append(len(chunkToSend))
             self.sendMessage(interface.VIEW_CHUNK, payload=chunkToSend)
             begin = begin + MAX_CHUNK_SIZE
             end = end + MAX_CHUNK_SIZE
-        self.toAck.append(interface.END_OF_VIEW)
         self.sendMessage(interface.END_OF_VIEW)
         self.view.set_read_only(False)
 
@@ -254,13 +253,17 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         self.view.set_scratch(True)
         self.viewPopulateEdit = self.view.begin_edit()
         self.sendMessage(interface.SHARE_VIEW_ACK)
-        # just for testing...
-        # self.tmpview = open('/tmp/test-shared-view.txt', 'w+')
+
+    def recvd_SHARE_VIEW_ACK(self, messageSubType, payload):
+        self.ackdChunks = []
 
     def recvd_VIEW_CHUNK(self, messageSubType, payload):
         self.view.insert(self.viewPopulateEdit, self.view.size(), payload)
         self.sendMessage(interface.VIEW_CHUNK_ACK, len(payload))
-        # self.tmpview.write(payload)
+
+    def recvd_VIEW_CHUNK_ACK(self, messageSubType, payload):
+        ackdChunkSize = int(payload)
+        self.ackdChunks.append(ackdChunkSize)
 
     def recvd_END_OF_VIEW(self, messageSubType, payload):
         self.view.end_edit(self.viewPopulateEdit)
@@ -268,8 +271,18 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         self.view.set_read_only(False)
         self.sendMessage(interface.END_OF_VIEW_ACK)
         self.onStartCollab()
-        # self.tmpview.flush()
-        # self.tmpview.close()
+
+    def recvd_END_OF_VIEW_ACK(self, messageSubType, payload):
+        if self.toAck == self.ackdChunks:
+            self.toAck = None
+            self.ackdChunks = None
+        else:
+            logger.error('Sent %s chunks of data to peer but peer received %s chunks of data' % (self.toAck, self.ackdChunks))
+            self.toAck = None
+            self.ackdChunks = None
+            self.sendMessage(interface.BAD_VIEW_SEND)
+            # TODO status bar message as well... or perhaps a popup alert?
+            self.disconnect()
 
     def recvdUnknown(self, messageType, messageSubType, payload):
         logger.warn('Received unknown message: %s, %s, %s' % (messageType, messageSubType, payload))
