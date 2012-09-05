@@ -196,7 +196,7 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand):
             self.selectedNegotiator = negotiatorInstances[targetClient]
         else:
             logger.debug('No negotiator for %s, creating one' % targetClient)
-            self.selectedNegotiator = negotiatorFactoryMap[targetClient.split(':', 1)[0]]()
+            self.selectedNegotiator = negotiatorFactoryMap[targetClient.split('|', 1)[0]]()
             negotiatorInstances[targetClient] = self.selectedNegotiator
             self.selectedNegotiator.connect(**chatClientConfig[targetClient])
         # use our negotiator to connect to the chat server and wait to grab the userlist
@@ -263,7 +263,8 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand):
             if idx >= -1:
                 chosenViewName = self.viewNames[idx]
                 chosenView = self.viewsByName[chosenViewName]
-                self.newSession.startCollab(chosenView)                
+                self.newSession.startCollab(chosenView)
+                # TODO make a global map of views (names) to sessions              
             else:
                 self.newSession.disconnect()
                 self.newSession = None

@@ -162,12 +162,17 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         """
         self.view = view
         self.view.set_read_only(True)
+        viewName = self.view.file_name()
+        if not viewName == None:
+            viewName = os.path.basename(viewName)
+        else:
+            viewName = 'SHARED-WITH-%s' % self.sharingWithUser
         totalToSend = self.view.size()
         begin = 0
         end = MAX_CHUNK_SIZE
         logger.info('Sharing view %s with %s' % (self.view.file_name(), self.sharingWithUser))
         self.toAck = []
-        self.sendMessage(interface.SHARE_VIEW)
+        self.sendMessage(interface.SHARE_VIEW, payload=viewName)
         while begin < totalToSend:
             chunkToSend = self.view.substr(sublime.Region(begin, end))
             self.toAck.append(len(chunkToSend))
@@ -181,7 +186,7 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         """
         Callback method informing the peer that we have received the view.
         """
-        pass
+        logger.debug('collaboration session with view started!')
 
     def stopCollab(self):
         """
@@ -259,7 +264,7 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
 
     def recvd_VIEW_CHUNK(self, messageSubType, payload):
         self.view.insert(self.viewPopulateEdit, self.view.size(), payload)
-        self.sendMessage(interface.VIEW_CHUNK_ACK, len(payload))
+        self.sendMessage(interface.VIEW_CHUNK_ACK, payload=str(len(payload)))
 
     def recvd_VIEW_CHUNK_ACK(self, messageSubType, payload):
         ackdChunkSize = int(payload)

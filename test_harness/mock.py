@@ -66,8 +66,6 @@ class MockFailure(object):
 
 def negotiateCallback_accept(caller, session):
     print 'negotiateCallback_accept'
-    print caller
-    print session
 
 def negotiateCallback_retry(caller, session):
     print 'negotiateCallback_retry'

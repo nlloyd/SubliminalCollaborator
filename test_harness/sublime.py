@@ -47,7 +47,7 @@ class View(object):
         self.name = 'NONAME'
         self.readOnly = False
         self.scratch = False
-        self.size = 0
+        self.viewSize = 0
         self.viewContents = StringIO()
 
     def load_faux_view(self, filepath):
@@ -71,17 +71,18 @@ class View(object):
         return self.viewContents.getvalue()[region.begin():region.end()]
 
     def size(self):
-        return self.size
+        return self.viewSize
 
     def begin_edit(self):
-        mockEdit = open('/tmp/%s' % self.name, 'w+')
+        outFile = '/tmp/%s' % self.name
+        mockEdit = open(outFile, 'w+')
         return mockEdit
 
     def insert(self, edit, point, string):
-        mockEdit.seek(point, 0)
-        mockEdit.write(string)
+        edit.seek(point, 0)
+        edit.write(string)
         self.viewContents.write(string)
-        self.size = self.size + len(string)
+        self.viewSize = self.viewSize + len(string)
 
     def end_edit(self, edit):
         edit.flush()
@@ -89,7 +90,7 @@ class View(object):
 
 class Window(object):
 
-    def new_file():
+    def new_file(self):
         return View()
 
 def active_window():
