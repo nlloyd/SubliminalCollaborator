@@ -24,7 +24,7 @@ from peer import interface
 from twisted.internet import reactor, protocol, error, interfaces
 from twisted.protocols import basic
 import sublime
-import logging, threading, sys, socket, struct, os, re
+import logging, threading, sys, socket, struct, os, re, time
 
 logger = logging.getLogger(__name__)
 logger.propagate = False
@@ -175,6 +175,13 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         totalToSend = self.view.size()
         begin = 0
         end = MAX_CHUNK_SIZE
+        # now we make sure we are connected... better way to do this?
+        while not self.state == interface.STATE_CONNECTED:
+            time.sleep(1.0)
+            if (self.state == interface.STATE_DISCONNECTING) or (self.state == interface.STATE_DISCONNECTED):
+                logger.error('While waiting to share view over a connection the peer was disconnected!')
+                self.disconnect()
+                return
         logger.info('Sharing view %s with %s' % (self.view.file_name(), self.sharingWithUser))
         self.toAck = []
         self.sendMessage(interface.SHARE_VIEW, payload=viewName)

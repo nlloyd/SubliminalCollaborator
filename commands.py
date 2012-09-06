@@ -273,6 +273,7 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
                 self.newSession.startCollab(chosenView)
                 sessionsByViewId[chosenView.id()] = self.newSession
             else:
+                # TODO perhaps send a "decided not to share anything" message out?
                 self.newSession.disconnect()
                 self.newSession = None
             self.viewNames = None
