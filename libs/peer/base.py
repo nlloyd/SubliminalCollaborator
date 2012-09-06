@@ -64,6 +64,7 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
     # registered callback methods
     switchRole = None
     peerInitiatedDisconnect = None
+    # callback for the server-peer
     peerConnectedCallback = None
 
     def __init__(self, username, failedToInitConnectCallback=None):
@@ -117,19 +118,6 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         self.state = interface.STATE_CONNECTING
         self.connection = reactor.connectTCP(self.host, self.port, self)
 
-    def recvd_CONNECTED(self, messageSubType, payload):
-        if self.peerType == interface.CLIENT:
-            if self.state == interface.STATE_CONNECTING:
-                self.state = interface.STATE_CONNECTED
-                logger.info('Connected to peer: %s' % self.sharingWithUser)
-            else:
-                logger.error('Received CONNECTED message from server-peer when in state %s' % self.state)
-        else:
-            # client is connected, send ACK and set our state to be connected
-            self.sendMessage(interface.CONNECTED)
-            self.state = interface.STATE_CONNECTED
-            logger.info('Connected to peer: %s' % self.sharingWithUser)
-
     def disconnect(self):
         """
         Disconnect from the peer-to-peer session.
@@ -149,18 +137,6 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
             # self.connection.disconnect()
             self.sendMessage(interface.DISCONNECT)
             reactor.callFromThread(self.connection.disconnect)
-
-    def recvd_DISCONNECT(self, messsageSubType=None, payload=''):
-        """
-        Callback method if we receive a DISCONNECT message.
-        """
-        if self.peerType == interface.CLIENT:
-            logger.debug('Disconnecting from peer at %s:%d' % (self.host, self.port))
-        else:
-            logger.debug('Disconnecting from peer at %d' % self.port)
-        self.disconnect()
-        self.state = interface.STATE_DISCONNECTED
-        logger.info('Disconnected from peer %s' % self.sharingWithUser)
 
     def startCollab(self, view):
         """
@@ -295,6 +271,32 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
                 # edit event
                 pass
         self.toDoToViewQueueLock.release()
+
+    def recvd_CONNECTED(self, messageSubType, payload):
+        if self.peerType == interface.CLIENT:
+            if self.state == interface.STATE_CONNECTING:
+                self.state = interface.STATE_CONNECTED
+                logger.info('Connected to peer: %s' % self.sharingWithUser)
+            else:
+                logger.error('Received CONNECTED message from server-peer when in state %s' % self.state)
+        else:
+            # client is connected, send ACK and set our state to be connected
+            self.sendMessage(interface.CONNECTED)
+            self.state = interface.STATE_CONNECTED
+            logger.info('Connected to peer: %s' % self.sharingWithUser)
+            sublime.set_timeout(self.peerConnectedCallback, 0)
+
+    def recvd_DISCONNECT(self, messsageSubType=None, payload=''):
+        """
+        Callback method if we receive a DISCONNECT message.
+        """
+        if self.peerType == interface.CLIENT:
+            logger.debug('Disconnecting from peer at %s:%d' % (self.host, self.port))
+        else:
+            logger.debug('Disconnecting from peer at %d' % self.port)
+        self.disconnect()
+        self.state = interface.STATE_DISCONNECTED
+        logger.info('Disconnected from peer %s' % self.sharingWithUser)
 
     def recvd_SHARE_VIEW(self, messageSubType, payload):
         self.toDoToViewQueueLock.acquire()

@@ -59,6 +59,8 @@ class RegionSet(set):
         toReturn = toReturn + ']'
         print toReturn
 
+from twisted.python import runtime
+
 class View(object):
 
     def __init__(self):
@@ -97,7 +99,10 @@ class View(object):
 
     def begin_edit(self):
         self.viewContents = StringIO()
-        outFile = '/tmp/%s' % self.name
+        tmpdir = '/tmp'
+        if runtime.platform.isWindows():
+            tmpdir = 'C:/temp/'
+        outFile = '%s/%s' % (tmpdir, self.name)
         mockEdit = open(outFile, 'w+')
         return mockEdit
 

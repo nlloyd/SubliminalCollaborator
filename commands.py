@@ -42,9 +42,9 @@ if runtime.platform.isWindows():
 
 from negotiator import irc
 from peer.interface import STATE_CONNECTED, STATE_DISCONNECTED, STATE_REJECT_TRIGGERED_DISCONNECTING, SERVER
-import peer.interface
+from peer import base
 from twisted.internet import reactor
-import threading, logging, time
+import threading, logging, time, shutil
 
 # log.startLogging(sys.stdout)
 
@@ -112,14 +112,14 @@ SessionCleanupThread().start()
 def loadConfig():
     global connectAllOnStartup
     acctConfig = sublime.load_settings('Accounts.sublime-settings')
-    acctConfigAlt = sublime.load_settings('Preferences.sublime-settings')
-    if not acctConfig.has('subliminal_collaborator'):
-        logger.info('loading configuration from Preferences.sublime-settings')
-        acctConfig = acctConfigAlt
-    else:
-        logger.info('loading configuration from Accounts.sublime-settings')
-    accts = acctConfig.get('subliminal_collaborator', {})
+    accts = acctConfig.get('subliminal_collaborator')
+    logger.info('loading configuration from Accounts.sublime-settings')
     configErrorList = []
+    if not accts:
+        logger.error('No configuration found!')
+        return
+    acctConfig.clear_on_change('subliminal_collaborator')
+    acctConfig.add_on_change('subliminal_collaborator', loadConfig)
     for protocol, acct_details in accts.items():
         if protocol == 'connect_all_on_startup':
             connectAllOnStartup = acct_details
@@ -135,11 +135,6 @@ def loadConfig():
                 configErrorList.append('A %s protocol configuration is missing a password entry' % protocol)
             clientKey = '%s|%s@%s:%d' % (protocol, acct_detail['username'], acct_detail['host'], acct_detail['port'])
             chatClientConfig[clientKey] = acct_detail
-    acctConfig.clear_on_change('subliminal_collaborator')
-    acctConfig.add_on_change('subliminal_collaborator', loadConfig)
-    if acctConfig != acctConfigAlt:
-        acctConfigAlt.clear_on_change('subliminal_collaborator')
-        acctConfigAlt.add_on_change('subliminal_collaborator', loadConfig)
     # report errors, if any
     if len(configErrorList) > 0:
         errorMsg = 'The following configuration errors were found:\n'
@@ -157,24 +152,27 @@ def connectAllChat():
         logger.info('Connecting to chat %s' % client)
         negotiatorInstances[client] = negotiatorFactoryMap[client.split(':', 1)[0]]()
         negotiatorInstances[client].connect(**chatClientConfig[client])
-        
+
 loadConfig()
 
 if connectAllOnStartup:
     connectAllChat()
 
-class ViewTestCommand(sublime_plugin.TextCommand):
 
-    def run(self, edit):
-        time.sleep(5.0)
-        self.showQuickPanel()
-        print sublime.ok_cancel_dialog('wanna share stuff?')
+class OpenSublimeSettingsCommand(sublime_plugin.WindowCommand):
 
-    def showQuickPanel(self, idx=None):
-        if idx == None:
-            sublime.active_window().show_quick_panel(['a','b','c'], self.showQuickPanel)
+    def run(self):
+        accts_file = os.path.join(os.path.join(sublime.packages_path(), 'User', 'Accounts.sublime-settings'))
+        if os.path.exists(accts_file):
+            if os.path.getsize(accts_file) == 0:
+                os.remove(accts_file)
+                shutil.copy(os.path.join(os.path.dirname(__file__), 'Accounts.sublime-settings'), os.path.join(sublime.packages_path(), 'User'))
         else:
-            print 'got idx %d' % idx
+            shutil.copy(os.path.join(os.path.dirname(__file__), 'Accounts.sublime-settings'), os.path.join(sublime.packages_path(), 'User'))
+        view = self.window.open_file(os.path.join(sublime.packages_path(), 'User', 'Accounts.sublime-settings'))
+
+    def is_enabled(self):
+        return self.window.active_view() != None
 
 
 class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.EventListener):
@@ -189,6 +187,7 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
         irc.IRCNegotiator.negotiateCallback = self.openSession
         irc.IRCNegotiator.onNegotiateCallback = self.acceptSessionRequest
         irc.IRCNegotiator.rejectedOrFailedCallback = self.killHostedSession
+        base.BasePeer.peerConnectedCallback = self.shareView
 
     def run(self, task):
         method = getattr(self, task, None)
@@ -263,8 +262,6 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
         protocolSessions[session.str()] = session
         sessions[self.selectedNegotiator.str()] = protocolSessions
         self.newSession = session
-        if session.peerType == SERVER:
-            sublime.set_timeout(self.shareView, 0)
 
     def shareView(self, idx=None):
         if idx == None:
@@ -303,8 +300,8 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
         # self.acceptOrReject = ['%s wants to collaborate with you!' % username, 'No thanks!']
         # sublime.set_timeout(self.doAcceptOrRejectSession, 1000)
 
-    def doAcceptOrRejectSession(self):
-        sublime.active_window().show_quick_panel(self.acceptOrReject, self.deferredOnNegotiateCallback.callback)
+    # def doAcceptOrRejectSession(self):
+    #     sublime.active_window().show_quick_panel(self.acceptOrReject, self.deferredOnNegotiateCallback.callback)
 
     def showSessions(self, idx=None):
         if idx == None:
@@ -350,7 +347,8 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
             for connectedKey in negotiatorInstances.keys():
                 if not negotiatorInstances[connectedKey].connectionFailed:
                     self.chatClientKeys.remove(connectedKey)
-            self.chatClientKeys.append('*** ALL ***')
+            if len(self.chatClientKeys) > 0:
+                self.chatClientKeys.append('*** ALL ***')
             sublime.active_window().show_quick_panel(self.chatClientKeys, self.connectChat)
         elif clientIdx > -1:
             targetClient = self.chatClientKeys[clientIdx]
