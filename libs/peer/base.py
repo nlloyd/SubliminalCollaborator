@@ -24,7 +24,7 @@ from peer import interface
 from twisted.internet import reactor, protocol, error, interfaces
 from twisted.protocols import basic
 import sublime
-import logging, sys, socket, struct, os, re
+import logging, threading, sys, socket, struct, os, re
 
 logger = logging.getLogger(__name__)
 logger.propagate = False
@@ -79,6 +79,9 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         self.state = None
         self.view = None
         self.failedToInitConnectCallback = failedToInitConnectCallback
+        # queue of 2 or 3 part tuples
+        self.toDoToViewQueue = []
+        self.toDoToViewQueueLock = threading.Lock()
 
     def hostConnect(self, port = 0):
         """
@@ -254,19 +257,50 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         """
         pass
 
+    def handleViewChanges(self):
+        """
+        Runs on the main UI event loop.
+        Goes through the list of events queued up to modify the shared view
+        and applies them to the associated view.
+        """
+        self.toDoToViewQueueLock.acquire()
+        while len(self.toDoToViewQueue) > 0:
+            toDo = self.toDoToViewQueue.pop(0)
+            if len(toDo) == 2:
+                if toDo[0] == interface.SHARE_VIEW:
+                    self.view = sublime.active_window().new_file()
+                    self.view.set_name(toDo[1])
+                    self.view.set_read_only(True)
+                    self.view.set_scratch(True)
+                    self.viewPopulateEdit = self.view.begin_edit()
+                elif toDo[0] == interface.VIEW_CHUNK:
+                    self.view.insert(self.viewPopulateEdit, self.view.size(), toDo[1])
+                elif toDo[0] == interface.END_OF_VIEW:
+                    self.view.end_edit(self.viewPopulateEdit)
+                    self.viewPopulateEdit = None
+                elif toDo[0] == interface.SELECTION:
+                    regions = sublime.RegionSet()
+                    for regionMatch in REGION_PATTERN.finditer(toDo[1]):
+                        regions.add(sublime.Region(int(regionMatch.group(1)), int(regionMatch.group(2))))
+                    self.recvSelectionUpdate(regions)
+            elif len(toDo) == 3:
+                # edit event
+                pass
+        self.toDoToViewQueueLock.release()
+
     def recvd_SHARE_VIEW(self, messageSubType, payload):
-        self.view = sublime.active_window().new_file()
-        self.view.set_name(payload)
-        self.view.set_read_only(True)
-        self.view.set_scratch(True)
-        self.viewPopulateEdit = self.view.begin_edit()
+        self.toDoToViewQueueLock.acquire()
+        self.toDoToViewQueue.append((interface.SHARE_VIEW, payload))
+        self.toDoToViewQueueLock.release()
         self.sendMessage(interface.SHARE_VIEW_ACK)
 
     def recvd_SHARE_VIEW_ACK(self, messageSubType, payload):
         self.ackdChunks = []
 
     def recvd_VIEW_CHUNK(self, messageSubType, payload):
-        self.view.insert(self.viewPopulateEdit, self.view.size(), payload)
+        self.toDoToViewQueueLock.acquire()
+        self.toDoToViewQueue.append((interface.VIEW_CHUNK, payload))
+        self.toDoToViewQueueLock.release()
         self.sendMessage(interface.VIEW_CHUNK_ACK, payload=str(len(payload)))
 
     def recvd_VIEW_CHUNK_ACK(self, messageSubType, payload):
@@ -274,10 +308,11 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         self.ackdChunks.append(ackdChunkSize)
 
     def recvd_END_OF_VIEW(self, messageSubType, payload):
-        self.view.end_edit(self.viewPopulateEdit)
-        self.viewPopulateEdit = None
-        # self.view.set_read_only(False)
+        self.toDoToViewQueueLock.acquire()
+        self.toDoToViewQueue.append((interface.END_OF_VIEW, payload))
+        self.toDoToViewQueueLock.release()
         self.sendMessage(interface.END_OF_VIEW_ACK)
+        sublime.set_timeout(self.handleViewChanges, 0)
         self.onStartCollab()
 
     def recvd_END_OF_VIEW_ACK(self, messageSubType, payload):
@@ -293,10 +328,10 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
             self.disconnect()
 
     def recvd_SELECTION(self, messageSubType, payload):
-        regions = sublime.RegionSet()
-        for regionMatch in REGION_PATTERN.finditer(payload):
-            regions.add(sublime.Region(int(regionMatch.group(1)), int(regionMatch.group(2))))
-        self.recvSelectionUpdate(regions)
+        self.toDoToViewQueueLock.acquire()
+        self.toDoToViewQueue.append((interface.SELECTION, payload))
+        self.toDoToViewQueueLock.release()
+        sublime.set_timeout(self.handleViewChanges, 0)
 
     def recvdUnknown(self, messageType, messageSubType, payload):
         logger.warn('Received unknown message: %s, %s, %s' % (messageType, messageSubType, payload))

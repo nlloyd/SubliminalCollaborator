@@ -22,6 +22,9 @@
 
 # this is a collection of mock sublime api functions and classes
 from StringIO import StringIO
+import time
+
+DRAW_OUTLINED = 'DRAW_OUTLINED'
 
 class Region(object):
 
@@ -41,8 +44,20 @@ class Region(object):
     def empty(self):
         return self.a == self.b
 
+    def str(self):
+        return '(%d, %d)' % (self.a, self.b)
+
 class RegionSet(set):
-    pass
+    
+    def str(self):
+        outstr = StringIO()
+        outstr.write('[')
+        for item in self:
+            outstr.write(item.str())
+            outstr.write(', ')
+        toReturn = outstr.getvalue().rstrip(', ')
+        toReturn = toReturn + ']'
+        print toReturn
 
 class View(object):
 
@@ -54,6 +69,7 @@ class View(object):
         self.viewContents = StringIO()
 
     def load_faux_view(self, filepath):
+        self.name = filepath
         f = open(filepath, 'r')
         if len(self.viewContents.getvalue()) > 0:
             self.viewContents.close()
@@ -63,6 +79,9 @@ class View(object):
 
     def set_name(self, name):
         self.name = name
+
+    def file_name(self):
+        return self.name
 
     def set_read_only(self, readOnly):
         self.readOnly = readOnly
@@ -77,6 +96,7 @@ class View(object):
         return self.viewSize
 
     def begin_edit(self):
+        self.viewContents = StringIO()
         outFile = '/tmp/%s' % self.name
         mockEdit = open(outFile, 'w+')
         return mockEdit
@@ -91,6 +111,13 @@ class View(object):
         edit.flush()
         edit.close()
 
+    def add_regions(self, key, regions, scope, otherStuff):
+        print 'The following has been selected by %s:' % key
+        print '######################'
+        for region in regions:
+            print self.viewContents.getvalue()[region.begin():region.end()]
+            print '######################'
+
 class Window(object):
 
     def new_file(self):
@@ -99,3 +126,6 @@ class Window(object):
 def active_window():
     return Window()
 
+def set_timeout(callback, timeout):
+    time.sleep(float(timeout))
+    callback()

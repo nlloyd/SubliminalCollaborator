@@ -45,6 +45,7 @@ from negotiator import irc
 from peer import interface
 from twisted.internet import reactor, error
 import time, threading, logging, sys
+import sublime
 
 logger = logging.getLogger(__name__)
 logger.propagate = False
@@ -66,6 +67,10 @@ class MockFailure(object):
 
 def negotiateCallback_accept(caller, session):
     print 'negotiateCallback_accept'
+    if session.peerType == interface.SERVER:
+        view = sublime.View()
+        view.load_faux_view(__file__)
+        session.startCollab(view)
 
 def negotiateCallback_retry(caller, session):
     print 'negotiateCallback_retry'
@@ -92,9 +97,11 @@ def runMockSubliminalCollaborator(host, port, username, password, channel, isHos
     if sessionBehavior == 'accept':
         onNegotiateCallback = onNegotiateCallback_accept
     elif sessionBehavior == 'reject':
-        onNegotiateCallback = onNegotiateCallback_reject
-    elif sessionBehavior == 'retry':
-        negotiateCallback = negotiateCallback_retry
+        if session.peerType == interface.SERVER:
+
+            onNegotiateCallback = onNegotiateCallback_reject
+        elif sessionBehavior == 'retry':
+            negotiateCallback = negotiateCallback_retry
     irc.IRCNegotiator.negotiateCallback = negotiateCallback
     irc.IRCNegotiator.onNegotiateCallback = onNegotiateCallback
     irc.IRCNegotiator.rejectedOrFailedCallback = rejectedCallback
