@@ -24,7 +24,7 @@ from peer import interface
 from twisted.internet import reactor, protocol, error, interfaces
 from twisted.protocols import basic
 import sublime
-import logging, sys, socket, struct, os
+import logging, sys, socket, struct, os, re
 
 logger = logging.getLogger(__name__)
 logger.propagate = False
@@ -37,7 +37,9 @@ logger.setLevel(logging.DEBUG)
 
 
 # in bytes
-MAX_CHUNK_SIZE = 512
+MAX_CHUNK_SIZE = 1024
+
+REGION_PATTERN = re.compile('(\d+), (\d+)')
 
 
 # build off of the Int32StringReceiver to leverage its unprocessed buffer handling
@@ -223,7 +225,8 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
 
         @param selectedRegions: C{sublime.RegionSet} of all selected regions in the current view.
         """
-        pass
+        logger.debug('Sending selection update')
+        self.sendMessage(interface.SELECTION, payload=str(selectedRegions))
 
     def recvSelectionUpdate(self, selectedRegions):
         """
@@ -231,7 +234,7 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
 
         @param selectedRegions: C{sublime.RegionSet} of all selected regions to be set.
         """
-        pass
+        self.view.add_regions(self.sharingWithUser, selectedRegions, 'comment', sublime.DRAW_OUTLINED)
 
     def sendEdit(self, editType, content):
         """
@@ -288,6 +291,12 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
             self.sendMessage(interface.BAD_VIEW_SEND)
             # TODO status bar message as well... or perhaps a popup alert?
             self.disconnect()
+
+    def recvd_SELECTION(self, messageSubType, payload):
+        regions = sublime.RegionSet()
+        for regionMatch in REGION_PATTERN.finditer(payload):
+            regions.add(sublime.Region(int(regionMatch.group(1)), int(regionMatch.group(2))))
+        self.recvSelectionUpdate(regions)
 
     def recvdUnknown(self, messageType, messageSubType, payload):
         logger.warn('Received unknown message: %s, %s, %s' % (messageType, messageSubType, payload))

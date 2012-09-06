@@ -41,6 +41,9 @@ class Region(object):
     def empty(self):
         return self.a == self.b
 
+class RegionSet(set):
+    pass
+
 class View(object):
 
     def __init__(self):

@@ -78,7 +78,10 @@ chatClientConfig = {}
 connectAllOnStartup = False
 # key is same as config dictionary with value equallying live negotiator instances
 negotiatorInstances = {}
+# sessions by chatClient
 sessions = {}
+# sessions by view id
+sessionsByViewId = {}
 sessionsLock = threading.Lock()
 
 class SessionCleanupThread(threading.Thread):
@@ -87,6 +90,7 @@ class SessionCleanupThread(threading.Thread):
 
     def run(self):
         global sessions
+        global sessionsByViewId
         global sessionsLock
         time.sleep(5.0)
         # runs for as long as the reactor is running
@@ -97,6 +101,9 @@ class SessionCleanupThread(threading.Thread):
                     if session.state == STATE_DISCONNECTED:
                         deadSession = sessions[sessionsKey].pop(sessionKey)
                         logger.debug('Cleaning up dead session: %s' % deadSession.str())
+            for viewId, session in sessionsByViewId.items():
+                if session.state == STATE_DISCONNECTED:
+                    sessionsByViewId.pop(viewId)
             sessionsLock.release()
             time.sleep(30.0)
 
@@ -157,7 +164,7 @@ if connectAllOnStartup:
     connectAllChat()
 
 
-class CollaborateCommand(sublime_plugin.ApplicationCommand):
+class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.EventListener):
     chatClientKeys = []
     sessionKeys = []
     userList = []
@@ -264,7 +271,7 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand):
                 chosenViewName = self.viewNames[idx]
                 chosenView = self.viewsByName[chosenViewName]
                 self.newSession.startCollab(chosenView)
-                # TODO make a global map of views (names) to sessions              
+                sessionsByViewId[chosenView.id()] = self.newSession
             else:
                 self.newSession.disconnect()
                 self.newSession = None
@@ -342,3 +349,9 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand):
             sublime.active_window().show_quick_panel(self.chatClientKeys, self.disconnectChat)
         elif clientIdx > -1:
             negotiatorInstances.pop(self.chatClientKeys[clientIdx]).disconnect()
+
+    def on_selection_modified(self, view):
+        if sessionsByViewId.has_key(view.id()):
+            session = sessionsByViewId[view.id()]
+            if session.state == STATE_CONNECTED:
+                session.sendSelectionUpdate(view.sel())
