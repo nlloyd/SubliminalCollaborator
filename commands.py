@@ -163,6 +163,19 @@ loadConfig()
 if connectAllOnStartup:
     connectAllChat()
 
+class ViewTestCommand(sublime_plugin.TextCommand):
+
+    def run(self, edit):
+        time.sleep(5.0)
+        self.showQuickPanel()
+        print sublime.ok_cancel_dialog('wanna share stuff?')
+
+    def showQuickPanel(self, idx=None):
+        if idx == None:
+            sublime.active_window().show_quick_panel(['a','b','c'], self.showQuickPanel)
+        else:
+            print 'got idx %d' % idx
+
 
 class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.EventListener):
     chatClientKeys = []
@@ -185,6 +198,7 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
                 method()
             else:
                 logger.error('unknown plugin task %s' % task)
+
         except:
             logger.error(sys.exc_info())
 
@@ -280,9 +294,14 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
             self.viewsByName = None
 
     def acceptSessionRequest(self, deferredOnNegotiateCallback, username):
-        self.deferredOnNegotiateCallback = deferredOnNegotiateCallback
-        self.acceptOrReject = ['%s wants to collaborate with you!' % username, 'No thanks!']
-        sublime.set_timeout(self.doAcceptOrRejectSession, 1000)
+        # self.deferredOnNegotiateCallback = deferredOnNegotiateCallback
+        acceptSession = sublime.ok_cancel_dialog('%s wants to collaborate with you!' % username)
+        if acceptSession:
+            deferredOnNegotiateCallback.callback(0)
+        else:
+            deferredOnNegotiateCallback.callback(1)
+        # self.acceptOrReject = ['%s wants to collaborate with you!' % username, 'No thanks!']
+        # sublime.set_timeout(self.doAcceptOrRejectSession, 1000)
 
     def doAcceptOrRejectSession(self):
         sublime.active_window().show_quick_panel(self.acceptOrReject, self.deferredOnNegotiateCallback.callback)

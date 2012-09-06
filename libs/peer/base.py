@@ -64,6 +64,7 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
     # registered callback methods
     switchRole = None
     peerInitiatedDisconnect = None
+    peerConnectedCallback = None
 
     def __init__(self, username, failedToInitConnectCallback=None):
         self.sharingWithUser = username

@@ -56,9 +56,6 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
     rejectedOrFailedCallback = None
 
     def __init__(self):
-        # self.negotiateCallback = negotiateCallback
-        # self.onNegotiateCallback = onNegotiateCallback
-        # self.rejectedOrFailedCallback = rejectedOrFailedCallback
         self.clientConnection = None
         self.host = None
         self.port = None
