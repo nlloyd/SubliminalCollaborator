@@ -392,7 +392,7 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
     def clientConnectionFailed(self, connector, reason):
         logger.error('Connection failed: %s - %s' % (reason.type, reason.value))
         self.state = interface.STATE_DISCONNECTED
-        if error.ConnectionRefusedError == reason.type:
+        if (error.ConnectionRefusedError == reason.type) or (error.TCPTimedOutError == reason.type):
             if (self.peerType == interface.CLIENT) and (not self.failedToInitConnectCallback == None):
                 self.failedToInitConnectCallback(self.sharingWithUser)
         self.disconnect()
