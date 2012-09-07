@@ -251,6 +251,7 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         while len(self.toDoToViewQueue) > 0:
             toDo = self.toDoToViewQueue.pop(0)
             if len(toDo) == 2:
+                logger.debug('Handling view change %s with size %d payload' % (interface.numeric_to_symbolic[toDo[0]], len(toDo[1])))
                 if toDo[0] == interface.SHARE_VIEW:
                     self.view = sublime.active_window().new_file()
                     self.view.set_name(toDo[1])
