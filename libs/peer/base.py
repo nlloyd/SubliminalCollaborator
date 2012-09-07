@@ -264,9 +264,9 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
                     self.view.end_edit(self.viewPopulateEdit)
                     self.viewPopulateEdit = None
                 elif toDo[0] == interface.SELECTION:
-                    regions = sublime.RegionSet()
+                    regions = []
                     for regionMatch in REGION_PATTERN.finditer(toDo[1]):
-                        regions.add(sublime.Region(int(regionMatch.group(1)), int(regionMatch.group(2))))
+                        regions.append(sublime.Region(int(regionMatch.group(1)), int(regionMatch.group(2))))
                     self.recvSelectionUpdate(regions)
             elif len(toDo) == 3:
                 # edit event
