@@ -116,7 +116,7 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         self.peerType = interface.CLIENT
         self.role = interface.PARTNER_ROLE
         self.state = interface.STATE_CONNECTING
-        self.connection = reactor.connectTCP(self.host, self.port, self)
+        self.connection = reactor.connectTCP(self.host, self.port, self, timeout=5)
 
     def disconnect(self):
         """
