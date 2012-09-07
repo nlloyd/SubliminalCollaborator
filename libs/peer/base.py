@@ -259,7 +259,9 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
                     self.view.set_scratch(True)
                     self.viewPopulateEdit = self.view.begin_edit()
                 elif toDo[0] == interface.VIEW_CHUNK:
+                    self.view.set_read_only(False)
                     self.view.insert(self.viewPopulateEdit, self.view.size(), toDo[1])
+                    self.view.set_read_only(True)
                 elif toDo[0] == interface.END_OF_VIEW:
                     self.view.end_edit(self.viewPopulateEdit)
                     self.viewPopulateEdit = None
