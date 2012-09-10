@@ -292,7 +292,7 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
             self.viewsByName = None
 
     def addSharedView(self, sessionWithView):
-        sessionsByViewId[sessionsByViewId.view.id()] = sessionWithView
+        sessionsByViewId[sessionWithView.view.id()] = sessionWithView
 
     def acceptSessionRequest(self, deferredOnNegotiateCallback, username):
         # self.deferredOnNegotiateCallback = deferredOnNegotiateCallback
