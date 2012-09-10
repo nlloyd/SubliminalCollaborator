@@ -66,6 +66,8 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
     peerInitiatedDisconnect = None
     # callback for the server-peer
     peerConnectedCallback = None
+    # callback for the client-peer
+    peerRecvdViewCallback = None
 
     def __init__(self, username, failedToInitConnectCallback=None):
         self.sharingWithUser = username
@@ -176,6 +178,8 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         Callback method informing the peer that we have received the view.
         """
         logger.debug('collaboration session with view started!')
+        if self.peerRecvdViewCallback:
+            self.peerRecvdViewCallback(self)
 
     def stopCollab(self):
         """

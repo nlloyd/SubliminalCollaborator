@@ -188,6 +188,7 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
         irc.IRCNegotiator.onNegotiateCallback = self.acceptSessionRequest
         irc.IRCNegotiator.rejectedOrFailedCallback = self.killHostedSession
         base.BasePeer.peerConnectedCallback = self.shareView
+        base.BasePeer.peerRecvdViewCallback = self.addSharedView
 
     def run(self, task):
         method = getattr(self, task, None)
@@ -289,6 +290,9 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
                 self.newSession = None
             self.viewNames = None
             self.viewsByName = None
+
+    def addSharedView(self, sessionWithView):
+        sessionsByViewId[sessionsByViewId.view.id()] = sessionWithView
 
     def acceptSessionRequest(self, deferredOnNegotiateCallback, username):
         # self.deferredOnNegotiateCallback = deferredOnNegotiateCallback
