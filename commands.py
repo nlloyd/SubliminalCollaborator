@@ -43,6 +43,8 @@ if runtime.platform.isWindows():
 from negotiator import irc
 from peer.interface import STATE_CONNECTED, STATE_DISCONNECTED, STATE_REJECT_TRIGGERED_DISCONNECTING, SERVER
 from peer import base
+from twisted.internet import selectreactor
+selectreactor.install()
 from twisted.internet import reactor
 import threading, logging, time, shutil
 
