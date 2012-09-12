@@ -66,7 +66,9 @@ class ReactorThread(threading.Thread):
             logger.info('Starting the event reactor on a thread')
             reactor.run(installSignalHandlers=False)
 
-ReactorThread().start()
+if not 'REACTOR_THREAD' in globals():
+    REACTOR_THREAD = ReactorThread()
+    REACTOR_THREAD.start()
 
 negotiatorFactoryMap = {
     'irc': irc.IRCNegotiator
@@ -107,7 +109,9 @@ class SessionCleanupThread(threading.Thread):
             sessionsLock.release()
             time.sleep(30.0)
 
-SessionCleanupThread().start()
+if not 'SESSION_CLEANUP_THREAD' in globals():
+    SESSION_CLEANUP_THREAD = SessionCleanupThread()
+    SESSION_CLEANUP_THREAD.start()
 
 def loadConfig():
     global connectAllOnStartup
@@ -377,3 +381,6 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
             session = sessionsByViewId[view.id()]
             if session.state == STATE_CONNECTED:
                 session.sendSelectionUpdate(view.sel())
+
+    # def on_modified(self, view):
+    #     print view.command_history(0)

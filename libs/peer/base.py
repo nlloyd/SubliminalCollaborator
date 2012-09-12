@@ -42,6 +42,21 @@ MAX_CHUNK_SIZE = 1024
 REGION_PATTERN = re.compile('(\d+), (\d+)')
 
 
+class ViewPositionThread(threading.Thread):
+    def __init__(self, peer):
+        threading.Thread.__init__(self)
+        self.peer = peer
+
+    def run(self):
+        logger.info('Monitoring view position')
+        # we must be the host and connected
+        while (self.peer.role == interface.HOST_ROLE) and (self.peer.state == interface.STATE_CONNECTED):
+            if self.peer.view:
+                viewRegion = self.peer.view.visible_region()
+                self.sendViewPositionUpdate(viewRegion)
+            time.sleep(0.5)
+        logger.info('Stopped monitoring view position')
+
 # build off of the Int32StringReceiver to leverage its unprocessed buffer handling
 class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.ServerFactory):
     """
@@ -86,6 +101,8 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         # queue of 2 or 3 part tuples
         self.toDoToViewQueue = []
         self.toDoToViewQueueLock = threading.Lock()
+        # thread for polling host-side view
+        self.viewPositionPollingThread = ViewPositionThread(self)
 
     def hostConnect(self, port = 0):
         """
@@ -170,8 +187,10 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
             self.sendMessage(interface.VIEW_CHUNK, payload=chunkToSend)
             begin = begin + MAX_CHUNK_SIZE
             end = end + MAX_CHUNK_SIZE
-        self.sendMessage(interface.END_OF_VIEW)
+        self.sendMessage(interface.END_OF_VIEW, payload=view.settings().get('syntax'))
         self.view.set_read_only(False)
+        # start the view position polling thread
+        self.viewPositionPollingThread.start()
 
     def onStartCollab(self):
         """
@@ -200,7 +219,7 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
 
         @param centerOnRegion: C{sublime.Region} of the current visible portion of the view to send to the peer.
         """
-        pass
+        self.sendMessage(interface.POSITION, payload=str(centerOnRegion))
 
     def recvViewPositionUpdate(self, centerOnRegion):
         """
@@ -208,7 +227,7 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
 
         @param centerOnRegion: C{sublime.Region} of the region to set as the current visible portion of the view.
         """
-        pass
+        self.view.show_at_center(centerOnRegion)
 
     def sendSelectionUpdate(self, selectedRegions):
         """
@@ -268,12 +287,19 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
                     self.view.set_read_only(True)
                 elif toDo[0] == interface.END_OF_VIEW:
                     self.view.end_edit(self.viewPopulateEdit)
+                    self.view.settings().set_syntax_file(payload)
                     self.viewPopulateEdit = None
+                    # view is populated and configured, lets share!
+                    self.onStartCollab()
                 elif toDo[0] == interface.SELECTION:
                     regions = []
                     for regionMatch in REGION_PATTERN.finditer(toDo[1]):
                         regions.append(sublime.Region(int(regionMatch.group(1)), int(regionMatch.group(2))))
                     self.recvSelectionUpdate(regions)
+                elif toDo[0] == interface.POSITION:
+                    regionMatch = REGION_PATTERN.match(toDo[1])
+                    if regionMatch:
+                        self.recvViewPositionUpdate(sublime.Region(int(regionMatch.group(1)), int(regionMatch.group(2))))
             elif len(toDo) == 3:
                 # edit event
                 pass
@@ -330,7 +356,6 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         self.toDoToViewQueueLock.release()
         self.sendMessage(interface.END_OF_VIEW_ACK)
         sublime.set_timeout(self.handleViewChanges, 0)
-        self.onStartCollab()
 
     def recvd_END_OF_VIEW_ACK(self, messageSubType, payload):
         if self.toAck == self.ackdChunks:
@@ -347,6 +372,12 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
     def recvd_SELECTION(self, messageSubType, payload):
         self.toDoToViewQueueLock.acquire()
         self.toDoToViewQueue.append((interface.SELECTION, payload))
+        self.toDoToViewQueueLock.release()
+        sublime.set_timeout(self.handleViewChanges, 0)
+
+    def recvd_POSITION(self, messageSubType, payload):
+        self.toDoToViewQueueLock.acquire()
+        self.toDoToViewQueue.append((interface.POSITION, payload))
         self.toDoToViewQueueLock.release()
         sublime.set_timeout(self.handleViewChanges, 0)
 

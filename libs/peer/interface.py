@@ -61,11 +61,13 @@ BAD_VIEW_SEND = 8
 SYNTAX = 9
 # view selection payload
 SELECTION = 10
+# view position payload
+POSITION = 11
 # edit event payload
-EDIT = 11
+EDIT = 12
 
 #--- message sub-types ---#
-EDIT_TYPE_NA = 12  # not applicable, sent by all but EDIT
+EDIT_TYPE_NA = 120  # not applicable, sent by all but EDIT
 # TODO figure out the rest
 
 symbolic_to_numeric = {
@@ -80,8 +82,9 @@ symbolic_to_numeric = {
     'BAD_VIEW_SEND': 8,
     'SYNTAX': 9,
     'SELECTION': 10,
-    'EDIT': 11,
-    'EDIT_TYPE_NA': 12
+    'POSITION': 11,
+    'EDIT': 12,
+    'EDIT_TYPE_NA': 120
 }
 
 # tyvm twisted/words/protocols/irc.py for this handy dandy trick!
