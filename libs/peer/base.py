@@ -51,7 +51,7 @@ class ViewPositionThread(threading.Thread):
         logger.info('Monitoring view position')
         # we must be the host and connected
         while (self.peer.role == interface.HOST_ROLE) and (self.peer.state == interface.STATE_CONNECTED):
-            if self.peer.view:
+            if not self.peer.view == None:
                 viewRegion = self.peer.view.visible_region()
                 self.sendViewPositionUpdate(viewRegion)
             time.sleep(0.5)
@@ -287,7 +287,7 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
                     self.view.set_read_only(True)
                 elif toDo[0] == interface.END_OF_VIEW:
                     self.view.end_edit(self.viewPopulateEdit)
-                    self.view.settings().set_syntax_file(payload)
+                    self.view.set_syntax_file(payload)
                     self.viewPopulateEdit = None
                     # view is populated and configured, lets share!
                     self.onStartCollab()
