@@ -64,6 +64,7 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
         self.peerUsers = None
         self.unverifiedUsers = None
         self.connectionFailed = False
+        self.retryNegotiate = False
 
     #*** Negotiator method implementations ***#
 
@@ -177,6 +178,7 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
             logger.warn('Unable to connect to peer %s, all host addresses tried and failed!')
             # TODO error reporting in UI
             self.msg(username, 'NO-GOOD-HOST-IP')
+            return
         ipaddress = self.hostAddressToTryQueue.pop()
         session = base.BasePeer(username)
         port = session.hostConnect()
@@ -203,7 +205,8 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
             }
             deferredTrueNegotiate.addCallback(self.onNegotiateSession, **sessionParams)
             sublime.set_timeout(functools.partial(self.onNegotiateCallback, deferredTrueNegotiate, username), 0)
-        if rejected == False:
+        if (rejected == False) or ((rejected == None) and self.retryNegotiate):
+            # we havent been rejected OR we are trying with a new IP address
             logger.info('Establishing session with %s at %s:%d' % (username, host, port))
             session = base.BasePeer(username, self.sendPeerFailedToConnect)
             session.clientConnect(host, port)
@@ -325,6 +328,7 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
         reactor.callFromThread(self.ctcpMakeQuery, user, [('VERSION', None)])
 
     def sendPeerFailedToConnect(self, username):
+        self.retryNegotiate = True
         self.msg(username, 'TRY-NEXT-HOST-IP')
 
     def str(self):
