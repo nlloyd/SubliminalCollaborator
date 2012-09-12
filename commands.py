@@ -40,11 +40,14 @@ if runtime.platform.isWindows():
     if libs_path not in sys.path:
         sys.path.insert(0, libs_path)
 
+from twisted.internet import selectreactor
+if not 'SELECTREACTORINSTALLED' in globals():
+    selectreactor.install()
+    SELECTREACTORINSTALLED = True
+    
 from negotiator import irc
 from peer.interface import STATE_CONNECTED, STATE_DISCONNECTED, STATE_REJECT_TRIGGERED_DISCONNECTING, SERVER
 from peer import base
-from twisted.internet import selectreactor
-selectreactor.install()
 from twisted.internet import reactor
 import threading, logging, time, shutil
 

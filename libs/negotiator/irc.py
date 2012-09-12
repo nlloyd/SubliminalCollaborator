@@ -24,7 +24,8 @@ from negotiator import interface
 from peer import base
 from twisted.words.protocols import irc
 from twisted.internet import reactor, protocol, error, defer
-import logging, sys, socket
+import logging, sys, socket, functools
+import sublime
 
 logger = logging.getLogger(__name__)
 logger.propagate = False
@@ -201,7 +202,7 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
                 'port': port
             }
             deferredTrueNegotiate.addCallback(self.onNegotiateSession, **sessionParams)
-            self.onNegotiateCallback(deferredTrueNegotiate, username)
+            sublime.set_timeout(functools.partial(self.onNegotiateCallback, deferredTrueNegotiate, username), 0)
         if rejected == False:
             logger.info('Establishing session with %s at %s:%d' % (username, host, port))
             session = base.BasePeer(username, self.sendPeerFailedToConnect)
