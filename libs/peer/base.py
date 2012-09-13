@@ -40,24 +40,29 @@ logger.setLevel(logging.DEBUG)
 MAX_CHUNK_SIZE = 1024
 
 REGION_PATTERN = re.compile('(\d+), (\d+)')
-VECTOR_PATTERN = re.compile('(\d+\.\d+), (\d+\.\d+)')
 
 
 class ViewPositionThread(threading.Thread):
     def __init__(self, peer):
         threading.Thread.__init__(self)
         self.peer = peer
-        self.lastViewPosition = None
+        self.lastViewCenterLine = None
 
     def grabAndSendViewPosition(self):
         """
         Separate function to be called from the sublime main thread...
         because the view.visible_region() function demands that.
         """
-        viewPosition = self.peer.view.viewport_position()
-        if not viewPosition == self.lastViewPosition:
-            self.lastViewPosition = viewPosition
-            self.peer.sendViewPositionUpdate(viewPosition)
+        # calculate the center-most line in the view
+        # this will match most closely with the true center of the view
+        viewRegionLines = self.peer.view.split_by_newlines(self.peer.view.visible_region())
+        lineIdx = len(viewRegionLines) / 2 - 1
+        if lineIdx < 0:
+            lineIdx = 0
+        viewCenterRegion = viewRegionLines[lineIdx]
+        if not viewCenterRegion == self.lastViewCenterLine:
+            self.lastViewCenterLine = viewCenterRegion
+            self.peer.sendViewPositionUpdate(viewCenterRegion)
 
     def run(self):
         logger.info('Monitoring view position')
@@ -223,23 +228,22 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         """
         pass
 
-    def sendViewPositionUpdate(self, positionVector):
+    def sendViewPositionUpdate(self, centerOnRegion):
         """
         Send a window view position update to the peer so they know what
         we are looking at.
 
-        @param positionVector: tuple of the current visible portion of the view to send to the peer.
+        @param centerOnRegion: C{sublime.Region} of the central-most line of the current visible portion of the view to send to the peer.
         """
-        self.sendMessage(interface.POSITION, payload=str(positionVector))
+        self.sendMessage(interface.POSITION, payload=str(centerOnRegion))
 
-    def recvViewPositionUpdate(self, positionVector):
+    def recvViewPositionUpdate(self, centerOnRegion):
         """
         Callback method for handling view position updates from the peer.
 
-        @param positionVector: tuple to set as the current visible portion of the view.
+        @param centerOnRegion: C{sublime.Region} to set as the current center of the view.
         """
-        logger.debug('Moving view to %s' % positionVector)
-        self.view.set_viewport_position(positionVector)
+        self.view.show_at_center(centerOnRegion)
 
     def sendSelectionUpdate(self, selectedRegions):
         """
@@ -309,11 +313,9 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
                         regions.append(sublime.Region(int(regionMatch.group(1)), int(regionMatch.group(2))))
                     self.recvSelectionUpdate(regions)
                 elif toDo[0] == interface.POSITION:
-                    print toDo[1]
-                    vectorMatch = VECTOR_PATTERN.search(toDo[1])
-                    print vectorMatch
-                    if vectorMatch:
-                        self.recvViewPositionUpdate((float(vectorMatch.group(1)), float(vectorMatch.group(2))))
+                    regionMatch = REGION_PATTERN.search(toDo[1])
+                    if regionMatch:
+                        self.recvViewPositionUpdate(sublime.Region(int(regionMatch.group(1)), int(regionMatch.group(2))))
             elif len(toDo) == 3:
                 # edit event
                 pass
