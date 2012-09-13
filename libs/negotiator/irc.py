@@ -181,7 +181,7 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
             return
         ipaddress = self.hostAddressToTryQueue.pop()
         session = base.BasePeer(username)
-        port = session.hostConnect()
+        port = session.hostConnect(ipaddress=ipaddress)
         logger.debug('Negotiating collab session with %s with ip address %s on port %d' % (username, ipaddress, port))
         reactor.callFromThread(self.ctcpMakeQuery, username, [('DCC CHAT', 'collaborate %s %d' % (ipaddress, port))])
         self.negotiateCallback(session)

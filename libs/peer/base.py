@@ -46,14 +46,24 @@ class ViewPositionThread(threading.Thread):
     def __init__(self, peer):
         threading.Thread.__init__(self)
         self.peer = peer
+        self.lastViewPosition = None
+
+    def grabAndSendViewPosition(self):
+        """
+        Separate function to be called from the sublime main thread...
+        because the view.visible_region() function demands that.
+        """
+        viewPosition = self.peer.view.viewport_position()
+        if not viewPosition == self.lastViewPosition:
+            self.lastViewPosition = viewPosition
+            self.peer.sendViewPositionUpdate(viewPosition)
 
     def run(self):
         logger.info('Monitoring view position')
         # we must be the host and connected
         while (self.peer.role == interface.HOST_ROLE) and (self.peer.state == interface.STATE_CONNECTED):
             if not self.peer.view == None:
-                viewRegion = self.peer.view.visible_region()
-                self.sendViewPositionUpdate(viewRegion)
+                sublime.set_timeout(self.grabAndSendViewPosition, 0)
             time.sleep(0.5)
         logger.info('Stopped monitoring view position')
 
@@ -104,7 +114,7 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         # thread for polling host-side view
         self.viewPositionPollingThread = ViewPositionThread(self)
 
-    def hostConnect(self, port = 0):
+    def hostConnect(self, port = 0, ipaddress=''):
         """
         Initiate a peer-to-peer session as the host by listening on the
         given port for a connection.
@@ -116,9 +126,9 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         self.peerType = interface.SERVER
         self.role = interface.HOST_ROLE
         self.state = interface.STATE_CONNECTING
-        self.connection = reactor.listenTCP(port, self)
+        self.connection = reactor.listenTCP(port, self, interface=ipaddress)
         self.port = self.connection.getHost().port
-        logger.info('Listening for peers on port %d' % self.port)
+        logger.info('Listening for peers at %s:%d' % (ipaddress, self.port))
         return self.port
 
     def clientConnect(self, host, port):
