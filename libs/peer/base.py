@@ -40,6 +40,7 @@ logger.setLevel(logging.DEBUG)
 MAX_CHUNK_SIZE = 1024
 
 REGION_PATTERN = re.compile('(\d+), (\d+)')
+VECTOR_PATTERN = re.compile('(\d+\.\d+), (\d+\.\d+)')
 
 
 class ViewPositionThread(threading.Thread):
@@ -222,22 +223,23 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         """
         pass
 
-    def sendViewPositionUpdate(self, centerOnRegion):
+    def sendViewPositionUpdate(self, positionVector):
         """
         Send a window view position update to the peer so they know what
         we are looking at.
 
-        @param centerOnRegion: C{sublime.Region} of the current visible portion of the view to send to the peer.
+        @param positionVector: tuple of the current visible portion of the view to send to the peer.
         """
-        self.sendMessage(interface.POSITION, payload=str(centerOnRegion))
+        self.sendMessage(interface.POSITION, payload=str(positionVector))
 
-    def recvViewPositionUpdate(self, centerOnRegion):
+    def recvViewPositionUpdate(self, positionVector):
         """
         Callback method for handling view position updates from the peer.
 
-        @param centerOnRegion: C{sublime.Region} of the region to set as the current visible portion of the view.
+        @param positionVector: tuple to set as the current visible portion of the view.
         """
-        self.view.show_at_center(centerOnRegion)
+        logger.debug('Moving view to %s' % positionVector)
+        self.view.set_viewport_position(positionVector)
 
     def sendSelectionUpdate(self, selectedRegions):
         """
@@ -297,7 +299,7 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
                     self.view.set_read_only(True)
                 elif toDo[0] == interface.END_OF_VIEW:
                     self.view.end_edit(self.viewPopulateEdit)
-                    self.view.set_syntax_file(payload)
+                    self.view.set_syntax_file(toDo[1])
                     self.viewPopulateEdit = None
                     # view is populated and configured, lets share!
                     self.onStartCollab()
@@ -307,9 +309,11 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
                         regions.append(sublime.Region(int(regionMatch.group(1)), int(regionMatch.group(2))))
                     self.recvSelectionUpdate(regions)
                 elif toDo[0] == interface.POSITION:
-                    regionMatch = REGION_PATTERN.match(toDo[1])
-                    if regionMatch:
-                        self.recvViewPositionUpdate(sublime.Region(int(regionMatch.group(1)), int(regionMatch.group(2))))
+                    print toDo[1]
+                    vectorMatch = VECTOR_PATTERN.search(toDo[1])
+                    print vectorMatch
+                    if vectorMatch:
+                        self.recvViewPositionUpdate((float(vectorMatch.group(1)), float(vectorMatch.group(2))))
             elif len(toDo) == 3:
                 # edit event
                 pass

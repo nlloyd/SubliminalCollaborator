@@ -306,10 +306,7 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
     def acceptSessionRequest(self, deferredOnNegotiateCallback, username):
         # self.deferredOnNegotiateCallback = deferredOnNegotiateCallback
         acceptSession = sublime.ok_cancel_dialog('%s wants to collaborate with you!' % username)
-        if acceptSession:
-            deferredOnNegotiateCallback.callback(0)
-        else:
-            deferredOnNegotiateCallback.callback(1)
+        deferredOnNegotiateCallback.callback(acceptSession)
         # self.acceptOrReject = ['%s wants to collaborate with you!' % username, 'No thanks!']
         # sublime.set_timeout(self.doAcceptOrRejectSession, 1000)
 

@@ -186,15 +186,16 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
         reactor.callFromThread(self.ctcpMakeQuery, username, [('DCC CHAT', 'collaborate %s %d' % (ipaddress, port))])
         self.negotiateCallback(session)
 
-    def onNegotiateSession(self, rejected, username, host, port):
+    def onNegotiateSession(self, accepted, username, host, port):
         """
         Callback method for incoming requests to start a peer-to-peer session.
         The username, host, and port of the requesting peer is provided as input.
 
-        The value for 'rejected' is provided via a roundabout sequence of callback methods
+        The value for 'accepted' is provided via a roundabout sequence of callback methods
         which poll for user input.
         """
-        if (not self.onNegotiateCallback == None) and (rejected == None):
+        logger.debug('onNegotiateCallback(accepted=%s, username=%s, host=%s, port=%d)' % (accepted, username, host, port))
+        if (not self.onNegotiateCallback == None) and (accepted == None) and (self.retryNegotiate == False):
             # we need user input on whether to accept, so we use chained callbacks to get that input
             # and end up back here with what we need
             deferredTrueNegotiate = defer.Deferred()
@@ -205,13 +206,13 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
             }
             deferredTrueNegotiate.addCallback(self.onNegotiateSession, **sessionParams)
             sublime.set_timeout(functools.partial(self.onNegotiateCallback, deferredTrueNegotiate, username), 0)
-        if (rejected == False) or ((rejected == None) and self.retryNegotiate):
-            # we havent been rejected OR we are trying with a new IP address
+        if (accepted == True) or ((accepted == None) and self.retryNegotiate):
+            # we havent rejected OR we are trying with a new IP address
             logger.info('Establishing session with %s at %s:%d' % (username, host, port))
             session = base.BasePeer(username, self.sendPeerFailedToConnect)
             session.clientConnect(host, port)
             self.negotiateCallback(session)
-        elif rejected == True:
+        elif accepted == False:
             logger.info('Rejected session with %s at %s:%d' % (username, host, port))
             self.msg(username, 'REJECTED')
 
