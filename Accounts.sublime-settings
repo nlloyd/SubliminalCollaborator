@@ -1,0 +1,15 @@
+{
+    "subliminal_collaborator": {
+        // uncomment below and fill in with appropriate details!
+        // "irc": [
+        //     {
+        //         "host": "irc.somewhere.com",
+        //         "port": 6667,
+        //         "username": "",
+        //         "password": "",
+        //         "channel": "subliminalcollaboration"
+        //     }
+        // ],
+        "connect_all_on_startup": false
+    }
+}
