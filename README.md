@@ -30,6 +30,7 @@ Instructions below on how to play with this: more details and screenshots coming
 1. Start Sublime Text 2
 1. To generate a basic User/Accounts.sublime-settings file, select menu Preferences > Package Settings > SubliminalCollaborator > Settings - User
 1. Uncomment the following and fill in with the details for your chosen IRC server (can have multiple under "irc")
+
 ```javascript
 // "irc": [
 //     {
@@ -41,6 +42,7 @@ Instructions below on how to play with this: more details and screenshots coming
 //     }
 // ],
 ```
+
 1. Save the settings file.
 1. From the command palette: `Collaborate: Connect to Chat Server`
 1. Select the representative chat config string of your choice (protocol|host:port is the format)
