@@ -3,8 +3,56 @@ SubliminalCollaborator
 
 Sublime Text 2 Plugin for remote pair programming.
 
-This project is still in its infancy, but the intent is to make this into a fully featured and capable 
+This project is in active development and not quite feature complete yet, but the intent is to make this into a fully featured and capable 
 code collaboration tool with minimal setup and infrastructure to get up and going.
+
+## NEWS
+
+The feature set target for **alpha** has been achieved!  You can now, once you are setup, do the following:
+
+* Connect to an IRC channel and find other SubliminalCollaborator clients to...
+    * Share a view over a direct connection (local/company network only, *NAT traversal is a planned feature*)
+    * Partner can see the file, including syntax coloring as was configured by the host at the time of send
+    * Host and Partner can highlight multiple sections of the file and see what the other is highlighting in real-time
+    * Partner's viewpoint follows that of the Host when the Host moves their viewpoint
+
+Instructions below on how to play with this: more details and screenshots coming soon.
+
+## Roadmap
+
+[Planned Milestones](https://github.com/nlloyd/SubliminalCollaborator/issues/milestones)
+
+## Getting Started
+
+**NOTE: command/ctrl + ~ to see what is actually going on.  Right now everything is logged to the sublime console.  Status bar feedback on background operations is a pending feature.**
+
+1. git clone into your Packages directory (When this goes Beta I will add it to the [Sublime Package Control](http://wbond.net/sublime_packages/package_control) repository)
+1. Start Sublime Text 2
+1. To generate a basic User/Accounts.sublime-settings file, select menu Preferences > Package Settings > SubliminalCollaborator > Settings - User
+1. Uncomment the following and fill in with the details for your chosen IRC server (can have multiple under "irc")
+```javascript
+// "irc": [
+//     {
+//         "host": "irc.somewhere.com",
+//         "port": 6667,
+//         "username": "",
+//         "password": "",
+//         "channel": "subliminalcollaboration"
+//     }
+// ],
+```
+1. Save the settings file.
+1. From the command palette: `Collaborate: Connect to Chat Server`
+1. Select the representative chat config string of your choice (protocol|host:port is the format)
+1. Once connected... from the command palette: `Collaborate: Start New Session`
+1. Choose the chat connection to use, then the username from the list of the known confirmed SubliminalCollaborator clients available through this chat
+    * At this point a dialog between clients is initiated where the two peers attempt to connect directly using the available IP addresses of the peer hosting the session... this may take a while... command/ctrl + ~ to see what is actually going on.
+1. Choose a view to share from the presented list of open views.
+1. Highlight something!  Tell your peer to highlight something!  Play around with it and give me feedback while I work on adding more to this thing!
+
+
+## Rough Feature Plan
+**old, see [Issues](https://github.com/nlloyd/SubliminalCollaborator/issues?labels=&milestone=&page=1&state=open) and [Milestones](https://github.com/nlloyd/SubliminalCollaborator/issues/milestones) for more accurate details of what is to come.**
 
 The current feature plans:
 - quickly share a file with another user identified via IM system (irc and jabber currently targetted)
