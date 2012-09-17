@@ -24,12 +24,14 @@ Instructions below on how to play with this: more details and screenshots coming
 
 ## Getting Started
 
+### Configuration
+
 **NOTE: command/ctrl + ~ to see what is actually going on.  Right now everything is logged to the sublime console.  Status bar feedback on background operations is a pending feature.**
 
 1. git clone into your Packages directory (When this goes Beta I will add it to the [Sublime Package Control](http://wbond.net/sublime_packages/package_control) repository)
-2. Start Sublime Text 2
-3. To generate a basic User/Accounts.sublime-settings file, select menu Preferences > Package Settings > SubliminalCollaborator > Settings - User
-4. Uncomment the following and fill in with the details for your chosen IRC server (can have multiple under "irc")
+1. Start Sublime Text 2
+1. To generate a basic User/Accounts.sublime-settings file, select menu Preferences > Package Settings > SubliminalCollaborator > Settings - User
+1. Uncomment the following and fill in with the details for your chosen IRC server (can have multiple under "irc")... then save.
 
 ```javascript
 // "irc": [
@@ -43,14 +45,15 @@ Instructions below on how to play with this: more details and screenshots coming
 // ],
 ```
 
-5. Save the settings file.
-6. From the command palette: `Collaborate: Connect to Chat Server`
-7. Select the representative chat config string of your choice (protocol|host:port is the format)
-8. Once connected... from the command palette: `Collaborate: Start New Session`
-9. Choose the chat connection to use, then the username from the list of the known confirmed SubliminalCollaborator clients available through this chat
+### Starting a Session
+
+1. From the command palette: `Collaborate: Connect to Chat Server`
+1. Select the representative chat config string of your choice (protocol|host:port is the format)
+1. Once connected... from the command palette: `Collaborate: Start New Session`
+1. Choose the chat connection to use, then the username from the list of the known confirmed SubliminalCollaborator clients available through this chat
     * At this point a dialog between clients is initiated where the two peers attempt to connect directly using the available IP addresses of the peer hosting the session... this may take a while... command/ctrl + ~ to see what is actually going on.
-10. Choose a view to share from the presented list of open views.
-11. Highlight something!  Tell your peer to highlight something!  Play around with it and give me feedback while I work on adding more to this thing!
+1. Choose a view to share from the presented list of open views.
+1. Highlight something!  Tell your peer to highlight something!  Play around with it and give me feedback while I work on adding more to this thing!
 
 
 ## Rough Feature Plan
