@@ -157,6 +157,7 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         """
         Disconnect from the peer-to-peer session.
         """
+        logger.debug(self)
         if self.state == interface.STATE_DISCONNECTED:
             # already disconnected!
             return

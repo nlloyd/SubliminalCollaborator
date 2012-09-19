@@ -119,6 +119,7 @@ if not 'SESSION_CLEANUP_THREAD' in globals():
     SESSION_CLEANUP_THREAD.start()
 
 def loadConfig():
+    global chatClientConfig
     global connectAllOnStartup
     acctConfig = sublime.load_settings('Accounts.sublime-settings')
     accts = acctConfig.get('subliminal_collaborator')
@@ -129,6 +130,7 @@ def loadConfig():
         return
     acctConfig.clear_on_change('subliminal_collaborator')
     acctConfig.add_on_change('subliminal_collaborator', loadConfig)
+    newClientConfig = {}
     for protocol, acct_details in accts.items():
         if protocol == 'connect_all_on_startup':
             connectAllOnStartup = acct_details
@@ -143,7 +145,14 @@ def loadConfig():
             if not acct_detail.has_key('password'):
                 configErrorList.append('A %s protocol configuration is missing a password entry' % protocol)
             clientKey = '%s|%s@%s:%d' % (protocol, acct_detail['username'], acct_detail['host'], acct_detail['port'])
-            chatClientConfig[clientKey] = acct_detail
+            newClientConfig[clientKey] = acct_detail
+    for oldKey in chatClientConfig.keys():
+        if not newClientConfig.has_key(oldKey):
+            if negotiatorInstances.has_key(oldKey):
+                logger.info('Cleaning up old chat client with unused configuration: %s' % oldKey)
+                oldNegotiator = negotiatorInstances.pop(oldKey)
+                oldNegotiator.disconnect()
+    chatClientConfig = newClientConfig
     # report errors, if any
     if len(configErrorList) > 0:
         errorMsg = 'The following configuration errors were found:\n'
@@ -203,7 +212,7 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
         method = getattr(self, task, None)
         try:
             if method is not None:
-                logger.debug('running collaborate task %s' % task)
+                # logger.debug('running collaborate task %s' % task)
                 method()
             else:
                 logger.error('unknown plugin task %s' % task)
@@ -328,7 +337,7 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
         sessionsLock.acquire()
         if sessions[protocol].has_key(username):
             toKill = sessions[protocol].pop(username)
-            logger.debug('Cleaning up state hosted session with %s' % username)
+            logger.debug('Cleaning up hosted session with %s' % username)
             toKill.state = STATE_REJECT_TRIGGERED_DISCONNECTING
             toKill.disconnect()
         sessionsLock.release()
