@@ -338,7 +338,8 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
         if sessions[protocol].has_key(username):
             toKill = sessions[protocol].pop(username)
             logger.debug('Cleaning up hosted session with %s' % username)
-            toKill.state = STATE_REJECT_TRIGGERED_DISCONNECTING
+            if not toKill.state == STATE_DISCONNECTED:
+                toKill.state = STATE_REJECT_TRIGGERED_DISCONNECTING
             toKill.disconnect()
         sessionsLock.release()
 
