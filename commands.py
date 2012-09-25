@@ -46,7 +46,7 @@ if not 'SELECTREACTORINSTALLED' in globals():
     SELECTREACTORINSTALLED = True
     
 from negotiator import irc
-from peer.interface import STATE_CONNECTED, STATE_DISCONNECTED, STATE_REJECT_TRIGGERED_DISCONNECTING, SERVER
+import peer.interface as pi
 from peer import base
 from twisted.internet import reactor
 import threading, logging, time, shutil
@@ -105,11 +105,11 @@ class SessionCleanupThread(threading.Thread):
             sessionsLock.acquire()
             for sessionsKey, protocolSessions in sessions.items():
                 for sessionKey, session in protocolSessions.items():
-                    if session.state == STATE_DISCONNECTED:
+                    if session.state == pi.STATE_DISCONNECTED:
                         deadSession = sessions[sessionsKey].pop(sessionKey)
                         logger.debug('Cleaning up dead session: %s' % deadSession.str())
             for viewId, session in sessionsByViewId.items():
-                if session.state == STATE_DISCONNECTED:
+                if session.state == pi.STATE_DISCONNECTED:
                     sessionsByViewId.pop(viewId)
             sessionsLock.release()
             time.sleep(30.0)
@@ -209,6 +209,11 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
         base.BasePeer.peerRecvdViewCallback = self.addSharedView
 
     def run(self, task):
+        # TODO: proxy capture copy commands (possibly others? undo cmds?)
+        # edit commands to capture: cut, copy, undo, redo, redo_or_repeat, soft_undo, soft_redo
+        # note on copy and paste: if nothing selected then entire line where cursor is is used
+        # multiselect cut/copy: paste results in newline after each ordered group in selection set
+        # multiselect cut/copy whole line: newlines included in paste
         method = getattr(self, task, None)
         try:
             if method is not None:
@@ -327,7 +332,7 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
             sessionList = []
             for client in sessions.keys():
                 for user in sessions[client].keys():
-                    if sessions[client][user].state == STATE_CONNECTED:
+                    if sessions[client][user].state == pi.STATE_CONNECTED:
                         sessionList.append('%s -> %s' % (client, user))
             if len(sessionList) == 0:
                 sessionList = ['*** No Active Sessions ***']
@@ -338,8 +343,8 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
         if sessions[protocol].has_key(username):
             toKill = sessions[protocol].pop(username)
             logger.debug('Cleaning up hosted session with %s' % username)
-            if not toKill.state == STATE_DISCONNECTED:
-                toKill.state = STATE_REJECT_TRIGGERED_DISCONNECTING
+            if not toKill.state == pi.STATE_DISCONNECTED:
+                toKill.state = pi.STATE_REJECT_TRIGGERED_DISCONNECTING
             toKill.disconnect()
         sessionsLock.release()
 
@@ -391,8 +396,36 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
     def on_selection_modified(self, view):
         if sessionsByViewId.has_key(view.id()):
             session = sessionsByViewId[view.id()]
-            if session.state == STATE_CONNECTED:
+            if session.state == pi.STATE_CONNECTED:
                 session.sendSelectionUpdate(view.sel())
 
-    # def on_modified(self, view):
-    #     print view.command_history(0)
+    def on_modified(self, view):
+        print view.command_history(0, False)
+        if sessionsByViewId.has_key(view.id()):
+            session = sessionsByViewId[view.id()]
+            if session.state == pi.STATE_CONNECTED:
+                command = view.command_history(0, False)
+                lastCommand = session.lastViewCommand
+                session.lastCommand = command
+                payload = ''
+                # handle history-capturable edit commands on this view
+                if command[0] == 'insert':
+                    # because of the way the insert commands are captured in the command_history
+                    # this seems to be the most sensible way to handle this... grab latest character
+                    # inserted and send it... not most efficient but it is a start
+                    if command[0] == lastCommand[0]:
+                        chars = command[1]['characters']
+                        lastChars = command[1]['characters']
+                        if chars.startswith(lastChars):
+                            payload = chars.replace(lastChars, '', 1)
+                        else:
+                            payload = chars
+                    else:
+                        payload = command[1]['characters']
+                    session.sendEdit(pi.EDIT_TYPE_INSERT, payload)
+                elif command[0] == 'left_delete':
+                    session.sendEdit(pi.EDIT_TYPE_LEFT_DELETE, payload)
+                elif command[0] == 'right_delete':
+                    session.sendEdit(pi.EDIT_TYPE_RIGHT_DELETE, payload)
+                elif command[0] == 'paste':
+                    session.sendEdit(pi.EDIT_TYPE_PASTE, payload)

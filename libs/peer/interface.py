@@ -68,7 +68,17 @@ EDIT = 12
 
 #--- message sub-types ---#
 EDIT_TYPE_NA = 120  # not applicable, sent by all but EDIT
-# TODO figure out the rest
+EDIT_TYPE_INSERT = 121
+EDIT_TYPE_LEFT_DELETE = 122
+EDIT_TYPE_RIGHT_DELETE = 123
+EDIT_TYPE_CUT = 124
+EDIT_TYPE_COPY = 125
+EDIT_TYPE_PASTE = 126
+EDIT_TYPE_UNDO = 127
+EDIT_TYPE_REDO = 128
+EDIT_TYPE_REDO_OR_REPEAT = 129
+EDIT_TYPE_SOFT_UNDO = 130
+EDIT_TYPE_SOFT_REDO = 131
 
 symbolic_to_numeric = {
     'CONNECTED': 0,
@@ -84,7 +94,18 @@ symbolic_to_numeric = {
     'SELECTION': 10,
     'POSITION': 11,
     'EDIT': 12,
-    'EDIT_TYPE_NA': 120
+    'EDIT_TYPE_NA': 120,
+    'EDIT_TYPE_INSERT': 121,
+    'EDIT_TYPE_LEFT_DELETE': 122,
+    'EDIT_TYPE_RIGHT_DELETE': 123,
+    'EDIT_TYPE_CUT': 124,
+    'EDIT_TYPE_COPY': 125,
+    'EDIT_TYPE_PASTE': 126,
+    'EDIT_TYPE_UNDO': 127,
+    'EDIT_TYPE_REDO': 128,
+    'EDIT_TYPE_REDO_OR_REPEAT': 129,
+    'EDIT_TYPE_SOFT_UNDO': 130,
+    'EDIT_TYPE_SOFT_REDO': 131
 }
 
 # tyvm twisted/words/protocols/irc.py for this handy dandy trick!
@@ -185,14 +206,14 @@ class Peer(Interface):
         """
         Send an edit event to the peer.
 
-        @param editType: C{str} insert, edit, delete
-        @param content: C{str} contents of the edit (None if delete editType)
+        @param editType: C{str} edit type (see above)
+        @param content: C{Array} contents of the edit (None if delete editType)
         """
 
     def recvEdit(editType, content):
         """
         Callback method for handling edit events from the peer.
 
-        @param editType: C{str} insert, edit, delete
-        @param content: C{str} contents of the edit (None if delete editType)
+        @param editType: C{str} edit type (see above)
+        @param content: C{Array} contents of the edit (None if delete editType)
         """

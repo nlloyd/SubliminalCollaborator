@@ -119,6 +119,8 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         self.toDoToViewQueueLock = threading.Lock()
         # thread for polling host-side view
         self.viewPositionPollingThread = ViewPositionThread(self)
+        # last collected command tuple (str, dict, int)
+        self.lastViewCommand = ('', {}, 0)
 
     def hostConnect(self, port = 0, ipaddress=''):
         """
@@ -251,7 +253,6 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
 
         @param selectedRegions: C{sublime.RegionSet} of all selected regions in the current view.
         """
-        logger.debug('Sending selection update')
         self.sendMessage(interface.SELECTION, payload=str(selectedRegions))
 
     def recvSelectionUpdate(self, selectedRegions):
@@ -262,21 +263,21 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         """
         self.view.add_regions(self.sharingWithUser, selectedRegions, 'comment', sublime.DRAW_OUTLINED)
 
-    def sendEdit(self, editType, content):
+    def sendEdit(editType, content):
         """
         Send an edit event to the peer.
 
-        @param editType: C{str} insert, edit, delete
-        @param content: C{str} contents of the edit (None if delete editType)
+        @param editType: C{str} edit type (see above)
+        @param content: C{Array} contents of the edit (None if delete editType)
         """
         pass
 
-    def recvEdit(self, editType, content):
+    def recvEdit(editType, content):
         """
         Callback method for handling edit events from the peer.
 
-        @param editType: C{str} insert, edit, delete
-        @param content: C{str} contents of the edit (None if delete editType)
+        @param editType: C{str} edit type (see above)
+        @param content: C{Array} contents of the edit (None if delete editType)
         """
         pass
 
