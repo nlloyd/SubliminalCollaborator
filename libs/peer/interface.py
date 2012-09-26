@@ -41,71 +41,73 @@ STATE_DISCONNECTED = 'disconnected'
 
 #--- message types ---#
 # sent by client-peer on connection, sent back by server as ACK
-CONNECTED = 0
+CONNECTED       = 0
 # sent by client-peer prior to disconnect, sent back by server as ACK
-DISCONNECT = 1
+DISCONNECT      = 1
 # sent to signal to the peer to prepare to receive a view, payload is the base filename
-SHARE_VIEW = 2
+SHARE_VIEW      = 2
 # sent in reply to a SHARE_VIEW
-SHARE_VIEW_ACK = 3
+SHARE_VIEW_ACK  = 3
 # chunk of view data
-VIEW_CHUNK = 4
+VIEW_CHUNK      = 4
 # sent in reply to a VIEW_CHUNK, with payloadSize indicating what was received
-VIEW_CHUNK_ACK = 5
+VIEW_CHUNK_ACK  = 5
 # sent to signal to the peer that the entire view has been sent
-END_OF_VIEW = 6
+END_OF_VIEW     = 6
 END_OF_VIEW_ACK = 7
 # sent in reply to an END_OF_VIEW_ACK to indicate that the bytes sent != bytes recvd
-BAD_VIEW_SEND = 8
+BAD_VIEW_SEND   = 8
 # send the syntax config associated with the shared file
-SYNTAX = 9
+SYNTAX          = 9
 # view selection payload
-SELECTION = 10
+SELECTION       = 10
 # view position payload
-POSITION = 11
+POSITION        = 11
 # edit event payload
-EDIT = 12
+EDIT            = 12
 
 #--- message sub-types ---#
-EDIT_TYPE_NA = 120  # not applicable, sent by all but EDIT
-EDIT_TYPE_INSERT = 121
-EDIT_TYPE_LEFT_DELETE = 122
-EDIT_TYPE_RIGHT_DELETE = 123
-EDIT_TYPE_CUT = 124
-EDIT_TYPE_COPY = 125
-EDIT_TYPE_PASTE = 126
-EDIT_TYPE_UNDO = 127
-EDIT_TYPE_REDO = 128
-EDIT_TYPE_REDO_OR_REPEAT = 129
-EDIT_TYPE_SOFT_UNDO = 130
-EDIT_TYPE_SOFT_REDO = 131
+EDIT_TYPE_NA                = 120  # not applicable, sent by all but EDIT
+EDIT_TYPE_INSERT            = 121
+EDIT_TYPE_INSERT_SNIPPET    = 122
+EDIT_TYPE_LEFT_DELETE       = 123
+EDIT_TYPE_RIGHT_DELETE      = 124
+EDIT_TYPE_CUT               = 125
+EDIT_TYPE_COPY              = 126
+EDIT_TYPE_PASTE             = 127
+EDIT_TYPE_UNDO              = 128
+EDIT_TYPE_REDO              = 129
+EDIT_TYPE_REDO_OR_REPEAT    = 130
+EDIT_TYPE_SOFT_UNDO         = 131
+EDIT_TYPE_SOFT_REDO         = 132
 
 symbolic_to_numeric = {
-    'CONNECTED': 0,
-    'DISCONNECT': 1,
-    'SHARE_VIEW': 2,
-    'SHARE_VIEW_ACK': 3,
-    'VIEW_CHUNK': 4,
-    'VIEW_CHUNK_ACK': 5,
-    'END_OF_VIEW': 6,
-    'END_OF_VIEW_ACK': 7,
-    'BAD_VIEW_SEND': 8,
-    'SYNTAX': 9,
-    'SELECTION': 10,
-    'POSITION': 11,
-    'EDIT': 12,
-    'EDIT_TYPE_NA': 120,
-    'EDIT_TYPE_INSERT': 121,
-    'EDIT_TYPE_LEFT_DELETE': 122,
-    'EDIT_TYPE_RIGHT_DELETE': 123,
-    'EDIT_TYPE_CUT': 124,
-    'EDIT_TYPE_COPY': 125,
-    'EDIT_TYPE_PASTE': 126,
-    'EDIT_TYPE_UNDO': 127,
-    'EDIT_TYPE_REDO': 128,
-    'EDIT_TYPE_REDO_OR_REPEAT': 129,
-    'EDIT_TYPE_SOFT_UNDO': 130,
-    'EDIT_TYPE_SOFT_REDO': 131
+    'CONNECTED':                0,
+    'DISCONNECT':               1,
+    'SHARE_VIEW':               2,
+    'SHARE_VIEW_ACK':           3,
+    'VIEW_CHUNK':               4,
+    'VIEW_CHUNK_ACK':           5,
+    'END_OF_VIEW':              6,
+    'END_OF_VIEW_ACK':          7,
+    'BAD_VIEW_SEND':            8,
+    'SYNTAX':                   9,
+    'SELECTION':                10,
+    'POSITION':                 11,
+    'EDIT':                     12,
+    'EDIT_TYPE_NA':             120,
+    'EDIT_TYPE_INSERT':         121,
+    'EDIT_TYPE_INSERT_SNIPPET': 122,
+    'EDIT_TYPE_LEFT_DELETE':    123,
+    'EDIT_TYPE_RIGHT_DELETE':   124,
+    'EDIT_TYPE_CUT':            125,
+    'EDIT_TYPE_COPY':           126,
+    'EDIT_TYPE_PASTE':          127,
+    'EDIT_TYPE_UNDO':           128,
+    'EDIT_TYPE_REDO':           129,
+    'EDIT_TYPE_REDO_OR_REPEAT': 130,
+    'EDIT_TYPE_SOFT_UNDO':      131,
+    'EDIT_TYPE_SOFT_REDO':      132
 }
 
 # tyvm twisted/words/protocols/irc.py for this handy dandy trick!

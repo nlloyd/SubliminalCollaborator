@@ -270,7 +270,16 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         @param editType: C{str} edit type (see above)
         @param content: C{Array} contents of the edit (None if delete editType)
         """
-        pass
+        if editType == interface.EDIT_TYPE_INSERT:
+            self.sendMessage(interface.EDIT, editType, payload=content)
+        elif editType == interface.EDIT_TYPE_INSERT_SNIPPET:
+            self.sendMessage(interface.EDIT, editType, payload=content)
+        elif editType == interface.EDIT_TYPE_LEFT_DELETE:
+            self.sendMessage(interface.EDIT, editType)
+        elif editType == interface.EDIT_TYPE_RIGHT_DELETE:
+            self.sendMessage(interface.EDIT, editType)
+        else:
+            logger.warn('Attempted to send unknown edit event type %s' % interface.numeric_to_symbolic[editType])
 
     def recvEdit(editType, content):
         """
@@ -279,7 +288,16 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         @param editType: C{str} edit type (see above)
         @param content: C{Array} contents of the edit (None if delete editType)
         """
-        pass
+        self.view.set_read_only(False)
+        if editType == interface.EDIT_TYPE_INSERT:
+            self.view.run_command('insert', { 'characters': content })
+        elif editType == interface.EDIT_TYPE_INSERT_SNIPPET:
+            self.view.run_command('insert_snippet', { 'contents': content })
+        elif editType == interface.EDIT_TYPE_LEFT_DELETE:
+            self.view.run_command('left_delete')
+        elif editType == interface.EDIT_TYPE_RIGHT_DELETE:
+            self.view.run_command('right_delete')
+        self.view.set_read_only(True)
 
     def handleViewChanges(self):
         """
@@ -290,8 +308,8 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         self.toDoToViewQueueLock.acquire()
         while len(self.toDoToViewQueue) > 0:
             toDo = self.toDoToViewQueue.pop(0)
+            logger.debug('Handling view change %s with size %d payload' % (interface.numeric_to_symbolic[toDo[0]], len(toDo[1])))
             if len(toDo) == 2:
-                logger.debug('Handling view change %s with size %d payload' % (interface.numeric_to_symbolic[toDo[0]], len(toDo[1])))
                 if toDo[0] == interface.SHARE_VIEW:
                     self.view = sublime.active_window().new_file()
                     self.view.set_name(toDo[1])
@@ -319,7 +337,12 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
                         self.recvViewPositionUpdate(sublime.Region(int(regionMatch.group(1)), int(regionMatch.group(2))))
             elif len(toDo) == 3:
                 # edit event
-                pass
+                assert toDo[0] == interface.EDIT
+                # make the shared selection the ACTUAL selection
+                self.view.sel().clear()
+                self.view.sel().add_all(self.view.get_regions(self.sharingWithUser))
+                self.view.erase_regions(self.sharingWithUser)
+                self.recvEdit(toDo[1], toDo[2])
         self.toDoToViewQueueLock.release()
 
     def recvd_CONNECTED(self, messageSubType, payload):
@@ -336,7 +359,7 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
             logger.info('Connected to peer: %s' % self.sharingWithUser)
             sublime.set_timeout(self.peerConnectedCallback, 0)
 
-    def recvd_DISCONNECT(self, messsageSubType=None, payload=''):
+    def recvd_DISCONNECT(self, messageSubType=None, payload=''):
         """
         Callback method if we receive a DISCONNECT message.
         """
@@ -395,6 +418,12 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
     def recvd_POSITION(self, messageSubType, payload):
         self.toDoToViewQueueLock.acquire()
         self.toDoToViewQueue.append((interface.POSITION, payload))
+        self.toDoToViewQueueLock.release()
+        sublime.set_timeout(self.handleViewChanges, 0)
+
+    def recvd_EDIT(self, messageSubType, payload):
+        self.toDoToViewQueueLock.acquire()
+        self.toDoToViewQueue.append((interface.EDIT, messageSubType, payload))
         self.toDoToViewQueueLock.release()
         sublime.set_timeout(self.handleViewChanges, 0)
 

@@ -400,7 +400,7 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
                 session.sendSelectionUpdate(view.sel())
 
     def on_modified(self, view):
-        print view.command_history(0, False)
+        # print view.command_history(0, False)
         if sessionsByViewId.has_key(view.id()):
             session = sessionsByViewId[view.id()]
             if session.state == pi.STATE_CONNECTED:
@@ -423,6 +423,9 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
                     else:
                         payload = command[1]['characters']
                     session.sendEdit(pi.EDIT_TYPE_INSERT, payload)
+                elif command[0] ==  'insert_snippet':
+                    payload = command[1]['contents']
+                    session.sendEdit(pi.EDIT_TYPE_INSERT_SNIPPET)
                 elif command[0] == 'left_delete':
                     session.sendEdit(pi.EDIT_TYPE_LEFT_DELETE, payload)
                 elif command[0] == 'right_delete':
