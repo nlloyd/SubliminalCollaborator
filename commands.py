@@ -403,7 +403,7 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
         # print view.command_history(0, False)
         if sessionsByViewId.has_key(view.id()):
             session = sessionsByViewId[view.id()]
-            if session.state == pi.STATE_CONNECTED:
+            if (session.state == pi.STATE_CONNECTED) and (session.role == pi.HOST_ROLE):
                 command = view.command_history(0, False)
                 lastCommand = session.lastViewCommand
                 session.lastCommand = command
