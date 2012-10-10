@@ -263,7 +263,7 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         """
         self.view.add_regions(self.sharingWithUser, selectedRegions, 'comment', sublime.DRAW_OUTLINED)
 
-    def sendEdit(editType, content):
+    def sendEdit(self, editType, content):
         """
         Send an edit event to the peer.
 
@@ -281,7 +281,7 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         else:
             logger.warn('Attempted to send unknown edit event type %s' % interface.numeric_to_symbolic[editType])
 
-    def recvEdit(editType, content):
+    def recvEdit(self, editType, content):
         """
         Callback method for handling edit events from the peer.
 
