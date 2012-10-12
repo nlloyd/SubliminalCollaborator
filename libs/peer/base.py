@@ -185,7 +185,7 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         if not viewName == None:
             viewName = os.path.basename(viewName)
         else:
-            viewName = 'SHARED-WITH-%s' % self.sharingWithUser
+            viewName = 'NONAME'
         totalToSend = self.view.size()
         begin = 0
         end = MAX_CHUNK_SIZE
@@ -340,7 +340,8 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
                 assert toDo[0] == interface.EDIT
                 # make the shared selection the ACTUAL selection
                 self.view.sel().clear()
-                self.view.sel().add_all(self.view.get_regions(self.sharingWithUser))
+                for region in self.view.get_regions(self.sharingWithUser):
+                    self.view.sel().add(region)
                 self.view.erase_regions(self.sharingWithUser)
                 self.recvEdit(toDo[1], toDo[2])
         self.toDoToViewQueueLock.release()
