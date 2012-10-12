@@ -312,7 +312,10 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
             if len(toDo) == 2:
                 if toDo[0] == interface.SHARE_VIEW:
                     self.view = sublime.active_window().new_file()
-                    self.view.set_name(toDo[1])
+                    if toDo[1] == 'NONAME':
+                        self.view.set_name('SHARING-WITH-%s' % self.sharingWithUser)
+                    else:
+                        self.view.set_name(toDo[1])
                     self.view.set_read_only(True)
                     self.view.set_scratch(True)
                     self.viewPopulateEdit = self.view.begin_edit()
