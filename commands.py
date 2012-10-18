@@ -21,6 +21,7 @@
 #   THE SOFTWARE.
 import sublime, sublime_plugin
 import sys, os, platform
+import status_bar
 
 # this assures we use the included libs/twisted and libs/zope libraries
 # this is of particular importance on Mac OS X since an older version of twisted
@@ -91,6 +92,16 @@ sessions = {}
 sessionsByViewId = {}
 sessionsLock = threading.Lock()
 
+def active_sessions():
+    session_count = 0
+    if len(sessions) > 0:
+        for sessionsSet in sessions.values():
+            if len(sessionsSet) > 0:
+                if sessionsSet.state == STATE_CONNECTED:
+                    session_count = session_count + 1
+    return session_count
+
+
 class SessionCleanupThread(threading.Thread):
     def __init__(self):
         threading.Thread.__init__(self)
@@ -114,9 +125,11 @@ class SessionCleanupThread(threading.Thread):
             sessionsLock.release()
             time.sleep(30.0)
 
+
 if not 'SESSION_CLEANUP_THREAD' in globals():
     SESSION_CLEANUP_THREAD = SessionCleanupThread()
     SESSION_CLEANUP_THREAD.start()
+
 
 def loadConfig():
     global chatClientConfig
@@ -159,6 +172,8 @@ def loadConfig():
         for error in configErrorList:
             errorMsg = '%s%s\n' % (errorMsg, error)
         sublime.error_message(errorMsg)
+    else:
+        status_bar.status_message('ready')
 
 
 def connectAllChat():
@@ -170,6 +185,7 @@ def connectAllChat():
         logger.info('Connecting to chat %s' % client)
         negotiatorInstances[client] = negotiatorFactoryMap[client.split(':', 1)[0]]()
         negotiatorInstances[client].connect(**chatClientConfig[client])
+        status_bar.status_message('connected clients: %d, active sessions: %d' % (len(negotiatorInstances), active_sessions()))
 
 loadConfig()
 
@@ -261,6 +277,7 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
                 # we are connected, retrieve and show current user list from target chat client negotiator
                 self.userList = self.selectedNegotiator.listUsers()
                 sublime.active_window().show_quick_panel(self.userList, self.connectToUser)
+                status_bar.status_message('connected clients: %d, active sessions: %d' % (len(negotiatorInstances), active_sessions()))
         elif userIdx > -1:
             if sessions.has_key(self.selectedNegotiator.str()) and sessions[self.selectedNegotiator.str()].has_key(self.userList[userIdx]):
                 # TODO status bar: already have a session for this user!
@@ -313,6 +330,7 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
                 self.newSession = None
             self.viewNames = None
             self.viewsByName = None
+        status_bar.status_message('connected clients: %d, active sessions: %d' % (len(negotiatorInstances), active_sessions()))
 
     def addSharedView(self, sessionWithView):
         sessionsByViewId[sessionWithView.view.id()] = sessionWithView
@@ -321,11 +339,6 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
         # self.deferredOnNegotiateCallback = deferredOnNegotiateCallback
         acceptSession = sublime.ok_cancel_dialog('%s wants to collaborate with you!' % username)
         deferredOnNegotiateCallback.callback(acceptSession)
-        # self.acceptOrReject = ['%s wants to collaborate with you!' % username, 'No thanks!']
-        # sublime.set_timeout(self.doAcceptOrRejectSession, 1000)
-
-    # def doAcceptOrRejectSession(self):
-    #     sublime.active_window().show_quick_panel(self.acceptOrReject, self.deferredOnNegotiateCallback.callback)
 
     def showSessions(self, idx=None):
         if idx == None:
@@ -365,6 +378,7 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
             logger.info('Closing session with user %s on chat %s' % (user, client))
             sessionToKill = sessions[client].pop(user)
             sessionToKill.disconnect()
+        status_bar.status_message('connected clients: %d, active sessions: %d' % (len(negotiatorInstances), active_sessions()))
 
     def connectChat(self, clientIdx=None):
         if clientIdx == None:
@@ -383,6 +397,7 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
                 logger.info('Connecting to chat %s' % targetClient)
                 negotiatorInstances[targetClient] = negotiatorFactoryMap[targetClient.split('|', 1)[0]]()
                 negotiatorInstances[targetClient].connect(**chatClientConfig[targetClient])
+                status_bar.status_message('connected clients: %d, active sessions: %d' % (len(negotiatorInstances), active_sessions()))
             else:
                 logger.info('Already connected to chat %s' % targetClient)
 
@@ -392,12 +407,19 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
             sublime.active_window().show_quick_panel(self.chatClientKeys, self.disconnectChat)
         elif clientIdx > -1:
             negotiatorInstances.pop(self.chatClientKeys[clientIdx]).disconnect()
+            status_bar.status_message('connected clients: %d, active sessions: %d' % (len(negotiatorInstances), active_sessions()))
+
+    def on_activated(self, view):
+        status_bar.status_message('connected clients: %d, active sessions: %d' % (len(negotiatorInstances), active_sessions()))
+
+    def on_deactivated(self, view):
+        status_bar.status_message('connected clients: %d, active sessions: %d' % (len(negotiatorInstances), active_sessions()))
 
     def on_selection_modified(self, view):
         # logger.debug('selection: %s' % view.sel())
         if sessionsByViewId.has_key(view.id()):
             session = sessionsByViewId[view.id()]
-            if session.state == pi.STATE_CONNECTED:
+            if (session.state == pi.STATE_CONNECTED) and not session.lockViewSession:
                 session.sendSelectionUpdate(view.sel())
 
     def on_modified(self, view):
@@ -407,7 +429,7 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
             if (session.state == pi.STATE_CONNECTED) and (session.role == pi.HOST_ROLE):
                 command = view.command_history(0, False)
                 lastCommand = session.lastViewCommand
-                session.lastCommand = command
+                session.lastViewCommand = command
                 payload = ''
                 # handle history-capturable edit commands on this view
                 if command[0] == 'insert':
@@ -416,7 +438,7 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
                     # inserted and send it... not most efficient but it is a start
                     if command[0] == lastCommand[0]:
                         chars = command[1]['characters']
-                        lastChars = command[1]['characters']
+                        lastChars = lastCommand[1]['characters']
                         if chars.startswith(lastChars):
                             payload = chars.replace(lastChars, '', 1)
                         else:

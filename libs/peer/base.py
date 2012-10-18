@@ -121,6 +121,7 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         self.viewPositionPollingThread = ViewPositionThread(self)
         # last collected command tuple (str, dict, int)
         self.lastViewCommand = ('', {}, 0)
+        self.lockViewSelection = False
 
     def hostConnect(self, port = 0, ipaddress=''):
         """
@@ -308,8 +309,8 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         self.toDoToViewQueueLock.acquire()
         while len(self.toDoToViewQueue) > 0:
             toDo = self.toDoToViewQueue.pop(0)
-            logger.debug('Handling view change %s with size %d payload' % (interface.numeric_to_symbolic[toDo[0]], len(toDo[1])))
             if len(toDo) == 2:
+                logger.debug('Handling view change %s with size %d payload' % (interface.numeric_to_symbolic[toDo[0]], len(toDo[1])))
                 if toDo[0] == interface.SHARE_VIEW:
                     self.view = sublime.active_window().new_file()
                     if toDo[1] == 'NONAME':
@@ -339,14 +340,17 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
                     if regionMatch:
                         self.recvViewPositionUpdate(sublime.Region(int(regionMatch.group(1)), int(regionMatch.group(2))))
             elif len(toDo) == 3:
+                logger.debug('Handling view change %s:%s with size %d payload' % (interface.numeric_to_symbolic[toDo[0]], interface.numeric_to_symbolic[toDo[1]], len(toDo[2])))
                 # edit event
                 assert toDo[0] == interface.EDIT
                 # make the shared selection the ACTUAL selection
+                self.lockViewSelection = True
                 self.view.sel().clear()
                 for region in self.view.get_regions(self.sharingWithUser):
                     self.view.sel().add(region)
                 self.view.erase_regions(self.sharingWithUser)
                 self.recvEdit(toDo[1], toDo[2])
+                self.lockViewSelection = False
         self.toDoToViewQueueLock.release()
 
     def recvd_CONNECTED(self, messageSubType, payload):
@@ -443,7 +447,7 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         logger.debug('RECVD: %s, %s, %d' % (msgType, msgSubType, len(payload)))
         method = getattr(self, "recvd_%s" % msgType, None)
         if method is not None:
-            method(msgSubType, payload)
+            method(msgSubTypeNum, payload)
         else:
             self.recvdUnknown(msgType, msgSubType, payload)
 
