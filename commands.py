@@ -449,7 +449,7 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
                     session.sendEdit(pi.EDIT_TYPE_INSERT, payload)
                 elif command[0] ==  'insert_snippet':
                     payload = command[1]['contents']
-                    session.sendEdit(pi.EDIT_TYPE_INSERT_SNIPPET)
+                    session.sendEdit(pi.EDIT_TYPE_INSERT_SNIPPET, payload)
                 elif command[0] == 'left_delete':
                     session.sendEdit(pi.EDIT_TYPE_LEFT_DELETE, payload)
                 elif command[0] == 'right_delete':
