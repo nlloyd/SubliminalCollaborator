@@ -166,7 +166,8 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
             return
         earlierState = self.state
         self.state = interface.STATE_DISCONNECTING
-        self.sendMessage(interface.DISCONNECT)
+        if self.transport != None:
+            self.sendMessage(interface.DISCONNECT)
         if self.peerType == interface.SERVER:
             logger.debug('Closing server-side connection')
             reactor.callFromThread(self.connection.stopListening)
