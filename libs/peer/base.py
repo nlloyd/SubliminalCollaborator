@@ -160,20 +160,18 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         """
         Disconnect from the peer-to-peer session.
         """
+        self.stopCollab()
         if self.state == interface.STATE_DISCONNECTED:
             # already disconnected!
             return
         earlierState = self.state
         self.state = interface.STATE_DISCONNECTING
+        self.sendMessage(interface.DISCONNECT)
         if self.peerType == interface.SERVER:
+            logger.debug('Closing server-side connection')
             reactor.callFromThread(self.connection.stopListening)
-            if not earlierState == interface.STATE_REJECT_TRIGGERED_DISCONNECTING:
-                logger.debug('Telling peer to disconnect')
-                self.sendMessage(interface.DISCONNECT)
         elif self.peerType == interface.CLIENT:
             logger.debug('Closing client-side connection')
-            # self.connection.disconnect()
-            self.sendMessage(interface.DISCONNECT)
             reactor.callFromThread(self.connection.disconnect)
 
     def startCollab(self, view):
@@ -223,13 +221,15 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         """
         Notify the connected peer that we are terminating the collaborating session.
         """
-        pass
+        if (self.peerType == interface.CLIENT) and (self.view != None):
+            self.view.set_read_only(False)
+            self.view = None
 
     def onStopCollab(self):
         """
         Callback method informing the peer that we are terminating a collaborating session.
         """
-        pass
+        self.stopCollab()
 
     def sendViewPositionUpdate(self, centerOnRegion):
         """
