@@ -97,8 +97,9 @@ def active_sessions():
     if len(sessions) > 0:
         for sessionsSet in sessions.values():
             if len(sessionsSet) > 0:
-                if sessionsSet.state == STATE_CONNECTED:
-                    session_count = session_count + 1
+                for session in sessionsSet.values():
+                    if session.state == pi.STATE_CONNECTED:
+                        session_count = session_count + 1
     return session_count
 
 
@@ -419,7 +420,7 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
         # logger.debug('selection: %s' % view.sel())
         if sessionsByViewId.has_key(view.id()):
             session = sessionsByViewId[view.id()]
-            if (session.state == pi.STATE_CONNECTED) and not session.lockViewSession:
+            if (session.state == pi.STATE_CONNECTED) and not session.lockViewSelection:
                 session.sendSelectionUpdate(view.sel())
 
     def on_modified(self, view):
