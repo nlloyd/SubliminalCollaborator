@@ -24,8 +24,9 @@ import sublime
 import threading
 import time
 
-MESSAGE_FORMAT = 'Collaboration[%s]'
-PROGRESS_FORMAT = 'Collaboration[%s][%s]'
+MESSAGE_FORMAT = 'Collaboration[ %s ]'
+PROGRESS_FORMAT = 'Collaboration[ %s ][%s]'
+HEARTBEAT_FORMAT = 'Collaboration[ %s ][%s]'
 
 currentMessage = ''
 messageLock = threading.Lock()
@@ -40,16 +41,29 @@ class StatusMaintainingPublisherThread(threading.Thread):
 
     def run(self):
         while(True):
-            messageLock.acquire()
-            view = sublime.active_window().active_view()
-            sublime.set_timeout(lambda: view.set_status('subliminal_collaborator', currentMessage), 100)
-            messageLock.release()
+            sublime.set_timeout(self.publish, 100)
             time.sleep(1.0)
+
+    def publish(self):
+        global currentMessage
+        global messageLock
+        messageLock.acquire()
+        if len(currentMessage) > 0:
+            view = sublime.active_window().active_view()
+            view.set_status('subliminal_collaborator', currentMessage)
+        messageLock.release()
+
+if not 'STATUS_BAR_UPDATE_THREAD' in globals():
+    STATUS_BAR_UPDATE_THREAD = StatusMaintainingPublisherThread()
 
 '''
 Publish a basic status message to the status bar.
 '''
 def status_message(message):
+    global currentMessage
+    global messageLock
+    if STATUS_BAR_UPDATE_THREAD and not STATUS_BAR_UPDATE_THREAD.is_alive():
+        STATUS_BAR_UPDATE_THREAD.start()
     messageLock.acquire()
     currentMessage = MESSAGE_FORMAT % message
     messageLock.release()
@@ -59,8 +73,28 @@ Publish a progress bar style status message to the status bar.
 Progress bar is 10 characters total.
 '''
 def progress_message(message, progress, total):
+    global currentMessage
+    global messageLock
+    if STATUS_BAR_UPDATE_THREAD and not STATUS_BAR_UPDATE_THREAD.is_alive():
+        STATUS_BAR_UPDATE_THREAD.start()
     ticks = int(round(float(progress)/total)) * 10
     space = 10 - ticks
     messageLock.acquire()
-    to_publish = PROGRESS_FORMAT % (message, ('=' * ticks + ' ' * space))
+    currentMessage = PROGRESS_FORMAT % (message, ('=' * ticks + ' ' * space))
+    messageLock.release()
+
+def heartbeat_message(message, heartbeat):
+    global currentMessage
+    global messageLock
+    if STATUS_BAR_UPDATE_THREAD and not STATUS_BAR_UPDATE_THREAD.is_alive():
+        STATUS_BAR_UPDATE_THREAD.start()
+    messageLock.acquire()
+    currentMessage = HEARTBEAT_FORMAT % (message, heartbeat)
+    messageLock.release()
+
+def clear_message():
+    global currentMessage
+    global messageLock
+    messageLock.acquire()
+    currentMessage = ''
     messageLock.release()

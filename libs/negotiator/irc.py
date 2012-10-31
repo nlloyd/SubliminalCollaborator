@@ -22,6 +22,7 @@
 from zope.interface import implements
 from negotiator import interface
 from peer import base
+import status_bar
 from twisted.words.protocols import irc
 from twisted.internet import reactor, protocol, error, defer
 import logging, sys, socket, functools
@@ -97,6 +98,7 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
         self.password = password.encode()
         self.channel = kwargs['channel'].encode()
 
+        status_bar.status_message('connecting to %s' % self.str())
         self.clientConnection = reactor.connectTCP(self.host, self.port, self)
 
 
@@ -125,6 +127,7 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
                 return
             reactor.callFromThread(self.clientConnection.disconnect)
             logger.info('Disconnected from %s' % self.host)
+            status_bar.status_message('disconnected from %s' % self.str())
         self._registered = False
         self.peerUsers = None
         self.unverifiedUsers = None
@@ -227,9 +230,11 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
         else:
             # may want to reconnect, but for now lets print why
             logger.error('Connection lost: %s - %s' % (reason.type, reason.value))
+            status_bar.status_message('connection lost to %s' % self.str())
 
     def clientConnectionFailed(self, connector, reason):
         logger.error('Connection failed: %s - %s' % (reason.type, reason.value))
+        status_bar.status_message('connection failed to %s' % self.str())
         self.connectionFailed = True
         self.disconnect()
 
@@ -242,6 +247,7 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
     def signedOn(self):
         # join the channel after we have connected
         # part of the Negotiator connection process
+        status_bar.status_message('connected to %s' % self.str())
         self.join(self.channel)
 
     def channelNames(self, channel, names):
