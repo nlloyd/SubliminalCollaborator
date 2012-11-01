@@ -115,7 +115,7 @@ class SessionCleanupThread(threading.Thread):
                     sessionsByViewId.pop(viewId)
             sessionsLock.release()
             time.sleep(30.0)
-            status_bar.status_message('connected clients: %d' % len(negotiatorInstances))
+            # status_bar.status_message('connected clients: %d' % len(negotiatorInstances))
 
 
 if not 'SESSION_CLEANUP_THREAD' in globals():

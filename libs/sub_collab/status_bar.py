@@ -23,12 +23,14 @@
 import sublime
 import threading
 import time
+import functools
 
 MESSAGE_FORMAT = 'Collaboration[ %s ]'
 PROGRESS_FORMAT = 'Collaboration[ %s ][%s]'
 HEARTBEAT_FORMAT = 'Collaboration[ %s ][%s]'
 
 currentMessage = ''
+isHeartbeatMessage = False
 messageLock = threading.Lock()
 
 '''
@@ -37,35 +39,58 @@ the status.
 '''
 class StatusMaintainingPublisherThread(threading.Thread):
     def __init__(self):
+        self.heartbeat_indicators = ['|','\\','-','/']
         threading.Thread.__init__(self)
-
-    def run(self):
-        while(True):
-            sublime.set_timeout(self.publish, 100)
-            time.sleep(1.0)
-
-    def publish(self):
+        
+    def next_heartbeat_message(self):
         global currentMessage
         global messageLock
+        indicator = self.heartbeat_indicators.pop()
+        self.heartbeat_indicators.insert(0, indicator)
         messageLock.acquire()
-        if len(currentMessage) > 0:
-            view = sublime.active_window().active_view()
-            view.set_status('subliminal_collaborator', currentMessage)
+        message = HEARTBEAT_FORMAT % (currentMessage, indicator)
         messageLock.release()
+        return message
+
+    def run(self):
+        global currentMessage
+        global isHeartbeatMessage
+        global messageLock
+        while(True):
+            messageLock.acquire()
+            if len(currentMessage) > 0:
+                message = currentMessage
+                if isHeartbeatMessage:
+                    message = self.next_heartbeat_message()
+                sublime.set_timeout(functools.partial(publish_now, message), 0)
+            messageLock.release()
+            time.sleep(0.5)
+
 
 if not 'STATUS_BAR_UPDATE_THREAD' in globals():
     STATUS_BAR_UPDATE_THREAD = StatusMaintainingPublisherThread()
+
+
+def publish_now(message):
+    view = sublime.active_window().active_view()
+    if view:
+        view.set_status('subliminal_collaborator', message)
+    else:
+        sublime.status_message(message)
 
 '''
 Publish a basic status message to the status bar.
 '''
 def status_message(message):
     global currentMessage
+    global isHeartbeatMessage
     global messageLock
     if STATUS_BAR_UPDATE_THREAD and not STATUS_BAR_UPDATE_THREAD.is_alive():
         STATUS_BAR_UPDATE_THREAD.start()
     messageLock.acquire()
     currentMessage = MESSAGE_FORMAT % message
+    isHeartbeatMessage = False
+    sublime.set_timeout(functools.partial(publish_now, currentMessage), 0)
     messageLock.release()
 
 '''
@@ -74,6 +99,7 @@ Progress bar is 10 characters total.
 '''
 def progress_message(message, progress, total):
     global currentMessage
+    global isHeartbeatMessage
     global messageLock
     if STATUS_BAR_UPDATE_THREAD and not STATUS_BAR_UPDATE_THREAD.is_alive():
         STATUS_BAR_UPDATE_THREAD.start()
@@ -81,20 +107,29 @@ def progress_message(message, progress, total):
     space = 10 - ticks
     messageLock.acquire()
     currentMessage = PROGRESS_FORMAT % (message, ('=' * ticks + ' ' * space))
+    isHeartbeatMessage = False
+    sublime.set_timeout(functools.partial(publish_now, currentMessage), 0)
     messageLock.release()
 
-def heartbeat_message(message, heartbeat):
+'''
+Publish a heartbeat message to the status bar.
+'''
+def heartbeat_message(message):
     global currentMessage
+    global isHeartbeatMessage
     global messageLock
     if STATUS_BAR_UPDATE_THREAD and not STATUS_BAR_UPDATE_THREAD.is_alive():
         STATUS_BAR_UPDATE_THREAD.start()
     messageLock.acquire()
-    currentMessage = HEARTBEAT_FORMAT % (message, heartbeat)
+    currentMessage = message
+    isHeartbeatMessage = True
     messageLock.release()
 
 def clear_message():
     global currentMessage
+    global isHeartbeatMessage
     global messageLock
     messageLock.acquire()
     currentMessage = ''
+    isHeartbeatMessage = False
     messageLock.release()

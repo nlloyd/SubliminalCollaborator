@@ -124,13 +124,6 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         self.lastViewCommand = ('', {}, 0)
         self.lockViewSelection = False
 
-        self.heartbeat_indicators = ['|','\\','-','/']
-        
-    def next_heartbeat_indicator(self):
-        indicator = self.heartbeat_indicators.pop()
-        self.heartbeat_indicators.insert(0, indicator)
-        return indicator
-
     def hostConnect(self, port = 0, ipaddress=''):
         """
         Initiate a peer-to-peer session as the host by listening on the
@@ -248,7 +241,7 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
 
         @param centerOnRegion: C{sublime.Region} of the central-most line of the current visible portion of the view to send to the peer.
         """
-        status_bar.heartbeat_message('sharing with %s' % self.str(), self.next_heartbeat_indicator())
+        status_bar.heartbeat_message('sharing with %s' % self.str())
         self.sendMessage(interface.POSITION, payload=str(centerOnRegion))
 
     def recvViewPositionUpdate(self, centerOnRegion):
@@ -265,7 +258,7 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
 
         @param selectedRegions: C{sublime.RegionSet} of all selected regions in the current view.
         """
-        status_bar.heartbeat_message('sharing with %s' % self.str(), self.next_heartbeat_indicator())
+        status_bar.heartbeat_message('sharing with %s' % self.str())
         self.sendMessage(interface.SELECTION, payload=str(selectedRegions))
 
     def recvSelectionUpdate(self, selectedRegions):
@@ -283,7 +276,7 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         @param editType: C{str} edit type (see above)
         @param content: C{Array} contents of the edit (None if delete editType)
         """
-        status_bar.heartbeat_message('sharing with %s' % self.str(), self.next_heartbeat_indicator())
+        status_bar.heartbeat_message('sharing with %s' % self.str())
         if editType == interface.EDIT_TYPE_INSERT:
             self.sendMessage(interface.EDIT, editType, payload=content)
         elif editType == interface.EDIT_TYPE_INSERT_SNIPPET:
@@ -349,18 +342,18 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
                     # view is populated and configured, lets share!
                     self.onStartCollab()
                 elif toDo[0] == interface.SELECTION:
-                    status_bar.heartbeat_message('sharing with %s' % self.str(), self.next_heartbeat_indicator())
+                    status_bar.heartbeat_message('sharing with %s' % self.str())
                     regions = []
                     for regionMatch in REGION_PATTERN.finditer(toDo[1]):
                         regions.append(sublime.Region(int(regionMatch.group(1)), int(regionMatch.group(2))))
                     self.recvSelectionUpdate(regions)
                 elif toDo[0] == interface.POSITION:
-                    status_bar.heartbeat_message('sharing with %s' % self.str(), self.next_heartbeat_indicator())
+                    status_bar.heartbeat_message('sharing with %s' % self.str())
                     regionMatch = REGION_PATTERN.search(toDo[1])
                     if regionMatch:
                         self.recvViewPositionUpdate(sublime.Region(int(regionMatch.group(1)), int(regionMatch.group(2))))
             elif len(toDo) == 3:
-                status_bar.heartbeat_message('sharing with %s' % self.str(), self.next_heartbeat_indicator())
+                status_bar.heartbeat_message('sharing with %s' % self.str())
                 logger.debug('Handling view change %s:%s with size %d payload' % (interface.numeric_to_symbolic[toDo[0]], interface.numeric_to_symbolic[toDo[1]], len(toDo[2])))
                 # edit event
                 assert toDo[0] == interface.EDIT
@@ -468,7 +461,7 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         msgSubType = interface.numeric_to_symbolic[msgSubTypeNum]
         payload = data[self.messageHeaderSize:]
         logger.debug('RECVD: %s, %s, %d' % (msgType, msgSubType, len(payload)))
-        status_bar.heartbeat_message('sharing with %s' % self.str(), self.next_heartbeat_indicator())
+        status_bar.heartbeat_message('sharing with %s' % self.str())
         method = getattr(self, "recvd_%s" % msgType, None)
         if method is not None:
             method(msgSubTypeNum, payload)
