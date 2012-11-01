@@ -20,9 +20,9 @@
 #   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #   THE SOFTWARE.
 from zope.interface import implements
-from negotiator import interface
-from peer import base
-import status_bar
+from sub_collab.negotiator import interface
+from sub_collab.peer import base
+from sub_collab import status_bar
 from twisted.words.protocols import irc
 from twisted.internet import reactor, protocol, error, defer
 import logging, sys, socket, functools

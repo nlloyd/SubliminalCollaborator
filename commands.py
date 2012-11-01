@@ -21,7 +21,6 @@
 #   THE SOFTWARE.
 import sublime, sublime_plugin
 import sys, os, platform
-import status_bar
 
 # this assures we use the included libs/twisted and libs/zope libraries
 # this is of particular importance on Mac OS X since an older version of twisted
@@ -46,9 +45,10 @@ if not 'SELECTREACTORINSTALLED' in globals():
     selectreactor.install()
     SELECTREACTORINSTALLED = True
     
-from negotiator import irc
-import peer.interface as pi
-from peer import base
+from sub_collab.negotiator import irc
+from sub_collab.peer import interface as pi
+from sub_collab import status_bar
+from sub_collab.peer import base
 from twisted.internet import reactor
 import threading, logging, time, shutil
 

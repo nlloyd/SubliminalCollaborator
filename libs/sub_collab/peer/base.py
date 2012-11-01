@@ -20,10 +20,10 @@
 #   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #   THE SOFTWARE.
 from zope.interface import implements
-from peer import interface
+from sub_collab.peer import interface
 from twisted.internet import reactor, protocol, error, interfaces
 from twisted.protocols import basic
-import status_bar
+from sub_collab import status_bar
 import sublime
 import logging, threading, sys, socket, struct, os, re, time
 
