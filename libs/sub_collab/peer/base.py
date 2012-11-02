@@ -136,7 +136,7 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         self.peerType = interface.SERVER
         self.role = interface.HOST_ROLE
         self.state = interface.STATE_CONNECTING
-        self.connection = reactor.listenTCP(port, self, interface=ipaddress)
+        self.connection = reactor.listenTCP(port, self, backlog=1, interface=ipaddress)
         self.port = self.connection.getHost().port
         logger.info('Listening for peers at %s:%d' % (ipaddress, self.port))
         return self.port
@@ -155,7 +155,7 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         self.peerType = interface.CLIENT
         self.role = interface.PARTNER_ROLE
         self.state = interface.STATE_CONNECTING
-        self.connection = reactor.connectTCP(self.host, self.port, self, timeout=5)
+        self.connection = reactor.connectTCP(self.host, self.port, self, timeout=1)
 
     def disconnect(self):
         """
@@ -430,7 +430,6 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
             self.toAck = None
             self.ackdChunks = None
             self.sendMessage(interface.BAD_VIEW_SEND)
-            # TODO status bar message as well... or perhaps a popup alert?
             self.disconnect()
 
     def recvd_SELECTION(self, messageSubType, payload):
@@ -461,7 +460,6 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         msgSubType = interface.numeric_to_symbolic[msgSubTypeNum]
         payload = data[self.messageHeaderSize:]
         logger.debug('RECVD: %s, %s, %d' % (msgType, msgSubType, len(payload)))
-        status_bar.heartbeat_message('sharing with %s' % self.str())
         method = getattr(self, "recvd_%s" % msgType, None)
         if method is not None:
             method(msgSubTypeNum, payload)

@@ -44,12 +44,9 @@ class StatusMaintainingPublisherThread(threading.Thread):
         
     def next_heartbeat_message(self):
         global currentMessage
-        global messageLock
         indicator = self.heartbeat_indicators.pop()
         self.heartbeat_indicators.insert(0, indicator)
-        messageLock.acquire()
         message = HEARTBEAT_FORMAT % (currentMessage, indicator)
-        messageLock.release()
         return message
 
     def run(self):
@@ -72,9 +69,9 @@ if not 'STATUS_BAR_UPDATE_THREAD' in globals():
 
 
 def publish_now(message):
-    view = sublime.active_window().active_view()
-    if view:
-        view.set_status('subliminal_collaborator', message)
+    window = sublime.active_window()
+    if window and window.active_view():
+        window.active_view().set_status('subliminal_collaborator', message)
     else:
         sublime.status_message(message)
 
