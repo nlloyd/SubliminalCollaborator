@@ -27,7 +27,7 @@ import functools
 
 MESSAGE_FORMAT = 'Collaboration[ %s ]'
 PROGRESS_FORMAT = 'Collaboration[ %s ][%s]'
-HEARTBEAT_FORMAT = 'Collaboration[ %s ][%s]'
+HEARTBEAT_FORMAT = 'Collaboration[ %s ][%s-%s]'
 
 currentMessage = ''
 isHeartbeatMessage = False
@@ -39,14 +39,24 @@ the status.
 '''
 class StatusMaintainingPublisherThread(threading.Thread):
     def __init__(self):
-        self.heartbeat_indicators = ['|','\\','-','/']
+        self.size = 6
+        self.addend = 1
         threading.Thread.__init__(self)
         
     def next_heartbeat_message(self):
         global currentMessage
-        indicator = self.heartbeat_indicators.pop()
-        self.heartbeat_indicators.insert(0, indicator)
-        message = HEARTBEAT_FORMAT % (currentMessage, indicator)
+        before = i % self.size
+        after = (self.size - 1) - before
+        message = HEARTBEAT_FORMAT % \
+            (currentMessage, ' ' * before, ' ' * after)
+        if not after:
+            self.addend = -1
+        if not before:
+            self.addend = 1
+        i += self.addend
+        # indicator = self.heartbeat_indicators.pop()
+        # self.heartbeat_indicators.insert(0, indicator)
+        # message = HEARTBEAT_FORMAT % (currentMessage, indicator)
         return message
 
     def run(self):
@@ -61,7 +71,7 @@ class StatusMaintainingPublisherThread(threading.Thread):
                     message = self.next_heartbeat_message()
                 sublime.set_timeout(functools.partial(publish_now, message), 0)
             messageLock.release()
-            time.sleep(0.5)
+            time.sleep(0.1)
 
 
 if not 'STATUS_BAR_UPDATE_THREAD' in globals():

@@ -227,6 +227,7 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         if (self.peerType == interface.CLIENT) and (self.view != None):
             self.view.set_read_only(False)
             self.view = None
+        status_bar.status_message('stopped sharing with %s' % self.str())
 
     def onStopCollab(self):
         """
@@ -323,7 +324,7 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
                     if payloadBits[0] == 'NONAME':
                         self.view.set_name('SHARING-WITH-%s' % self.sharingWithUser)
                     else:
-                        self.view.set_name(toDo[1])
+                        self.view.set_name(payloadBits[0])
                     self.view.set_read_only(True)
                     self.view.set_scratch(True)
                     self.viewPopulateEdit = self.view.begin_edit()
@@ -392,6 +393,7 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         self.disconnect()
         self.state = interface.STATE_DISCONNECTED
         logger.info('Disconnected from peer %s' % self.sharingWithUser)
+        status_bar.status_message('Stopped sharing with %s' % self.sharingWithUser)
 
     def recvd_SHARE_VIEW(self, messageSubType, payload):
         self.toDoToViewQueueLock.acquire()
@@ -474,6 +476,7 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         if error.ConnectionDone == reason.type:
             self.disconnect()
         else:
+            status_bar.heartbeat_message('lost share session with %s' % self.str())
             # may want to reconnect, but for now lets print why
             logger.error('Connection lost: %s - %s' % (reason.type, reason.value))
 
@@ -493,6 +496,7 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         if error.ConnectionDone == reason.type:
             self.disconnect()
         else:
+            status_bar.heartbeat_message('lost share session with %s' % self.str())
             # may want to reconnect, but for now lets print why
             logger.error('Connection lost: %s - %s' % (reason.type, reason.value))
 

@@ -185,6 +185,7 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
         ipaddress = self.hostAddressToTryQueue.pop()
         session = base.BasePeer(username)
         port = session.hostConnect()
+        status_bar.status_message('trying to share with %s@%s' % (username, ipaddress))
         logger.debug('Negotiating collab session with %s with ip address %s on port %d' % (username, ipaddress, port))
         reactor.callFromThread(self.ctcpMakeQuery, username, [('DCC CHAT', 'collaborate %s %d' % (ipaddress, port))])
         self.negotiateCallback(session)
@@ -211,11 +212,13 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
             sublime.set_timeout(functools.partial(self.onNegotiateCallback, deferredTrueNegotiate, username), 0)
         if (accepted == True) or ((accepted == None) and self.retryNegotiate):
             # we havent rejected OR we are trying with a new IP address
+            status_bar.status_message('trying to share with %s' % username)
             logger.info('Establishing session with %s at %s:%d' % (username, host, port))
             session = base.BasePeer(username, self.sendPeerFailedToConnect)
             session.clientConnect(host, port)
             self.negotiateCallback(session)
         elif accepted == False:
+            status_bar.status_message('share with %s rejected!' % username)
             logger.info('Rejected session with %s at %s:%d' % (username, host, port))
             self.msg(username, 'REJECTED')
 
