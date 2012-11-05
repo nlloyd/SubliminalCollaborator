@@ -41,11 +41,12 @@ class StatusMaintainingPublisherThread(threading.Thread):
     def __init__(self):
         self.size = 6
         self.addend = 1
+        self.i = 0
         threading.Thread.__init__(self)
         
     def next_heartbeat_message(self):
         global currentMessage
-        before = i % self.size
+        before = self.i % self.size
         after = (self.size - 1) - before
         message = HEARTBEAT_FORMAT % \
             (currentMessage, ' ' * before, ' ' * after)
@@ -53,10 +54,7 @@ class StatusMaintainingPublisherThread(threading.Thread):
             self.addend = -1
         if not before:
             self.addend = 1
-        i += self.addend
-        # indicator = self.heartbeat_indicators.pop()
-        # self.heartbeat_indicators.insert(0, indicator)
-        # message = HEARTBEAT_FORMAT % (currentMessage, indicator)
+        self.i += self.addend
         return message
 
     def run(self):
