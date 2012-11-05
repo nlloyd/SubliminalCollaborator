@@ -178,6 +178,7 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
         if not tryNext:
             self.hostAddressToTryQueue = socket.gethostbyname_ex(socket.gethostname())[2]
         if len(self.hostAddressToTryQueue) == 0:
+            status_bar.status_message('failed to share with %s' % username)
             logger.warn('Unable to connect to peer %s, all host addresses tried and failed!' % username)
             # TODO error reporting in UI
             self.msg(username, 'NO-GOOD-HOST-IP')
