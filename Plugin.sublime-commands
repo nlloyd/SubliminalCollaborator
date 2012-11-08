@@ -23,5 +23,13 @@
         "command": "collaborate",
         "caption": "Collaborate: Disconnect from Chat Server", 
         "args": { "task": "disconnectChat" }
+    },
+    {
+        "command": "install_menu_proxy",
+        "caption": "Collaborate: Install Edit Menu Proxy Commands"
+    },
+    {
+        "command": "uninstall_menu_proxy",
+        "caption": "Collaborate: Uninstall Edit Menu Proxy Commands"
     }
 ]

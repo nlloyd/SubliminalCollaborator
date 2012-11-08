@@ -50,7 +50,7 @@ from sub_collab.peer import interface as pi
 from sub_collab import status_bar
 from sub_collab.peer import base
 from twisted.internet import reactor
-import threading, logging, time, shutil
+import threading, logging, time, shutil, fileinput, re
 
 # log.startLogging(sys.stdout)
 
@@ -199,6 +199,83 @@ class OpenSublimeSettingsCommand(sublime_plugin.WindowCommand):
         return self.window.active_view() != None
 
 
+class InstallMenuProxyCommand(sublime_plugin.WindowCommand):
+
+    def run(self):
+        logger.info('Installing menu command proxy configuration')
+        logger.info('Backing up default Menu.sublime-menu')
+        if not os.path.exists(os.path.join(os.getcwd(), 'menu_backup')):
+            os.mkdir(os.path.join(os.getcwd(), 'menu_backup'))
+        shutil.copy(os.path.join(sublime.packages_path(), 'Default', 'Main.sublime-menu'), \
+            os.path.join(os.getcwd(), 'menu_backup', 'Main.sublime-menu.backup'))
+        self.installProxyEntries()
+
+
+    def is_enabled(self):
+        return not os.path.exists(os.path.join(os.getcwd(), 'menu_backup', 'Main.sublime-menu.backup'))
+
+    def installProxyEntries(self):
+        if not hasattr(self, 'command_pattern'):
+            proxiedCommands = [
+                'undo',
+                'redo_or_repeat',
+                'soft_undo',
+                'soft_redo',
+                'copy',
+                'cut',
+                'paste',
+                'paste_and_indent'
+            ]
+            self.command_pattern = re.compile(r'^(\s*\{\s*"command":\s*")(%s)("\s*)(,\s*"mnemonic":\s*"[a-zA-Z]"\s*|)(\})(,|)(\s*)$' \
+                % '|'.join(proxiedCommands))
+        logger.info('Installing proxy commands to Main.sublime-menu')
+        os.rename(os.path.join(sublime.packages_path(), 'Default','Main.sublime-menu'), os.path.join(sublime.packages_path(), 'Default','Main.sublime-menu.tmp'))
+        for line in fileinput.FileInput(os.path.join(sublime.packages_path(), 'Default','Main.sublime-menu.tmp'), inplace=1):
+            line = self.command_pattern.sub(r'\1edit_command_proxy\3, "args": { "real_command": "\2" }\4\5\6\7', line)
+            sys.stdout.write(line)
+        os.rename(os.path.join(sublime.packages_path(), 'Default','Main.sublime-menu.tmp'), os.path.join(sublime.packages_path(), 'Default','Main.sublime-menu'))
+
+
+# import fileinput
+# for line in fileinput.FileInput("file",inplace=1):
+#    line = line.replace("blah","blahblah")
+#    print line
+
+            # { "command": "show_overlay", "args": {"overlay": "goto", "text": ":"}, "caption": "Goto Line..." },
+
+            # { "command": "undo", "mnemonic": "U" },
+            # { "command": "redo_or_repeat", "mnemonic": "R" },
+            # {
+            #     "caption": "Undo Selection",
+            #     "children":
+            #     [
+            #         { "command": "soft_undo" },
+            #         { "command": "soft_redo" }
+            #     ]
+            # },
+            # { "caption": "-", "id": "clipboard" },
+            # { "command": "copy", "mnemonic": "C" },
+            # { "command": "cut", "mnemonic": "n" },
+            # { "command": "paste", "mnemonic": "P" },
+            # { "command": "paste_and_indent", "mnemonic": "I" },
+
+class UninstallMenuProxyCommand(sublime_plugin.WindowCommand):
+
+    def run(self):
+        logger.info('Uninstalling menu command proxy configuration')
+        logger.info('Restoring default Menu.sublime-menu')
+        shutil.copy(os.path.join(os.getcwd(), 'menu_backup', 'Main.sublime-menu.backup'), \
+            os.path.join(sublime.packages_path(), 'Default', 'Main.sublime-menu'))
+        shutil.rmtree(os.path.join(os.getcwd(), 'menu_backup'))
+        if not os.path.exists(os.path.join(os.getcwd(), 'menu_backup', 'Main.sublime-menu.backup')):
+            logger.info('Successfully restored default Menu.sublime-menu')
+        else:
+            logger.error('Failed to restore default Menu.sublime-menu')
+
+    def is_enabled(self):
+        return os.path.exists(os.path.join(os.getcwd(), 'menu_backup', 'Main.sublime-menu.backup'))
+
+
 class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.EventListener):
     chatClientKeys = []
     sessionKeys = []
@@ -216,11 +293,6 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
         status_bar.status_message('ready')
 
     def run(self, task):
-        # TODO: proxy capture copy commands (possibly others? undo cmds?)
-        # edit commands to capture: cut, copy, undo, redo, redo_or_repeat, soft_undo, soft_redo
-        # note on copy and paste: if nothing selected then entire line where cursor is is used
-        # multiselect cut/copy: paste results in newline after each ordered group in selection set
-        # multiselect cut/copy whole line: newlines included in paste
         method = getattr(self, task, None)
         try:
             if method is not None:
@@ -398,8 +470,11 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
     # def on_activated(self, view):
     #     pass
 
-    # def on_deactivated(self, view):
-    #     status_bar.clear_message()
+    # def on_close(self, view):
+        # f = open('closer.txt', 'w+')
+        # f.puts('closed')
+        # f.flush()
+        # f.close()
 
     def on_selection_modified(self, view):
         # logger.debug('selection: %s' % view.sel())
@@ -441,3 +516,37 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
                     session.sendEdit(pi.EDIT_TYPE_RIGHT_DELETE, payload)
                 elif command[0] == 'paste':
                     session.sendEdit(pi.EDIT_TYPE_PASTE, payload)
+
+# import fileinput
+# for line in fileinput.FileInput("file",inplace=1):
+#    line = line.replace("blah","blahblah")
+#    print line
+
+            # { "command": "show_overlay", "args": {"overlay": "goto", "text": ":"}, "caption": "Goto Line..." },
+
+            # { "command": "undo", "mnemonic": "U" },
+            # { "command": "redo_or_repeat", "mnemonic": "R" },
+            # {
+            #     "caption": "Undo Selection",
+            #     "children":
+            #     [
+            #         { "command": "soft_undo" },
+            #         { "command": "soft_redo" }
+            #     ]
+            # },
+            # { "caption": "-", "id": "clipboard" },
+            # { "command": "copy", "mnemonic": "C" },
+            # { "command": "cut", "mnemonic": "n" },
+            # { "command": "paste", "mnemonic": "P" },
+            # { "command": "paste_and_indent", "mnemonic": "I" },
+
+        # TODO: proxy capture copy commands (possibly others? undo cmds?)
+        # edit commands to capture: cut, copy, undo, redo, redo_or_repeat, soft_undo, soft_redo
+        # note on copy and paste: if nothing selected then entire line where cursor is is used
+        # multiselect cut/copy: paste results in newline after each ordered group in selection set
+        # multiselect cut/copy whole line: newlines included in paste
+
+class EditCommandProxyCommand(sublime_plugin.ApplicationCommand):
+
+    def run(self, real_command):
+        print('proxying: %s' % real_command)
