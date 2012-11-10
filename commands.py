@@ -200,6 +200,16 @@ class OpenSublimeSettingsCommand(sublime_plugin.WindowCommand):
 
 
 class InstallMenuProxyCommand(sublime_plugin.WindowCommand):
+    proxiedCommands = {
+        'undo': 'Undo Insert Characters',
+        'redo_or_repeat': 'Repeat Instert Characters',
+        'soft_undo': 'Undo Insert Characters',
+        'soft_redo': 'Soft Redo',
+        'copy': 'Copy',
+        'cut': 'Cut',
+        'paste': 'Paste',
+        'paste_and_indent': 'Paste and Indent'
+    }
 
     def run(self):
         logger.info('Installing menu command proxy configuration')
@@ -216,22 +226,16 @@ class InstallMenuProxyCommand(sublime_plugin.WindowCommand):
 
     def installProxyEntries(self):
         if not hasattr(self, 'command_pattern'):
-            proxiedCommands = [
-                'undo',
-                'redo_or_repeat',
-                'soft_undo',
-                'soft_redo',
-                'copy',
-                'cut',
-                'paste',
-                'paste_and_indent'
-            ]
             self.command_pattern = re.compile(r'^(\s*\{\s*"command":\s*")(%s)("\s*)(,\s*"mnemonic":\s*"[a-zA-Z]"\s*|)(\})(,|)(\s*)$' \
-                % '|'.join(proxiedCommands))
+                % '|'.join(self.proxiedCommands.keys()))
         logger.info('Installing proxy commands to Main.sublime-menu')
         os.rename(os.path.join(sublime.packages_path(), 'Default','Main.sublime-menu'), os.path.join(sublime.packages_path(), 'Default','Main.sublime-menu.tmp'))
         for line in fileinput.FileInput(os.path.join(sublime.packages_path(), 'Default','Main.sublime-menu.tmp'), inplace=1):
-            line = self.command_pattern.sub(r'\1edit_command_proxy\3, "args": { "real_command": "\2" }\4\5\6\7', line)
+            caption = ''
+            matchBits = self.command_pattern.match(line)
+            if matchBits:
+                caption = self.proxiedCommands[matchBits.group(2)]
+            line = self.command_pattern.sub(r'\1edit_command_proxy\3, "caption": "%s", "args": { "real_command": "\2" }\4\5\6\7' % caption, line)
             sys.stdout.write(line)
         os.rename(os.path.join(sublime.packages_path(), 'Default','Main.sublime-menu.tmp'), os.path.join(sublime.packages_path(), 'Default','Main.sublime-menu'))
 
