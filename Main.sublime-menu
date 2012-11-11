@@ -1,0 +1,36 @@
+[
+    {
+        "caption": "Preferences",
+        "mnemonic": "n",
+        "id": "preferences",
+        "children":
+        [
+            {
+                "caption": "Package Settings",
+                "mnemonic": "P",
+                "id": "package-settings",
+                "children":
+                [
+                    {
+                        "caption": "SubliminalCollaborator",
+                        "children":
+                        [
+                            {
+                                "command": "open_sublime_settings",
+                                "caption": "Settings – User"
+                            },
+                            {
+                                "command": "install_menu_proxy",
+                                "caption": "Install Edit Menu Proxy Commands"
+                            },
+                            {
+                                "command": "uninstall_menu_proxy",
+                                "caption": "Uninstall Edit Menu Proxy Commands"
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    }
+]
