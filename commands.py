@@ -240,29 +240,6 @@ class InstallMenuProxyCommand(sublime_plugin.WindowCommand):
         os.rename(os.path.join(sublime.packages_path(), 'Default','Main.sublime-menu.tmp'), os.path.join(sublime.packages_path(), 'Default','Main.sublime-menu'))
 
 
-# import fileinput
-# for line in fileinput.FileInput("file",inplace=1):
-#    line = line.replace("blah","blahblah")
-#    print line
-
-            # { "command": "show_overlay", "args": {"overlay": "goto", "text": ":"}, "caption": "Goto Line..." },
-
-            # { "command": "undo", "mnemonic": "U" },
-            # { "command": "redo_or_repeat", "mnemonic": "R" },
-            # {
-            #     "caption": "Undo Selection",
-            #     "children":
-            #     [
-            #         { "command": "soft_undo" },
-            #         { "command": "soft_redo" }
-            #     ]
-            # },
-            # { "caption": "-", "id": "clipboard" },
-            # { "command": "copy", "mnemonic": "C" },
-            # { "command": "cut", "mnemonic": "n" },
-            # { "command": "paste", "mnemonic": "P" },
-            # { "command": "paste_and_indent", "mnemonic": "I" },
-
 class UninstallMenuProxyCommand(sublime_plugin.WindowCommand):
 
     def run(self):
@@ -471,15 +448,6 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
         elif clientIdx > -1:
             negotiatorInstances.pop(self.chatClientKeys[clientIdx]).disconnect()
 
-    # def on_activated(self, view):
-    #     pass
-
-    # def on_close(self, view):
-        # f = open('closer.txt', 'w+')
-        # f.puts('closed')
-        # f.flush()
-        # f.close()
-
     def on_selection_modified(self, view):
         # logger.debug('selection: %s' % view.sel())
         if sessionsByViewId.has_key(view.id()):
@@ -521,36 +489,36 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
                 elif command[0] == 'paste':
                     session.sendEdit(pi.EDIT_TYPE_PASTE, payload)
 
-# import fileinput
-# for line in fileinput.FileInput("file",inplace=1):
-#    line = line.replace("blah","blahblah")
-#    print line
-
-            # { "command": "show_overlay", "args": {"overlay": "goto", "text": ":"}, "caption": "Goto Line..." },
-
-            # { "command": "undo", "mnemonic": "U" },
-            # { "command": "redo_or_repeat", "mnemonic": "R" },
-            # {
-            #     "caption": "Undo Selection",
-            #     "children":
-            #     [
-            #         { "command": "soft_undo" },
-            #         { "command": "soft_redo" }
-            #     ]
-            # },
-            # { "caption": "-", "id": "clipboard" },
-            # { "command": "copy", "mnemonic": "C" },
-            # { "command": "cut", "mnemonic": "n" },
-            # { "command": "paste", "mnemonic": "P" },
-            # { "command": "paste_and_indent", "mnemonic": "I" },
-
-        # TODO: proxy capture copy commands (possibly others? undo cmds?)
-        # edit commands to capture: cut, copy, undo, redo, redo_or_repeat, soft_undo, soft_redo
-        # note on copy and paste: if nothing selected then entire line where cursor is is used
-        # multiselect cut/copy: paste results in newline after each ordered group in selection set
-        # multiselect cut/copy whole line: newlines included in paste
 
 class EditCommandProxyCommand(sublime_plugin.ApplicationCommand):
 
     def run(self, real_command):
-        print('proxying: %s' % real_command)
+        logger.debug('proxying: %s' % real_command)
+        view = sublime.active_window().active_view()
+        if view == None:
+            return
+        if sessionsByViewId.has_key(view.id()):
+            session = sessionsByViewId[view.id()]
+            if (session.state == pi.STATE_CONNECTED) and (session.role == pi.HOST_ROLE):
+                view.run_command(real_command)
+                if real_command ==  'cut':
+                    payload = sublime.get_clipboard()
+                    session.sendEdit(pi.EDIT_TYPE_CUT, payload)
+                elif real_command == 'copy':
+                    payload = sublime.get_clipboard()
+                    session.sendEdit(pi.EDIT_TYPE_COPY, payload)
+                elif real_command == 'paste':
+                    session.sendEdit(pi.EDIT_TYPE_PASTE)
+                elif real_command == 'undo':
+                    session.sendEdit(pi.EDIT_TYPE_UNDO)
+                elif real_command == 'redo':
+                    session.sendEdit(pi.EDIT_TYPE_REDO)
+                elif real_command == 'redo_or_repeat':
+                    session.sendEdit(pi.EDIT_TYPE_REDO_OR_REPEAT)
+                elif real_command == 'soft_undo':
+                    session.sendEdit(pi.EDIT_TYPE_SOFT_UNDO)
+                elif real_command == 'soft_redo':
+                    session.sendEdit(pi.EDIT_TYPE_SOFT_REDO)
+        else:
+            # run the command for real... not part of a session
+            view.run_command(real_command)

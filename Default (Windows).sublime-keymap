@@ -1,0 +1,15 @@
+[
+    { "keys": ["ctrl+z"], "command": "edit_command_proxy", "args": { "real_command": "undo" }  },
+    { "keys": ["ctrl+shift+z"], "command": "edit_command_proxy", "args": { "real_command": "redo" }  },
+    { "keys": ["ctrl+y"], "command": "edit_command_proxy", "args": { "real_command": "redo_or_repeat" }  },
+    { "keys": ["ctrl+u"], "command": "edit_command_proxy", "args": { "real_command": "soft_undo" }  },
+    { "keys": ["ctrl+shift+u"], "command": "edit_command_proxy", "args": { "real_command": "soft_redo" }  },
+
+    { "keys": ["ctrl+shift+v"], "command": "edit_command_proxy", "args": { "real_command": "paste_and_indent" }  },
+    { "keys": ["shift+delete"], "command": "edit_command_proxy", "args": { "real_command": "cut" }  },
+    { "keys": ["ctrl+insert"], "command": "edit_command_proxy", "args": { "real_command": "copy" }  },
+    { "keys": ["shift+insert"], "command": "edit_command_proxy", "args": { "real_command": "paste" }  },
+    { "keys": ["ctrl+x"], "command": "edit_command_proxy", "args": { "real_command": "cut" }  },
+    { "keys": ["ctrl+c"], "command": "edit_command_proxy", "args": { "real_command": "copy" }  },
+    { "keys": ["ctrl+v"], "command": "edit_command_proxy", "args": { "real_command": "paste" }  }
+]

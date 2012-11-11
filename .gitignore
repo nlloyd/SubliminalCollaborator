@@ -1,4 +1,5 @@
 *.py[co]
+menu_backup/
 
 # Packages
 *.egg
