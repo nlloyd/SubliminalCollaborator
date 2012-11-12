@@ -302,14 +302,14 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         elif editType == interface.EDIT_TYPE_RIGHT_DELETE:
             self.view.run_command('right_delete')
         elif editType == interface.EDIT_TYPE_CUT:
-            self.view.run_command('cut')
+            # faux cut since we are recieving the commands
+            self.view.run_command('left_delete')
         elif editType == interface.EDIT_TYPE_COPY:
-            self.view.run_command('copy')
+            # we dont actually want to do anything here
+            pass
         elif editType == interface.EDIT_TYPE_PASTE:
-            oldClip = sublime.get_clipboard()
-            sublime.set_clipboard(content)
-            self.view.run_command('paste')
-            sublime.set_clipboard(oldClip)
+            # faux cut since we are recieving the commands
+            self.view.run_command('insert', { 'characters': content })
         elif editType == interface.EDIT_TYPE_UNDO:
             self.view.run_command('undo')
         elif editType == interface.EDIT_TYPE_REDO:
