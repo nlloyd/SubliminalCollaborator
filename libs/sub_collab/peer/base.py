@@ -292,6 +292,7 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         @param editType: C{str} edit type (see above)
         @param content: C{Array} contents of the edit (None if delete editType)
         """
+        logger.debug('editing regions: %s' % self.view.sel())
         self.view.set_read_only(False)
         if editType == interface.EDIT_TYPE_INSERT:
             self.view.run_command('insert', { 'characters': content })
@@ -450,6 +451,7 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
             self.disconnect()
 
     def recvd_SELECTION(self, messageSubType, payload):
+        logger.debug('selection change: %s' % payload)
         self.toDoToViewQueueLock.acquire()
         self.toDoToViewQueue.append((interface.SELECTION, payload))
         self.toDoToViewQueueLock.release()

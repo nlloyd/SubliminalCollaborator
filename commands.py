@@ -449,9 +449,9 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
             negotiatorInstances.pop(self.chatClientKeys[clientIdx]).disconnect()
 
     def on_selection_modified(self, view):
-        # logger.debug('selection: %s' % view.sel())
         if sessionsByViewId.has_key(view.id()):
             session = sessionsByViewId[view.id()]
+            logger.debug('selection: %s, locked: %s' % (view.sel(), session.lockViewSelection))
             if (session.state == pi.STATE_CONNECTED) and not session.lockViewSelection:
                 session.sendSelectionUpdate(view.sel())
 
