@@ -500,6 +500,7 @@ class EditCommandProxyCommand(sublime_plugin.ApplicationCommand):
             session = sessionsByViewId[view.id()]
             if (session.state == pi.STATE_CONNECTED) and (session.role == pi.HOST_ROLE):
                 logger.debug('proxying: %s' % real_command)
+                session.sendSelectionUpdate(view.sel())
                 view.run_command(real_command)
                 if real_command ==  'cut':
                     session.sendEdit(pi.EDIT_TYPE_CUT)
