@@ -270,12 +270,12 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         """
         self.view.add_regions(self.sharingWithUser, selectedRegions, 'comment', sublime.DRAW_OUTLINED)
 
-    def sendEdit(self, editType, content):
+    def sendEdit(self, editType, content=None):
         """
         Send an edit event to the peer.
 
         @param editType: C{str} edit type (see above)
-        @param content: C{Array} contents of the edit (None if delete editType)
+        @param content: C{Array} contents of the edit (None-able)
         """
         status_bar.heartbeat_message('sharing with %s' % self.str())
         if (editType == interface.EDIT_TYPE_INSERT) \
