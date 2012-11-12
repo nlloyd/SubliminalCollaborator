@@ -278,16 +278,12 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         @param content: C{Array} contents of the edit (None if delete editType)
         """
         status_bar.heartbeat_message('sharing with %s' % self.str())
-        if editType == interface.EDIT_TYPE_INSERT:
+        if (editType == interface.EDIT_TYPE_INSERT) \
+            or (editType == interface.EDIT_TYPE_INSERT_SNIPPET) \
+            or (editType == interface.EDIT_TYPE_PASTE):
             self.sendMessage(interface.EDIT, editType, payload=content)
-        elif editType == interface.EDIT_TYPE_INSERT_SNIPPET:
-            self.sendMessage(interface.EDIT, editType, payload=content)
-        elif editType == interface.EDIT_TYPE_LEFT_DELETE:
-            self.sendMessage(interface.EDIT, editType)
-        elif editType == interface.EDIT_TYPE_RIGHT_DELETE:
-            self.sendMessage(interface.EDIT, editType)
         else:
-            logger.warn('Attempted to send unknown edit event type %s' % interface.numeric_to_symbolic[editType])
+            self.sendMessage(interface.EDIT, editType)
 
     def recvEdit(self, editType, content):
         """
@@ -305,6 +301,25 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
             self.view.run_command('left_delete')
         elif editType == interface.EDIT_TYPE_RIGHT_DELETE:
             self.view.run_command('right_delete')
+        elif editType == interface.EDIT_TYPE_CUT:
+            self.view.run_command('cut')
+        elif editType == interface.EDIT_TYPE_COPY:
+            self.view.run_command('copy')
+        elif editType == interface.EDIT_TYPE_PASTE:
+            oldClip = sublime.get_clipboard()
+            sublime.set_clipboard(content)
+            self.view.run_command('paste')
+            sublime.set_clipboard(oldClip)
+        elif editType == interface.EDIT_TYPE_UNDO:
+            self.view.run_command('undo')
+        elif editType == interface.EDIT_TYPE_REDO:
+            self.view.run_command('redo')
+        elif editType == interface.EDIT_TYPE_REDO_OR_REPEAT:
+            self.view.run_command('redo_or_repeat')
+        elif editType == interface.EDIT_TYPE_SOFT_UNDO:
+            self.view.run_command('soft_undo')
+        elif editType == interface.EDIT_TYPE_SOFT_REDO:
+            self.view.run_command('soft_redo')
         self.view.set_read_only(True)
 
     def handleViewChanges(self):

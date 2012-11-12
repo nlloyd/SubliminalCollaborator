@@ -493,22 +493,21 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
 class EditCommandProxyCommand(sublime_plugin.ApplicationCommand):
 
     def run(self, real_command):
-        logger.debug('proxying: %s' % real_command)
         view = sublime.active_window().active_view()
         if view == None:
             return
         if sessionsByViewId.has_key(view.id()):
             session = sessionsByViewId[view.id()]
             if (session.state == pi.STATE_CONNECTED) and (session.role == pi.HOST_ROLE):
+                logger.debug('proxying: %s' % real_command)
                 view.run_command(real_command)
                 if real_command ==  'cut':
-                    payload = sublime.get_clipboard()
-                    session.sendEdit(pi.EDIT_TYPE_CUT, payload)
+                    session.sendEdit(pi.EDIT_TYPE_CUT)
                 elif real_command == 'copy':
-                    payload = sublime.get_clipboard()
-                    session.sendEdit(pi.EDIT_TYPE_COPY, payload)
+                    session.sendEdit(pi.EDIT_TYPE_COPY)
                 elif real_command == 'paste':
-                    session.sendEdit(pi.EDIT_TYPE_PASTE)
+                    payload = sublime.get_clipboard()
+                    session.sendEdit(pi.EDIT_TYPE_PASTE, payload)
                 elif real_command == 'undo':
                     session.sendEdit(pi.EDIT_TYPE_UNDO)
                 elif real_command == 'redo':
