@@ -449,14 +449,16 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
             negotiatorInstances.pop(self.chatClientKeys[clientIdx]).disconnect()
 
     def on_selection_modified(self, view):
+        print('new selection: %s' % view.sel())
         if sessionsByViewId.has_key(view.id()):
             session = sessionsByViewId[view.id()]
             logger.debug('selection: %s, locked: %s' % (view.sel(), session.lockViewSelection))
             if (session.state == pi.STATE_CONNECTED) and not session.lockViewSelection:
+                logger.debug('sending selection update: %s' % view.sel())
                 session.sendSelectionUpdate(view.sel())
 
     def on_modified(self, view):
-        # print view.command_history(0, False)
+        print(view.command_history(0, False))
         if sessionsByViewId.has_key(view.id()):
             session = sessionsByViewId[view.id()]
             if (session.state == pi.STATE_CONNECTED) and (session.role == pi.HOST_ROLE):
@@ -493,6 +495,7 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
 class EditCommandProxyCommand(sublime_plugin.ApplicationCommand):
 
     def run(self, real_command):
+        print('proxying: %s' % real_command)
         view = sublime.active_window().active_view()
         if view == None:
             return
@@ -500,7 +503,8 @@ class EditCommandProxyCommand(sublime_plugin.ApplicationCommand):
             session = sessionsByViewId[view.id()]
             if (session.state == pi.STATE_CONNECTED) and (session.role == pi.HOST_ROLE):
                 logger.debug('proxying: %s' % real_command)
-                session.sendSelectionUpdate(view.sel())
+                # session.sendSelectionUpdate(view.sel())
+                session.lockViewSelection = True
                 view.run_command(real_command)
                 if real_command ==  'cut':
                     session.sendEdit(pi.EDIT_TYPE_CUT)
@@ -519,6 +523,7 @@ class EditCommandProxyCommand(sublime_plugin.ApplicationCommand):
                     session.sendEdit(pi.EDIT_TYPE_SOFT_UNDO)
                 elif real_command == 'soft_redo':
                     session.sendEdit(pi.EDIT_TYPE_SOFT_REDO)
+                session.lockViewSelection = False
         else:
             # run the command for real... not part of a session
             view.run_command(real_command)
