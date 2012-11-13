@@ -206,9 +206,7 @@ class InstallMenuProxyCommand(sublime_plugin.WindowCommand):
         'soft_undo': 'Undo Insert Characters',
         'soft_redo': 'Soft Redo',
         'copy': 'Copy',
-        'cut': 'Cut',
-        'paste': 'Paste',
-        'paste_and_indent': 'Paste and Indent'
+        'cut': 'Cut'
     }
 
     def run(self):
@@ -489,6 +487,7 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
                 elif command[0] == 'right_delete':
                     session.sendEdit(pi.EDIT_TYPE_RIGHT_DELETE, payload)
                 elif command[0] == 'paste':
+                    payload = sublime.get_clipboard()
                     session.sendEdit(pi.EDIT_TYPE_PASTE, payload)
 
 
@@ -510,9 +509,6 @@ class EditCommandProxyCommand(sublime_plugin.ApplicationCommand):
                     session.sendEdit(pi.EDIT_TYPE_CUT)
                 elif real_command == 'copy':
                     session.sendEdit(pi.EDIT_TYPE_COPY)
-                elif real_command == 'paste':
-                    payload = sublime.get_clipboard()
-                    session.sendEdit(pi.EDIT_TYPE_PASTE, payload)
                 elif real_command == 'undo':
                     session.sendEdit(pi.EDIT_TYPE_UNDO)
                 elif real_command == 'redo':

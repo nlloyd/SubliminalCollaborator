@@ -278,6 +278,7 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         @param content: C{Array} contents of the edit (None-able)
         """
         status_bar.heartbeat_message('sharing with %s' % self.str())
+        logger.debug('sending edit: %s %s' %(interface.numeric_to_symbolic[editType], content))
         if (editType == interface.EDIT_TYPE_INSERT) \
             or (editType == interface.EDIT_TYPE_INSERT_SNIPPET) \
             or (editType == interface.EDIT_TYPE_PASTE):
