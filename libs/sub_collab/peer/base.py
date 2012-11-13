@@ -122,7 +122,6 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         self.viewPositionPollingThread = ViewPositionThread(self)
         # last collected command tuple (str, dict, int)
         self.lastViewCommand = ('', {}, 0)
-        self.lockViewSelection = False
 
     def hostConnect(self, port = 0, ipaddress=''):
         """
@@ -376,13 +375,11 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
                 # edit event
                 assert toDo[0] == interface.EDIT
                 # make the shared selection the ACTUAL selection
-                self.lockViewSelection = True
                 self.view.sel().clear()
                 for region in self.view.get_regions(self.sharingWithUser):
                     self.view.sel().add(region)
                 self.view.erase_regions(self.sharingWithUser)
                 self.recvEdit(toDo[1], toDo[2])
-                self.lockViewSelection = False
         self.toDoToViewQueueLock.release()
 
     def recvd_CONNECTED(self, messageSubType, payload):

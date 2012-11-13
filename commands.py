@@ -447,16 +447,15 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
             negotiatorInstances.pop(self.chatClientKeys[clientIdx]).disconnect()
 
     def on_selection_modified(self, view):
-        print('new selection: %s' % view.sel())
+        # print('new selection: %s' % view.sel())
         if sessionsByViewId.has_key(view.id()):
             session = sessionsByViewId[view.id()]
-            logger.debug('selection: %s, locked: %s' % (view.sel(), session.lockViewSelection))
-            if (session.state == pi.STATE_CONNECTED) and not session.lockViewSelection:
-                logger.debug('sending selection update: %s' % view.sel())
+            logger.debug('selection: %s' % view.sel())
+            if (session.state == pi.STATE_CONNECTED):
                 session.sendSelectionUpdate(view.sel())
 
     def on_modified(self, view):
-        print(view.command_history(0, False))
+        # print(view.command_history(0, False))
         if sessionsByViewId.has_key(view.id()):
             session = sessionsByViewId[view.id()]
             if (session.state == pi.STATE_CONNECTED) and (session.role == pi.HOST_ROLE):
@@ -494,7 +493,7 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
 class EditCommandProxyCommand(sublime_plugin.ApplicationCommand):
 
     def run(self, real_command):
-        print('proxying: %s' % real_command)
+        # print('proxying: %s' % real_command)
         view = sublime.active_window().active_view()
         if view == None:
             return
