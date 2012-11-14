@@ -292,7 +292,6 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         @param editType: C{str} edit type (see above)
         @param content: C{Array} contents of the edit (None if delete editType)
         """
-        logger.debug('editing regions: %s' % self.view.sel())
         self.view.set_read_only(False)
         if editType == interface.EDIT_TYPE_INSERT:
             self.view.run_command('insert', { 'characters': content })
@@ -303,13 +302,13 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         elif editType == interface.EDIT_TYPE_RIGHT_DELETE:
             self.view.run_command('right_delete')
         elif editType == interface.EDIT_TYPE_CUT:
-            # faux cut since we are recieving the commands
+            # faux cut since we are recieving the commands instead of invoking them directly
             self.view.run_command('left_delete')
         elif editType == interface.EDIT_TYPE_COPY:
             # we dont actually want to do anything here
             pass
         elif editType == interface.EDIT_TYPE_PASTE:
-            # faux cut since we are recieving the commands
+            # faux cut since we are recieving the commands instead of invoking them directly
             self.view.run_command('insert', { 'characters': content })
         elif editType == interface.EDIT_TYPE_UNDO:
             self.view.run_command('undo')
@@ -371,7 +370,6 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
                         self.recvViewPositionUpdate(sublime.Region(int(regionMatch.group(1)), int(regionMatch.group(2))))
             elif len(toDo) == 3:
                 status_bar.heartbeat_message('sharing with %s' % self.str())
-                logger.debug('Handling view change %s:%s with size %d payload' % (interface.numeric_to_symbolic[toDo[0]], interface.numeric_to_symbolic[toDo[1]], len(toDo[2])))
                 # edit event
                 assert toDo[0] == interface.EDIT
                 # make the shared selection the ACTUAL selection
@@ -449,7 +447,7 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
             self.disconnect()
 
     def recvd_SELECTION(self, messageSubType, payload):
-        logger.debug('selection change: %s' % payload)
+        # logger.debug('selection change: %s' % payload)
         self.toDoToViewQueueLock.acquire()
         self.toDoToViewQueue.append((interface.SELECTION, payload))
         self.toDoToViewQueueLock.release()
@@ -476,7 +474,7 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         msgType = interface.numeric_to_symbolic[msgTypeNum]
         msgSubType = interface.numeric_to_symbolic[msgSubTypeNum]
         payload = data[self.messageHeaderSize:]
-        logger.debug('RECVD: %s, %s, %d' % (msgType, msgSubType, len(payload)))
+        logger.debug('RECVD: %s-%s[%s]' % (msgType, msgSubType, payload))
         method = getattr(self, "recvd_%s" % msgType, None)
         if method is not None:
             method(msgSubTypeNum, payload)
@@ -526,7 +524,7 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
     #*** helper functions ***#
 
     def sendMessage(self, messageType, messageSubType=interface.EDIT_TYPE_NA, payload=''):
-        logger.debug('SEND: %s-%s[%d]' % (interface.numeric_to_symbolic[messageType], interface.numeric_to_symbolic[messageSubType], len(payload)))
+        logger.debug('SEND: %s-%s[%s]' % (interface.numeric_to_symbolic[messageType], interface.numeric_to_symbolic[messageSubType], payload))
         reactor.callFromThread(self.sendString, struct.pack(self.messageHeaderFmt, interface.MAGIC_NUMBER, messageType, messageSubType) + payload.encode())
 
     def str(self):
