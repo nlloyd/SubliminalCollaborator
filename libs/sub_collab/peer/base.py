@@ -15,7 +15,7 @@
 #   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 #   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 #   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-#   AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHE`R
+#   AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 #   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #   THE SOFTWARE.
@@ -122,6 +122,9 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         self.viewPositionPollingThread = ViewPositionThread(self)
         # last collected command tuple (str, dict, int)
         self.lastViewCommand = ('', {}, 0)
+        # flag to inform EventListener if Proxy plugin is sending events
+        # relates to a selection update issue around the cut command
+        self.isProxyEventPublishing = False
 
     def hostConnect(self, port = 0, ipaddress=''):
         """
@@ -309,7 +312,12 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
             pass
         elif editType == interface.EDIT_TYPE_PASTE:
             # faux cut since we are recieving the commands instead of invoking them directly
-            self.view.run_command('insert', { 'characters': content })
+            # we actually have to handle this as a direct view.replace() call to avoid
+            # autoindent which occurs if we use the view.run_command('insert', ...) call
+            paste_edit = self.view.begin_edit()
+            for region in self.view.sel():
+                self.view.replace(paste_edit, region, content)
+            self.view.end_edit(paste_edit)
         elif editType == interface.EDIT_TYPE_UNDO:
             self.view.run_command('undo')
         elif editType == interface.EDIT_TYPE_REDO:

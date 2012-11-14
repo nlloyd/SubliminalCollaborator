@@ -447,12 +447,12 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
             negotiatorInstances.pop(self.chatClientKeys[clientIdx]).disconnect()
 
     def on_selection_modified(self, view):
-        if view.file_name():
-            print('new selection: %s' % view.sel())
+        # if view.file_name():
+        #     print('new selection: %s' % view.sel())
         if sessionsByViewId.has_key(view.id()):
             session = sessionsByViewId[view.id()]
-            logger.debug('selection: %s' % view.sel())
-            if (session.state == pi.STATE_CONNECTED):
+            if (session.state == pi.STATE_CONNECTED) and not session.isProxyEventPublishing:
+                logger.debug('selection: %s' % view.sel())
                 session.sendSelectionUpdate(view.sel())
 
     def on_modified(self, view):
@@ -500,9 +500,11 @@ class EditCommandProxyCommand(sublime_plugin.ApplicationCommand):
             return
         if sessionsByViewId.has_key(view.id()):
             session = sessionsByViewId[view.id()]
+            session.isProxyEventPublishing = True
             if (session.state == pi.STATE_CONNECTED) and (session.role == pi.HOST_ROLE):
                 logger.debug('proxying: %s' % real_command)
                 # make sure our selection is up-to-date
+                logger.debug('proxy selection: %s' % view.sel())
                 session.sendSelectionUpdate(view.sel())
                 view.run_command(real_command)
                 if real_command ==  'cut':
@@ -519,6 +521,7 @@ class EditCommandProxyCommand(sublime_plugin.ApplicationCommand):
                     session.sendEdit(pi.EDIT_TYPE_SOFT_UNDO)
                 elif real_command == 'soft_redo':
                     session.sendEdit(pi.EDIT_TYPE_SOFT_REDO)
+            session.isProxyEventPublishing = False
         else:
             # run the command for real... not part of a session
             view.run_command(real_command)
