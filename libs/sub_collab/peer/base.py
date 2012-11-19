@@ -257,6 +257,8 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         view_name = self.view.file_name()
         if not view_name or (len(view_name) == 0):
             view_name = self.view.name()
+            if not view_name or (len(view_name) == 0):
+                view_name = 'untitled'
         if self.role == interface.HOST_ROLE:
             message = '%s sharing %s with you wants to host...' % (self.str(), view_name)
         else:
@@ -270,6 +272,8 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
             else:
                 self.role = interface.HOST_ROLE
                 self.view.set_read_only(False)
+                self.viewPositionPollingThread = ViewPositionThread(self)
+                self.viewPositionPollingThread.start()
             self.sendMessage(interface.SWAP_ROLE_ACK)
         else:
             self.sendMessage(interface.SWAP_ROLE_NACK)
@@ -286,7 +290,14 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         else:
             self.role = interface.HOST_ROLE
             self.view.set_read_only(False)
-        logger.info('session %s with %s role now changed to %s' % (self.view.file_name(), self.str(), self.role))
+            self.viewPositionPollingThread = ViewPositionThread(self)
+            self.viewPositionPollingThread.start()
+        view_name = self.view.file_name()
+        if not view_name or (len(view_name) == 0):
+            view_name = self.view.name()
+            if not view_name or (len(view_name) == 0):
+                view_name = 'untitled'
+        logger.info('session %s with %s role now changed to %s' % (view_name, self.str(), self.role))
 
     def onSwapRoleNAck(self):
         """
