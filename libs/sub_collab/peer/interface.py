@@ -63,8 +63,14 @@ SYNTAX          = 9
 SELECTION       = 10
 # view position payload
 POSITION        = 11
+# swap session roles
+SWAP_ROLE       = 12
+# sent if the peer accepts the swap role request
+SWAP_ROLE_ACK   = 13
+# sent if the peer denies the swap role request
+SWAP_ROLE_NACK  = 14
 # edit event payload
-EDIT            = 12
+EDIT            = 15
 
 #--- message sub-types ---#
 EDIT_TYPE_NA                = 120  # not applicable, sent by all but EDIT
@@ -94,7 +100,10 @@ symbolic_to_numeric = {
     'SYNTAX':                   9,
     'SELECTION':                10,
     'POSITION':                 11,
-    'EDIT':                     12,
+    'SWAP_ROLE':                12,
+    'SWAP_ROLE_ACK':            13,
+    'SWAP_ROLE_NACK':           14,
+    'EDIT':                     15,
     'EDIT_TYPE_NA':             120,
     'EDIT_TYPE_INSERT':         121,
     'EDIT_TYPE_INSERT_SNIPPET': 122,
@@ -173,6 +182,28 @@ class Peer(Interface):
     def onStopCollab():
         """
         Callback method informing the peer that we are terminating a collaborating session.
+        """
+
+    def swapRole():
+        """
+        Request a role swap with the connected peer.
+        """
+
+    def onSwapRole():
+        """
+        Callback method to respond to role swap requests from the connected peer.
+        """
+
+    def onSwapRoleAck():
+        """
+        Callback method to respond to accepted role swap response from the connected peer.
+        The caller of swapRole() waits for this method before actually swapping roles on its side.
+        """
+
+    def onSwapRoleNAck():
+        """
+        Callback method to respond to rejected role swap response from the connected peer.
+        The caller of swapRole() may have this called if the connected peer rejects a swap role request.
         """
 
     def sendViewPositionUpdate(centerOnRegion):

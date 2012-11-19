@@ -25,6 +25,11 @@
         "args": { "task": "disconnectChat" }
     },
     {
+        "command": "collaborate",
+        "caption": "Collaborate: Swap Roles with Peer",
+        "args": { "task": "swapRole" }
+    },
+    {
         "command": "install_menu_proxy",
         "caption": "Collaborate: Install Edit Menu Proxy Commands"
     },

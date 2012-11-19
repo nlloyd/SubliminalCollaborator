@@ -268,6 +268,7 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
         irc.IRCNegotiator.rejectedOrFailedCallback = self.killHostedSession
         base.BasePeer.peerConnectedCallback = self.shareView
         base.BasePeer.peerRecvdViewCallback = self.addSharedView
+        base.BasePeer.acceptSwapRole = self.acceptSwapRole
         status_bar.status_message('ready')
 
     def run(self, task):
@@ -359,7 +360,7 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
                     self.viewNames.append(view.file_name())
             sublime.active_window().show_quick_panel(self.viewNames, self.shareView)
         else:
-            if idx >= -1:
+            if idx > -1:
                 chosenViewName = self.viewNames[idx]
                 chosenView = self.viewsByName[chosenViewName]
                 self.newSession.startCollab(chosenView)
@@ -379,7 +380,7 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
         acceptSession = sublime.ok_cancel_dialog('%s wants to collaborate with you!' % username)
         deferredOnNegotiateCallback.callback(acceptSession)
 
-    def showSessions(self, idx=None):
+    def showSessions(self, idx=None, sessionCallback=None):
         if idx == None:
             sessionList = []
             for client in sessions.keys():
@@ -389,6 +390,34 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
             if len(sessionList) == 0:
                 sessionList = ['*** No Active Sessions ***']
             sublime.active_window().show_quick_panel(sessionList, self.showSessions)
+        elif (idx > -1) and sessionCallback is not None:
+            sessionList = []
+            for client in sessions.keys():
+                for user in sessions[client].keys():
+                    if sessions[client][user].state == pi.STATE_CONNECTED:
+                        sessionList.append('%s -> %s' % (client, user))
+            if len(sessionList) > 0:
+               sessionCallback(sessionList[idx])
+
+    def swapRole(self, session=None):
+        # if we are called with a session passed... typically as a callback from user selection
+        swapping_session = None
+        if (session is not None) and (session.state == pi.STATE_CONNECTED):
+            swapping_session = session
+        else:
+            # swap on the active view? otherwise ask for which shared view
+            view = sublime.active_window().active_view()
+            if view and sessionsByViewId.has_key(view.id()):
+                session = sessionsByViewId[view.id()]
+                if session.state == pi.STATE_CONNECTED:
+                    swapping_session = session
+            else:
+                self.showSessions(sessionCallback=self.swapRole)
+                return
+        swapping_session.swapRole()
+
+    def acceptSwapRole(self, requestMessage):
+        return sublime.ok_cancel_dialog(requestMessage)
 
     def killHostedSession(self, protocol, username):
         sessionsLock.acquire()

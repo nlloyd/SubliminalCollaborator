@@ -25,7 +25,7 @@ from twisted.internet import reactor, protocol, error, interfaces
 from twisted.protocols import basic
 from sub_collab import status_bar
 import sublime
-import logging, threading, sys, socket, struct, os, re, time
+import logging, threading, sys, socket, struct, os, re, time, functools
 
 logger = logging.getLogger(__name__)
 logger.propagate = False
@@ -94,7 +94,7 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
     messageHeaderSize = struct.calcsize(messageHeaderFmt)
 
     # registered callback methods
-    switchRole = None
+    acceptSwapRole = None
     peerInitiatedDisconnect = None
     # callback for the server-peer
     peerConnectedCallback = None
@@ -236,6 +236,64 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         Callback method informing the peer that we are terminating a collaborating session.
         """
         self.stopCollab()
+
+    def swapRole(self):
+        """
+        Request a role swap with the connected peer.
+        """
+        if self.view is None:
+            logger.warn('Request to swap role when no view is being shared!')
+            return
+        self.sendMessage(interface.SWAP_ROLE)
+
+    def onSwapRole(self):
+        """
+        Callback method to respond to role swap requests from the connected peer.
+        """
+        if self.view is None:
+            logger.warn('Request from %s to swap role when no view is being shared!' % self.str())
+            return
+        message = None
+        view_name = self.view.file_name()
+        if not view_name or (len(view_name) == 0):
+            view_name = self.view.name()
+        if self.role == interface.HOST_ROLE:
+            message = '%s sharing %s with you wants to host...' % (self.str(), view_name)
+        else:
+            message = '%s sharing %s with you wants you to host...' % (self.str(), view_name)
+        swapping_roles = self.acceptSwapRole(message)
+
+        if swapping_roles:
+            if self.role == interface.HOST_ROLE:
+                self.role = interface.PARTNER_ROLE
+                self.view.set_read_only(True)
+            else:
+                self.role = interface.HOST_ROLE
+                self.view.set_read_only(False)
+            self.sendMessage(interface.SWAP_ROLE_ACK)
+        else:
+            self.sendMessage(interface.SWAP_ROLE_NACK)
+        logger.info('session %s with %s role now changed to %s' % (view_name, self.str(), self.role))
+
+    def onSwapRoleAck(self):
+        """
+        Callback method to respond to accepted role swap response from the connected peer.
+        The caller of swapRole() waits for this method before actually swapping roles on its side.
+        """
+        if self.role == interface.HOST_ROLE:
+            self.role = interface.PARTNER_ROLE
+            self.view.set_read_only(True)
+        else:
+            self.role = interface.HOST_ROLE
+            self.view.set_read_only(False)
+        logger.info('session %s with %s role now changed to %s' % (self.view.file_name(), self.str(), self.role))
+
+    def onSwapRoleNAck(self):
+        """
+        Callback method to respond to rejected role swap response from the connected peer.
+        The caller of swapRole() may have this called if the connected peer rejects a swap role request.
+        """
+        sublime.message_dialog('%s sharing %s did not want to swap roles' % (self.str(), self.view.file_name()))
 
     def sendViewPositionUpdate(self, centerOnRegion):
         """
@@ -473,6 +531,15 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         self.toDoToViewQueueLock.release()
         sublime.set_timeout(self.handleViewChanges, 0)
 
+    def recvd_SWAP_ROLE(self, messageSubType, payload):
+        sublime.set_timeout(self.onSwapRole, 0)
+
+    def recvd_SWAP_ROLE_ACK(self, messageSubType, payload):
+        sublime.set_timeout(self.onSwapRoleAck, 0)
+
+    def recvd_SWAP_ROLE_NACK(self, messageSubType, payload):
+        sublime.set_timeout(self.onSwapRoleNAck, 0)
+
     def recvdUnknown(self, messageType, messageSubType, payload):
         logger.warn('Received unknown message: %s, %s, %s' % (messageType, messageSubType, payload))
 
@@ -517,7 +584,7 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         if error.ConnectionDone == reason.type:
             self.disconnect()
         else:
-            status_bar.heartbeat_message('lost share session with %s' % self.str())
+            status_bar.status_message('lost share session with %s' % self.str())
             # may want to reconnect, but for now lets print why
             logger.error('Connection lost: %s - %s' % (reason.type, reason.value))
 
