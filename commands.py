@@ -115,7 +115,6 @@ class SessionCleanupThread(threading.Thread):
                     sessionsByViewId.pop(viewId)
             sessionsLock.release()
             time.sleep(30.0)
-            # status_bar.status_message('connected clients: %d' % len(negotiatorInstances))
 
 
 if not 'SESSION_CLEANUP_THREAD' in globals():
@@ -448,7 +447,7 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
 
     def on_selection_modified(self, view):
         # if view.file_name():
-        #     print('new selection: %s' % view.sel())
+        # print('new selection: %s' % view.sel())
         if sessionsByViewId.has_key(view.id()):
             session = sessionsByViewId[view.id()]
             if (session.state == pi.STATE_CONNECTED) and not session.isProxyEventPublishing:
@@ -457,6 +456,7 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
 
     def on_modified(self, view):
         # print(view.command_history(0, False))
+        # print(view.command_history(-1, False))
         if sessionsByViewId.has_key(view.id()):
             session = sessionsByViewId[view.id()]
             if (session.state == pi.STATE_CONNECTED) and (session.role == pi.HOST_ROLE):
@@ -505,23 +505,23 @@ class EditCommandProxyCommand(sublime_plugin.ApplicationCommand):
                 logger.debug('proxying: %s' % real_command)
                 # make sure our selection is up-to-date
                 if real_command != 'undo':
-                    logger.debug('proxy selection: %s' % view.sel())
                     session.sendSelectionUpdate(view.sel())
                 view.run_command(real_command)
                 if real_command ==  'cut':
                     session.sendEdit(pi.EDIT_TYPE_CUT)
                 elif real_command == 'copy':
                     session.sendEdit(pi.EDIT_TYPE_COPY)
-                elif real_command == 'undo':
-                    session.sendEdit(pi.EDIT_TYPE_UNDO)
-                elif real_command == 'redo':
-                    session.sendEdit(pi.EDIT_TYPE_REDO)
-                elif real_command == 'redo_or_repeat':
-                    session.sendEdit(pi.EDIT_TYPE_REDO_OR_REPEAT)
-                elif real_command == 'soft_undo':
-                    session.sendEdit(pi.EDIT_TYPE_SOFT_UNDO)
-                elif real_command == 'soft_redo':
-                    session.sendEdit(pi.EDIT_TYPE_SOFT_REDO)
+                # TODO: figure this out! for now we eat these commands
+                # elif real_command == 'undo':
+                #     session.sendEdit(pi.EDIT_TYPE_UNDO)
+                # elif real_command == 'redo':
+                #     session.sendEdit(pi.EDIT_TYPE_REDO)
+                # elif real_command == 'redo_or_repeat':
+                #     session.sendEdit(pi.EDIT_TYPE_REDO_OR_REPEAT)
+                # elif real_command == 'soft_undo':
+                #     session.sendEdit(pi.EDIT_TYPE_SOFT_UNDO)
+                # elif real_command == 'soft_redo':
+                #     session.sendEdit(pi.EDIT_TYPE_SOFT_REDO)
             session.isProxyEventPublishing = False
         else:
             # run the command for real... not part of a session
