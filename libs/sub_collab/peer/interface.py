@@ -69,8 +69,14 @@ SWAP_ROLE       = 12
 SWAP_ROLE_ACK   = 13
 # sent if the peer denies the swap role request
 SWAP_ROLE_NACK  = 14
+# view sync message (payload is host view size)
+VIEW_SYNC       = 15
+# view resync request (client-to-host... need to resend the view as it is now)
+VIEW_RESYNC     = 16
+# view reshare request, like SHARE_VIEW but refreshes the buffer instead of creating a new buffer
+RESHARE_VIEW    = 17
 # edit event payload
-EDIT            = 15
+EDIT            = 100
 
 #--- message sub-types ---#
 EDIT_TYPE_NA                = 120  # not applicable, sent by all but EDIT
@@ -103,7 +109,10 @@ symbolic_to_numeric = {
     'SWAP_ROLE':                12,
     'SWAP_ROLE_ACK':            13,
     'SWAP_ROLE_NACK':           14,
-    'EDIT':                     15,
+    'VIEW_SYNC'                 15,
+    'VIEW_RESYNC'               16,
+    'RESHARE_VIEW'              17,
+    'EDIT':                     100,
     'EDIT_TYPE_NA':             120,
     'EDIT_TYPE_INSERT':         121,
     'EDIT_TYPE_INSERT_SNIPPET': 122,
@@ -167,6 +176,11 @@ class Peer(Interface):
     def startCollab(view):
         """
         Send the provided C{sublime.View} contents to the connected peer.
+        """
+
+    def resyncCollab():
+        """
+        Resync the shared editor contents between the host and the partner.
         """
 
     def onStartCollab():

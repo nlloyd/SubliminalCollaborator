@@ -43,7 +43,7 @@ MAX_CHUNK_SIZE = 1024
 REGION_PATTERN = re.compile('(\d+), (\d+)')
 
 
-class ViewPositionThread(threading.Thread):
+class ViewMonitorThread(threading.Thread):
     def __init__(self, peer):
         threading.Thread.__init__(self)
         self.peer = peer
@@ -65,14 +65,22 @@ class ViewPositionThread(threading.Thread):
             self.lastViewCenterLine = viewCenterRegion
             self.peer.sendViewPositionUpdate(viewCenterRegion)
 
+    def sendViewSize(self):
+        self.peer.sendMessage(interface.VIEW_SYNC, payload=self.peer.view.size())
+
     def run(self):
-        logger.info('Monitoring view position')
+        logger.info('Monitoring view')
+        count = 0
         # we must be the host and connected
         while (self.peer.role == interface.HOST_ROLE) and (self.peer.state == interface.STATE_CONNECTED):
             if not self.peer.view == None:
                 sublime.set_timeout(self.grabAndSendViewPosition, 0)
+                if count == 60:
+                    count = 0
+                    sublime.set_timeout(self.sendViewSize, 0)
             time.sleep(0.5)
-        logger.info('Stopped monitoring view position')
+            count += 1
+        logger.info('Stopped monitoring view')
 
 # build off of the Int32StringReceiver to leverage its unprocessed buffer handling
 class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.ServerFactory):
@@ -118,8 +126,8 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         # queue of 2 or 3 part tuples
         self.toDoToViewQueue = []
         self.toDoToViewQueueLock = threading.Lock()
-        # thread for polling host-side view
-        self.viewPositionPollingThread = ViewPositionThread(self)
+        # thread for polling host-side view and periodically checking view sync state
+        self.viewMonitorThread = ViewMonitorThread(self)
         # last collected command tuple (str, dict, int)
         self.lastViewCommand = ('', {}, 0)
         # flag to inform EventListener if Proxy plugin is sending events
@@ -211,8 +219,37 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
             status_bar.progress_message("sending view to %s" % self.sharingWithUser, begin, totalToSend)
         self.sendMessage(interface.END_OF_VIEW, payload=view.settings().get('syntax'))
         self.view.set_read_only(False)
-        # start the view position polling thread
-        self.viewPositionPollingThread.start()
+        # start the view monitoring thread
+        self.viewMonitorThread.start()
+
+    def resyncCollab(self):
+        """
+        Resync the shared editor contents between the host and the partner.
+        """
+        totalToSend = self.view.size()
+        begin = 0
+        end = MAX_CHUNK_SIZE
+        # now we make sure we are connected... better way to do this?
+        while not self.state == interface.STATE_CONNECTED:
+            time.sleep(1.0)
+            if (self.state == interface.STATE_DISCONNECTING) or (self.state == interface.STATE_DISCONNECTED):
+                logger.error('While waiting to resync view over a connection the peer was disconnected!')
+                self.disconnect()
+                return
+        logger.info('Resyncing view %s with %s' % (self.view.file_name(), self.sharingWithUser))
+        self.toAck = []
+        self.sendMessage(interface.RESHARE_VIEW, payload=totalToSend)
+        while begin < totalToSend:
+            chunkToSend = self.view.substr(sublime.Region(begin, end))
+            self.toAck.append(len(chunkToSend))
+            self.sendMessage(interface.VIEW_CHUNK, payload=chunkToSend)
+            begin = begin + MAX_CHUNK_SIZE
+            end = end + MAX_CHUNK_SIZE
+            status_bar.progress_message("sending view to %s" % self.sharingWithUser, begin, totalToSend)
+        self.sendMessage(interface.END_OF_VIEW, payload=view.settings().get('syntax'))
+        self.view.set_read_only(False)
+        # start the view monitoring thread
+        self.viewMonitorThread.start()
 
     def onStartCollab(self):
         """
@@ -272,8 +309,8 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
             else:
                 self.role = interface.HOST_ROLE
                 self.view.set_read_only(False)
-                self.viewPositionPollingThread = ViewPositionThread(self)
-                self.viewPositionPollingThread.start()
+                self.viewMonitorThread = ViewMonitorThread(self)
+                self.viewMonitorThread.start()
             self.sendMessage(interface.SWAP_ROLE_ACK)
         else:
             self.sendMessage(interface.SWAP_ROLE_NACK)
@@ -290,8 +327,8 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         else:
             self.role = interface.HOST_ROLE
             self.view.set_read_only(False)
-            self.viewPositionPollingThread = ViewPositionThread(self)
-            self.viewPositionPollingThread.start()
+            self.viewMonitorThread = ViewMonitorThread(self)
+            self.viewMonitorThread.start()
         view_name = self.view.file_name()
         if not view_name or (len(view_name) == 0):
             view_name = self.view.name()
@@ -410,17 +447,26 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
             toDo = self.toDoToViewQueue.pop(0)
             if len(toDo) == 2:
                 logger.debug('Handling view change %s with size %d payload' % (interface.numeric_to_symbolic[toDo[0]], len(toDo[1])))
-                if toDo[0] == interface.SHARE_VIEW:
-                    self.view = sublime.active_window().new_file()
-                    payloadBits = toDo[1].split('|')
-                    if payloadBits[0] == 'NONAME':
-                        self.view.set_name('SHARING-WITH-%s' % self.sharingWithUser)
+                if (toDo[0] == interface.SHARE_VIEW) or (toDo[0] == interface.RESHARE_VIEW):
+                    self.totalNewViewSize = 0
+                    if toDo[0] == interface.SHARE_VIEW:
+                        self.view = sublime.active_window().new_file()
+                        payloadBits = toDo[1].split('|')
+                        if payloadBits[0] == 'NONAME':
+                            self.view.set_name('SHARING-WITH-%s' % self.sharingWithUser)
+                        else:
+                            self.view.set_name(payloadBits[0])
+                        self.totalNewViewSize = int(payloadBits[1])
                     else:
-                        self.view.set_name(payloadBits[0])
+                        # resync event, purge the old view in preparation for the fresh content
+                        self.totalNewViewSize = int(toDo[1])
+                        self.view.set_read_only(False)
+                        purge_edit = self.view_begin_edit()
+                        self.view.erase(purge_edit, sublime.Region(0, self.view.size()))
+                        self.view.end_edit(purge_edit)
                     self.view.set_read_only(True)
                     self.view.set_scratch(True)
                     self.viewPopulateEdit = self.view.begin_edit()
-                    self.totalNewViewSize = int(payloadBits[1])
                     status_bar.progress_message("receiving view from %s" % self.sharingWithUser, self.view.size(), self.totalNewViewSize)
                 elif toDo[0] == interface.VIEW_CHUNK:
                     self.view.set_read_only(False)
@@ -456,6 +502,14 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
                 self.view.erase_regions(self.sharingWithUser)
                 self.recvEdit(toDo[1], toDo[2])
         self.toDoToViewQueueLock.release()
+
+    def checkViewSyncState(self, peerViewSize):
+        """
+        Compares a received view size with this sides' view size.... if they don't match a resync event is
+        triggered.
+        """
+        if self.view.size() != peerViewSize:
+            self.sendMessage(interface.VIEW_RESYNC)
 
     def recvd_CONNECTED(self, messageSubType, payload):
         if self.peerType == interface.CLIENT:
@@ -550,6 +604,12 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
 
     def recvd_SWAP_ROLE_NACK(self, messageSubType, payload):
         sublime.set_timeout(self.onSwapRoleNAck, 0)
+
+    def recvd_VIEW_SYNC(self, messageSubType, payload):
+        sublime.set_timeout(functools.partial(self.checkViewSyncState, int(payload)), 0)
+
+    def recvd_VIEW_RESYNC(self, messageSubType, payload):
+        sublime.set_timeout(self.resyncCollab, 0)
 
     def recvdUnknown(self, messageType, messageSubType, payload):
         logger.warn('Received unknown message: %s, %s, %s' % (messageType, messageSubType, payload))
