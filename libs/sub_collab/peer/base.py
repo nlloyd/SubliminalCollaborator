@@ -66,7 +66,7 @@ class ViewMonitorThread(threading.Thread):
             self.peer.sendViewPositionUpdate(viewCenterRegion)
 
     def sendViewSize(self):
-        self.peer.sendMessage(interface.VIEW_SYNC, payload=self.peer.view.size())
+        self.peer.sendMessage(interface.VIEW_SYNC, payload=str(self.peer.view.size()))
 
     def run(self):
         logger.info('Monitoring view')
@@ -75,7 +75,7 @@ class ViewMonitorThread(threading.Thread):
         while (self.peer.role == interface.HOST_ROLE) and (self.peer.state == interface.STATE_CONNECTED):
             if not self.peer.view == None:
                 sublime.set_timeout(self.grabAndSendViewPosition, 0)
-                if count == 60:
+                if count == 10:
                     count = 0
                     sublime.set_timeout(self.sendViewSize, 0)
             time.sleep(0.5)
@@ -238,7 +238,7 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
                 return
         logger.info('Resyncing view %s with %s' % (self.view.file_name(), self.sharingWithUser))
         self.toAck = []
-        self.sendMessage(interface.RESHARE_VIEW, payload=totalToSend)
+        self.sendMessage(interface.RESHARE_VIEW, payload=str(totalToSend))
         while begin < totalToSend:
             chunkToSend = self.view.substr(sublime.Region(begin, end))
             self.toAck.append(len(chunkToSend))
