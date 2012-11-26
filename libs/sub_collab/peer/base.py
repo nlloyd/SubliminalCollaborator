@@ -460,11 +460,14 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
                         self.totalNewViewSize = int(payloadBits[1])
                     else:
                         # resync event, purge the old view in preparation for the fresh content
+                        logger.debug('resync view')
                         self.totalNewViewSize = int(toDo[1])
                         self.view.set_read_only(False)
                         purge_edit = self.view_begin_edit()
+                        logger.debug('deleting old view')
                         self.view.erase(purge_edit, sublime.Region(0, self.view.size()))
                         self.view.end_edit(purge_edit)
+                        logger.debug('deleted old view')
                     self.view.set_read_only(True)
                     self.view.set_scratch(True)
                     self.viewPopulateEdit = self.view.begin_edit()
