@@ -215,6 +215,7 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
             # we havent rejected OR we are trying with a new IP address
             status_bar.status_message('trying to share with %s' % username)
             logger.info('Establishing session with %s at %s:%d' % (username, host, port))
+            logger.debug('accepted: %s, retryNegotiate: %s' % (accepted, self.retryNegotiate))
             session = base.BasePeer(username, self.sendPeerFailedToConnect)
             session.clientConnect(host, port)
             self.negotiateCallback(session)
