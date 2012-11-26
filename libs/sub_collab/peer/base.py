@@ -248,8 +248,9 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
             status_bar.progress_message("sending view to %s" % self.sharingWithUser, begin, totalToSend)
         self.sendMessage(interface.END_OF_VIEW, payload=self.view.settings().get('syntax'))
         self.view.set_read_only(False)
-        # start the view monitoring thread
-        self.viewMonitorThread.start()
+        # start the view monitoring thread if not already running
+        if not self.viewMonitorThread.is_alive():
+            self.viewMonitorThread.start()
 
     def onStartCollab(self):
         """
@@ -541,6 +542,13 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
     def recvd_SHARE_VIEW(self, messageSubType, payload):
         self.toDoToViewQueueLock.acquire()
         self.toDoToViewQueue.append((interface.SHARE_VIEW, payload))
+        self.toDoToViewQueueLock.release()
+        self.sendMessage(interface.SHARE_VIEW_ACK)
+        sublime.set_timeout(self.handleViewChanges, 0)
+
+    def recvd_RESHARE_VIEW(self, messageSubType, payload):
+        self.toDoToViewQueueLock.acquire()
+        self.toDoToViewQueue.append((interface.RESHARE_VIEW, payload))
         self.toDoToViewQueueLock.release()
         self.sendMessage(interface.SHARE_VIEW_ACK)
         sublime.set_timeout(self.handleViewChanges, 0)
