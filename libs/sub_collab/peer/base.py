@@ -246,7 +246,7 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
             begin = begin + MAX_CHUNK_SIZE
             end = end + MAX_CHUNK_SIZE
             status_bar.progress_message("sending view to %s" % self.sharingWithUser, begin, totalToSend)
-        self.sendMessage(interface.END_OF_VIEW, payload=view.settings().get('syntax'))
+        self.sendMessage(interface.END_OF_VIEW, payload=self.view.settings().get('syntax'))
         self.view.set_read_only(False)
         # start the view monitoring thread
         self.viewMonitorThread.start()
