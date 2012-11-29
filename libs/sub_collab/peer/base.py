@@ -461,6 +461,7 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
                     else:
                         # resync event, purge the old view in preparation for the fresh content
                         logger.debug('resync view')
+                        self.lastResyncdPosition = 0
                         self.totalNewViewSize = int(toDo[1])
                         self.view.set_read_only(False)
                         purge_edit = self.view_begin_edit()
@@ -513,7 +514,8 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         triggered.
         """
         if self.view.size() != peerViewSize:
-            self.sendMessage(interface.VIEW_RESYNC)
+            logger.info('view out of sync!')
+            # self.sendMessage(interface.VIEW_RESYNC)
 
     def recvd_CONNECTED(self, messageSubType, payload):
         if self.peerType == interface.CLIENT:
@@ -617,7 +619,11 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         sublime.set_timeout(self.onSwapRoleNAck, 0)
 
     def recvd_VIEW_SYNC(self, messageSubType, payload):
-        sublime.set_timeout(functools.partial(self.checkViewSyncState, int(payload)), 0)
+        self.toDoToViewQueueLock.acquire()
+        # no pending edits... safe to check
+        if len(self.toDoToViewQueue) == 0:
+            sublime.set_timeout(functools.partial(self.checkViewSyncState, int(payload)), 0)
+        self.toDoToViewQueueLock.release()
 
     def recvd_VIEW_RESYNC(self, messageSubType, payload):
         sublime.set_timeout(self.resyncCollab, 0)
