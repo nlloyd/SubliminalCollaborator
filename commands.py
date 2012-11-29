@@ -91,6 +91,8 @@ sessions = {}
 # sessions by view id
 sessionsByViewId = {}
 sessionsLock = threading.Lock()
+# global for the current active view... because sublime.active_window().active_view() ignores the console view
+globalActiveView = None
 
 
 class SessionCleanupThread(threading.Thread):
@@ -207,14 +209,14 @@ class InstallMenuProxyCommand(sublime_plugin.WindowCommand):
         'copy': 'Copy',
         'cut': 'Cut'
     }
-
+    
     def run(self):
         logger.info('Installing menu command proxy configuration')
-        logger.info('Backing up default Menu.sublime-menu')
-        if not os.path.exists(os.path.join(os.getcwd(), 'menu_backup')):
-            os.mkdir(os.path.join(os.getcwd(), 'menu_backup'))
+        logger.info('Backing up default Menu.sublime-menu to ~/.subliminal_collaborator')
+        if not os.path.exists(os.path.expanduser(os.path.join('~', '.subliminal_collaborator'))):
+            os.mkdir(os.path.expanduser(os.path.join('~','.subliminal_collaborator')))
         shutil.copy(os.path.join(sublime.packages_path(), 'Default', 'Main.sublime-menu'), \
-            os.path.join(os.getcwd(), 'menu_backup', 'Main.sublime-menu.backup'))
+            os.path.expanduser(os.path.join('~', '.subliminal_collaborator', 'Main.sublime-menu.backup')))
         self.installProxyEntries()
 
 
@@ -242,16 +244,16 @@ class UninstallMenuProxyCommand(sublime_plugin.WindowCommand):
     def run(self):
         logger.info('Uninstalling menu command proxy configuration')
         logger.info('Restoring default Menu.sublime-menu')
-        shutil.copy(os.path.join(os.getcwd(), 'menu_backup', 'Main.sublime-menu.backup'), \
+        shutil.copy(os.path.expanduser(os.path.join('~', '.subliminal_collaborator', 'Main.sublime-menu.backup')), \
             os.path.join(sublime.packages_path(), 'Default', 'Main.sublime-menu'))
-        shutil.rmtree(os.path.join(os.getcwd(), 'menu_backup'))
-        if not os.path.exists(os.path.join(os.getcwd(), 'menu_backup', 'Main.sublime-menu.backup')):
+        shutil.rmtree(os.path.expanduser(os.path.join('~', '.subliminal_collaborator')))
+        if not os.path.exists(os.path.expanduser(os.path.join('~', '.subliminal_collaborator', 'Main.sublime-menu.backup'))):
             logger.info('Successfully restored default Menu.sublime-menu')
         else:
             logger.error('Failed to restore default Menu.sublime-menu')
 
     def is_enabled(self):
-        return os.path.exists(os.path.join(os.getcwd(), 'menu_backup', 'Main.sublime-menu.backup'))
+        return os.path.exists(os.path.expanduser(os.path.join('~', '.subliminal_collaborator', 'Main.sublime-menu.backup')))
 
 
 class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.EventListener):
@@ -259,7 +261,6 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
     sessionKeys = []
     userList = []
     selectedNegotiator = None
-    currentView = None
 
     def __init__(self):
         sublime_plugin.ApplicationCommand.__init__(self)
@@ -520,22 +521,33 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
                     session.sendEdit(pi.EDIT_TYPE_PASTE, payload)
 
 
-class EditCommandProxyCommand(sublime_plugin.ApplicationCommand):
+
+class EditCommandProxyCommand(sublime_plugin.ApplicationCommand, sublime_plugin.EventListener):
+
+    def on_load(self, view):
+        # handles initial sublime startup
+        global globalActiveView
+        globalActiveView = view
+
+    def on_activated(self, view):
+        global globalActiveView
+        globalActiveView = view
 
     def run(self, real_command):
+        global globalActiveView
         # print('proxying: %s' % real_command)
-        view = sublime.active_window().active_view()
-        if view == None:
+        if globalActiveView == None:
+            logger.debug('no view to proxy commands to')
             return
-        if sessionsByViewId.has_key(view.id()):
-            session = sessionsByViewId[view.id()]
+        if sessionsByViewId.has_key(globalActiveView.id()):
+            session = sessionsByViewId[globalActiveView.id()]
             session.isProxyEventPublishing = True
             if (session.state == pi.STATE_CONNECTED) and (session.role == pi.HOST_ROLE):
                 logger.debug('proxying: %s' % real_command)
                 # make sure our selection is up-to-date
                 if real_command != 'undo':
-                    session.sendSelectionUpdate(view.sel())
-                view.run_command(real_command)
+                    session.sendSelectionUpdate(globalActiveView.sel())
+                globalActiveView.run_command(real_command)
                 if real_command ==  'cut':
                     session.sendEdit(pi.EDIT_TYPE_CUT)
                 elif real_command == 'copy':
@@ -554,4 +566,4 @@ class EditCommandProxyCommand(sublime_plugin.ApplicationCommand):
             session.isProxyEventPublishing = False
         else:
             # run the command for real... not part of a session
-            view.run_command(real_command)
+            globalActiveView.run_command(real_command)
