@@ -66,7 +66,7 @@ class ViewMonitorThread(threading.Thread):
             self.peer.sendViewPositionUpdate(viewCenterRegion)
 
     def sendViewSize(self):
-        self.peer.sendMessage(interface.VIEW_SYNC, payload=str(self.peer.view.size()))
+        self.peer.sendMessage(interface.VIEW_SYNC, payload=str(self.peer.currentViewSize))
 
     def run(self):
         logger.info('Monitoring view')
@@ -77,7 +77,8 @@ class ViewMonitorThread(threading.Thread):
                 sublime.set_timeout(self.grabAndSendViewPosition, 0)
                 if count == 10:
                     count = 0
-                    sublime.set_timeout(self.sendViewSize, 0)
+                    self.sendViewSize()
+                    # sublime.set_timeout(self.sendViewSize, 0)
             time.sleep(0.5)
             count += 1
         logger.info('Stopped monitoring view')
@@ -133,6 +134,9 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         # flag to inform EventListener if Proxy plugin is sending events
         # relates to a selection update issue around the cut command
         self.isProxyEventPublishing = False
+        # current size of the view, updated via EventListener.on_modified() or handleViewCommands() calls
+        # this is so the view sync/resync mechanism does not rely on the main thread to check view size
+        self.currentViewSize = 0
 
     def hostConnect(self, port = 0, ipaddress=''):
         """
@@ -506,6 +510,7 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
                     self.view.sel().add(region)
                 self.view.erase_regions(self.sharingWithUser)
                 self.recvEdit(toDo[1], toDo[2])
+        self.currentViewSize = self.view.size()
         self.toDoToViewQueueLock.release()
 
     def checkViewSyncState(self, peerViewSize):
@@ -513,7 +518,7 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         Compares a received view size with this sides' view size.... if they don't match a resync event is
         triggered.
         """
-        if self.view.size() != peerViewSize:
+        if self.currentViewSize != peerViewSize:
             logger.info('view out of sync!')
             # self.sendMessage(interface.VIEW_RESYNC)
 
@@ -622,7 +627,8 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         self.toDoToViewQueueLock.acquire()
         # no pending edits... safe to check
         if len(self.toDoToViewQueue) == 0:
-            sublime.set_timeout(functools.partial(self.checkViewSyncState, int(payload)), 0)
+            # sublime.set_timeout(functools.partial(self.checkViewSyncState, int(payload)), 0)
+            self.checkViewSyncState(int(payload))
         self.toDoToViewQueueLock.release()
 
     def recvd_VIEW_RESYNC(self, messageSubType, payload):

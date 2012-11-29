@@ -490,6 +490,7 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
         if sessionsByViewId.has_key(view.id()):
             session = sessionsByViewId[view.id()]
             if (session.state == pi.STATE_CONNECTED) and (session.role == pi.HOST_ROLE):
+                session.currentViewSize = view.size()
                 command = view.command_history(0, False)
                 lastCommand = session.lastViewCommand
                 session.lastViewCommand = command
