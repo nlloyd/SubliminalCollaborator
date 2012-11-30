@@ -469,6 +469,7 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
                         logger.debug('resyncing view')
                         self.lastResyncdPosition = 0
                         self.totalNewViewSize = int(toDo[1])
+                        self.lastViewPosition = self.view.visible_region()
                     self.view.set_read_only(True)
                     self.view.set_scratch(True)
                     self.viewPopulateEdit = self.view.begin_edit()
@@ -491,6 +492,9 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
                     self.viewPopulateEdit = None
                     if hasattr(self, 'lastResyncdPosition'):
                         del self.lastResyncdPosition
+                    if hasattr(self, 'lastViewPosition'):
+                        self.view.show_at_center(self.lastViewPosition)
+                        del self.lastViewPosition
                     status_bar.progress_message("receiving view from %s" % self.sharingWithUser, self.view.size(), self.totalNewViewSize)
                     # view is populated and configured, lets share!
                     self.onStartCollab()
@@ -525,7 +529,7 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         """
         if self.currentViewSize != peerViewSize:
             logger.info('view out of sync!')
-            # self.sendMessage(interface.VIEW_RESYNC)
+            self.sendMessage(interface.VIEW_RESYNC)
 
     def recvd_CONNECTED(self, messageSubType, payload):
         if self.peerType == interface.CLIENT:

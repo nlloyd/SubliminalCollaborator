@@ -114,6 +114,8 @@ class SessionCleanupThread(threading.Thread):
                         logger.debug('Cleaning up dead session: %s' % deadSession.str())
             for viewId, session in sessionsByViewId.items():
                 if session.state == pi.STATE_DISCONNECTED:
+                    if session.view != None:
+                        sublime.set_timeout(functools.partial(session.view.set_read_only, False), 0)
                     sessionsByViewId.pop(viewId)
             sessionsLock.release()
             time.sleep(30.0)
