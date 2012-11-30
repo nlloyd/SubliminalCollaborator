@@ -375,7 +375,7 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
 
         @param centerOnRegion: C{sublime.Region} to set as the current center of the view.
         """
-        self.view.show_at_center(centerOnRegion)
+        self.view.show_at_center(centerOnRegion.begin())
 
     def sendSelectionUpdate(self, selectedRegions):
         """
