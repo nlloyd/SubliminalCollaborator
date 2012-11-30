@@ -472,10 +472,10 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
                         self.lastViewPosition = self.view.visible_region()
                     self.view.set_read_only(True)
                     self.view.set_scratch(True)
-                    self.viewPopulateEdit = self.view.begin_edit()
                     status_bar.progress_message("receiving view from %s" % self.sharingWithUser, self.view.size(), self.totalNewViewSize)
                 elif toDo[0] == interface.VIEW_CHUNK:
                     self.view.set_read_only(False)
+                    self.viewPopulateEdit = self.view.begin_edit()
                     # if we are a resync chunk...
                     if hasattr(self, 'lastResyncdPosition'):
                         self.view.replace(self.viewPopulateEdit,  \
@@ -484,12 +484,12 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
                         self.lastResyncdPosition += len(toDo[1])
                     else:
                         self.view.insert(self.viewPopulateEdit, self.view.size(), toDo[1])
+                    self.view.end_edit(self.viewPopulateEdit)
+                    self.viewPopulateEdit = None
                     self.view.set_read_only(True)
                     status_bar.progress_message("receiving view from %s" % self.sharingWithUser, self.view.size(), self.totalNewViewSize)
                 elif toDo[0] == interface.END_OF_VIEW:
-                    self.view.end_edit(self.viewPopulateEdit)
                     self.view.set_syntax_file(toDo[1])
-                    self.viewPopulateEdit = None
                     if hasattr(self, 'lastResyncdPosition'):
                         del self.lastResyncdPosition
                     if hasattr(self, 'lastViewPosition'):
