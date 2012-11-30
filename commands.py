@@ -122,7 +122,7 @@ class SessionCleanupThread(threading.Thread):
                 if negotiator.isConnected() == False:
                     negotiatorInstances.pop(negotiatorKey)
                     logger.info('Cleaning up disconnected negotiator %s' % negotiatorKey)
-            time.sleep(30.0)
+            time.sleep(5.0)
 
 
 if not 'SESSION_CLEANUP_THREAD' in globals():
@@ -328,6 +328,7 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
                 sublime.active_window().show_quick_panel(self.userList, self.connectToUser)
         elif userIdx > -1:
             if sessions.has_key(self.selectedNegotiator.str()) and sessions[self.selectedNegotiator.str()].has_key(self.userList[userIdx]):
+                logger.debug('Already collaborating with this user!')
                 # TODO status bar: already have a session for this user!
                 return
             else:
