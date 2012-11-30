@@ -111,13 +111,17 @@ class SessionCleanupThread(threading.Thread):
                 for sessionKey, session in protocolSessions.items():
                     if session.state == pi.STATE_DISCONNECTED:
                         deadSession = sessions[sessionsKey].pop(sessionKey)
-                        logger.debug('Cleaning up dead session: %s' % deadSession.str())
+                        logger.info('Cleaning up dead session: %s' % deadSession.str())
             for viewId, session in sessionsByViewId.items():
                 if session.state == pi.STATE_DISCONNECTED:
                     if session.view != None:
                         sublime.set_timeout(functools.partial(session.view.set_read_only, False), 0)
                     sessionsByViewId.pop(viewId)
             sessionsLock.release()
+            for negotiatorKey, negotiator in negotiatorInstances.items():
+                if negotiator.isConnected() == False:
+                    negotiatorInstances.pop(negotiatorKey)
+                    logger.info('Cleaning up disconnected negotiator %s' % negotiatorKey)
             time.sleep(30.0)
 
 

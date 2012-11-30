@@ -297,11 +297,13 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
         elif message == 'NO-GOOD-HOST-IP':
             # client recvd from server... report error and cleanup any half-made sessions
             logger.warn('All connections to all possible host ip addresses failed.')
+            self.retryNegotiate = False
             if not self.rejectedOrFailedCallback == None:
                 self.rejectedOrFailedCallback(self.str(), username)
         elif message == 'REJECTED':
             # server recvd from client... report rejected and cleanup any half-made sessions
             logger.info('Request to share with user %s was rejected.' % username)
+            self.retryNegotiate = False
             if not self.rejectedOrFailedCallback == None:
                 self.rejectedOrFailedCallback(self.str(), username)
 
