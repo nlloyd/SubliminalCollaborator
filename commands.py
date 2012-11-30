@@ -50,7 +50,7 @@ from sub_collab.peer import interface as pi
 from sub_collab import status_bar
 from sub_collab.peer import base
 from twisted.internet import reactor
-import threading, logging, time, shutil, fileinput, re
+import threading, logging, time, shutil, fileinput, re, functools
 
 # log.startLogging(sys.stdout)
 

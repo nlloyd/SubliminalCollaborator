@@ -254,6 +254,15 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
             status_bar.progress_message("sending view to %s" % self.sharingWithUser, begin, totalToSend)
         self.sendMessage(interface.END_OF_VIEW, payload=self.view.settings().get('syntax'))
         self.view.set_read_only(False)
+        # send view position as it stands now so the partner view is positioned appropriately post-resync
+        viewRegionLines = self.peer.view.split_by_newlines(self.peer.view.visible_region())
+        lineIdx = len(viewRegionLines) / 2 - 1
+        if lineIdx < 0:
+            lineIdx = 0
+        viewCenterRegion = viewRegionLines[lineIdx]
+        if not viewCenterRegion == self.lastViewCenterLine:
+            self.lastViewCenterLine = viewCenterRegion
+            self.peer.sendViewPositionUpdate(viewCenterRegion)
         # start the view monitoring thread if not already running
         if not self.viewMonitorThread.is_alive():
             self.viewMonitorThread.start()
@@ -469,7 +478,6 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
                         logger.debug('resyncing view')
                         self.lastResyncdPosition = 0
                         self.totalNewViewSize = int(toDo[1])
-                        self.lastViewPosition = self.view.visible_region()
                     self.view.set_read_only(True)
                     self.view.set_scratch(True)
                     status_bar.progress_message("receiving view from %s" % self.sharingWithUser, self.view.size(), self.totalNewViewSize)
@@ -492,9 +500,6 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
                     self.view.set_syntax_file(toDo[1])
                     if hasattr(self, 'lastResyncdPosition'):
                         del self.lastResyncdPosition
-                    if hasattr(self, 'lastViewPosition'):
-                        self.view.show_at_center(self.lastViewPosition)
-                        del self.lastViewPosition
                     status_bar.progress_message("receiving view from %s" % self.sharingWithUser, self.view.size(), self.totalNewViewSize)
                     # view is populated and configured, lets share!
                     self.onStartCollab()
