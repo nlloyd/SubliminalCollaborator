@@ -8,25 +8,33 @@ code collaboration tool with minimal setup and infrastructure to get up and goin
 
 ## NEWS
 
-The feature set target for **alpha** has been achieved!  You can now, once you are setup, do the following:
+The feature set target for **beta** has been achieved!  You can now, once you are setup, do the following:
 
 * Connect to an IRC channel and find other SubliminalCollaborator clients to...
     * Share a view over a direct connection (local/company network only, *NAT traversal is a planned feature*)
     * Partner can see the file, including syntax coloring as was configured by the host at the time of send
     * Host and Partner can highlight multiple sections of the file and see what the other is highlighting in real-time
     * Partner's viewpoint follows that of the Host when the Host moves their viewpoint
+    * Host edits and cut, copy, and paste events are sent to the Partner
+    * Automatic resync if the Host and Partner view become out of sync
+    * Swap on demand sharing roles (initiated by either Host or Partner)
 
-Instructions below on how to play with this: more details and screenshots coming soon.
+Also new, Google Group space for this project!  Since github doesn't offer much by way of a dialog with users and contributors we have [this Google Group]() setup for future use.
+
+Have a feature idea that you want to discuss? [Bring it up here]()
+Have a question about a feature? [Bring it up here]()
+Have a bug you want to report? [Bring it up here]()
+Want to hear about the latest that is happening on this project? [Read about it here!]()
+
 
 ## Roadmap
 
 [Planned Milestones](https://github.com/nlloyd/SubliminalCollaborator/issues/milestones)
+[Issues](https://github.com/nlloyd/SubliminalCollaborator/issues?labels=&milestone=&page=1&state=open)
 
 ## Getting Started
 
-### Configuration
-
-**NOTE: command/ctrl + ~ to see what is actually going on.  Right now everything is logged to the sublime console.  Status bar feedback on background operations is a pending feature.**
+### Setup and Configuration
 
 1. git clone into your Packages directory (When this goes Beta I will add it to the [Sublime Package Control](http://wbond.net/sublime_packages/package_control) repository)
 1. Start Sublime Text 2
@@ -45,6 +53,14 @@ Instructions below on how to play with this: more details and screenshots coming
 // ],
 ```
 
+#### Install/Uninstall Cut, Copy, Paste Proxy
+
+In order to share cut, copy, and paste events in a session some special setup is required...
+
+1. Select the menu Preferences > Package Settings > SubliminalCollaborator > Install Edit Menu Proxy Commands or in the command palette select Collaborate: Install Edit Menu Proxy Commands.
+
+To undo this action, choose Uninstall Edit Menu Proxy Commands in the same places.
+
 ### Starting a Session
 
 1. From the command palette: `Collaborate: Connect to Chat Server`
@@ -53,24 +69,34 @@ Instructions below on how to play with this: more details and screenshots coming
 1. Choose the chat connection to use, then the username from the list of the known confirmed SubliminalCollaborator clients available through this chat
     * At this point a dialog between clients is initiated where the two peers attempt to connect directly using the available IP addresses of the peer hosting the session... this may take a while... command/ctrl + ~ to see what is actually going on.
 1. Choose a view to share from the presented list of open views.
-1. Highlight something!  Tell your peer to highlight something!  Play around with it and give me feedback while I work on adding more to this thing!
 
 
-## Rough Feature Plan
-**old, see [Issues](https://github.com/nlloyd/SubliminalCollaborator/issues?labels=&milestone=&page=1&state=open) and [Milestones](https://github.com/nlloyd/SubliminalCollaborator/issues/milestones) for more accurate details of what is to come.**
+### Interacting in a Session
 
-The current feature plans:
-- quickly share a file with another user identified via IM system (irc and jabber currently targetted)
-- support for HOST and PARTNER roles
-- HOST role features
-    - show currently viewed region of document to PARTNER
-    - show highlighted regions of text to PARTNER
-    - send edit/delete events to PARTNER as they occur
-    - swap HOST-PARTNER role with other user
-- PARTNER role features
-    - show highlighted regions of text to HOST ('tell me more about this that you just edited')
-    - 'follow' and 'unfollow' toggle (whether you follow the HOST view or not)
-    - request HOST to swap roles
+Now that you are in a session you can do the following as the host:
+
+- Edit the shared view in almost any way (typical edits such as entering and deleting text as well as cut, copy, and paste).
+- Scroll the view and the peer will see what you see.
+- Any selections are specially highlighted on the peer's view.
+- If the view gets out-of-sync for any reason then an automatic resync will occur with minimal interruption (you as the host won't see anything except a brief message in the status bar).
+- At any time from the command palette choose Collaborate: Swap Roles with Peer to request a role change and, if your peer accepts, then they will become the host and you the watching peer.
+
+If you are not the host you can:
+
+- See what the host sees, and while they are not moving the view you may freely scroll independently.
+- Highlight regions of interest and those regions will be specially highlighted in the host's view.
+- See highlighted regions of the host's view.
+- Request through the command palette to swap roles with the host via the Collaborate: Swap Roles with Peer command.
+
+## Troubleshooting
+
+#### Partner view stutters periodically
+
+This is a known issue with the automatic resync mechanism.  Basically chunks of the view are sent very quickly to be updated on the partner side, and the view attempts to follow the location of these edits.  Work is ongoing to find a solution to this.
+
+#### Cut, Copy, and Paste no longer working
+
+Something bad happened with the plugin, you haven't installed the command proxy as instructed below, or you uninstalled the plugin without uninstalling the command proxy.  For most cases you can simply copy the file, if it exists, from *~/.subliminal_collaborator/Main.sublime-menu.backup* into *path/to/SublimeText/Packages/Default*, renaming it and overwriting *Main.sublime-menu*.
 
 
 Show your support by donating!
@@ -80,9 +106,9 @@ Show your support by donating!
 
 ## License
 
-All of SublimeMaven is licensed under the MIT license.
+All of SubliminalCollaborator is licensed under the MIT license.
 
-  Copyright (c) 2012 Nick Lloyd, Frank Papineau, Rippa Gasparyan
+  Copyright (c) 2012 Nick Lloyd
 
   Permission is hereby granted, free of charge, to any person obtaining a copy
   of this software and associated documentation files (the "Software"), to deal

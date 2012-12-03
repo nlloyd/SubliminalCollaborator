@@ -34,7 +34,7 @@ del logger.handlers[:]
 stdoutHandler = logging.StreamHandler(sys.stdout)
 stdoutHandler.setFormatter(logging.Formatter(fmt='[SubliminalCollaborator|Peer(%(levelname)s): %(message)s]'))
 logger.addHandler(stdoutHandler)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 
 # in bytes

@@ -35,7 +35,7 @@ del logger.handlers[:]
 stdoutHandler = logging.StreamHandler(sys.stdout)
 stdoutHandler.setFormatter(logging.Formatter(fmt='[SubliminalCollaborator|IRC(%(levelname)s): %(message)s]'))
 logger.addHandler(stdoutHandler)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
     """
