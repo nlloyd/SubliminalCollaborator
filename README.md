@@ -3,9 +3,6 @@ SubliminalCollaborator
 
 Sublime Text 2 Plugin for remote pair programming.
 
-This project is in active development and not quite feature complete yet, but the intent is to make this into a fully featured and capable 
-code collaboration tool with minimal setup and infrastructure to get up and going.
-
 ## NEWS
 
 The feature set target for **beta** has been achieved!  You can now, once you are setup, do the following:
@@ -21,10 +18,10 @@ The feature set target for **beta** has been achieved!  You can now, once you ar
 
 Also new, Google Group space for this project!  Since github doesn't offer much by way of a dialog with users and contributors we have [this Google Group]() setup for future use.
 
-Have a feature idea that you want to discuss? [Bring it up here]()
-Have a question about a feature? [Bring it up here]()
-Have a bug you want to report? [Bring it up here]()
-Want to hear about the latest that is happening on this project? [Read about it here!]()
+Have a feature idea that you want to discuss? [Bring it up here](https://groups.google.com/forum/?fromgroups#!forum/subliminalcollaborator)
+Have a question about a feature? [Bring it up here](https://groups.google.com/forum/?fromgroups#!forum/subliminalcollaborator)
+Have a bug you want to report? [Bring it up here](https://groups.google.com/forum/?fromgroups#!forum/subliminalcollaborator)
+Want to hear about the latest that is happening on this project? [Read about it here!](https://groups.google.com/forum/?fromgroups#!forum/subliminalcollaborator)
 
 
 ## Roadmap
@@ -38,7 +35,7 @@ Want to hear about the latest that is happening on this project? [Read about it 
 
 1. git clone into your Packages directory (When this goes Beta I will add it to the [Sublime Package Control](http://wbond.net/sublime_packages/package_control) repository)
 1. Start Sublime Text 2
-1. To generate a basic User/Accounts.sublime-settings file, select menu Preferences > Package Settings > SubliminalCollaborator > Settings - User
+1. To generate a basic **User/Accounts.sublime-settings file, select menu Preferences > Package Settings > SubliminalCollaborator > Settings - User**
 1. Uncomment the following and fill in with the details for your chosen IRC server (can have multiple under "irc")... then save.
 
 ```javascript
@@ -57,9 +54,9 @@ Want to hear about the latest that is happening on this project? [Read about it 
 
 In order to share cut, copy, and paste events in a session some special setup is required...
 
-1. Select the menu Preferences > Package Settings > SubliminalCollaborator > Install Edit Menu Proxy Commands or in the command palette select Collaborate: Install Edit Menu Proxy Commands.
+1. Select the menu **Preferences > Package Settings > SubliminalCollaborator > Install Edit Menu Proxy Commands** or in the command palette select `Collaborate: Install Edit Menu Proxy Commands`.
 
-To undo this action, choose Uninstall Edit Menu Proxy Commands in the same places.
+To undo this action, choose `Uninstall Edit Menu Proxy Commands` in the same places.
 
 ### Starting a Session
 
@@ -67,7 +64,7 @@ To undo this action, choose Uninstall Edit Menu Proxy Commands in the same place
 1. Select the representative chat config string of your choice (protocol|host:port is the format)
 1. Once connected... from the command palette: `Collaborate: Start New Session`
 1. Choose the chat connection to use, then the username from the list of the known confirmed SubliminalCollaborator clients available through this chat
-    * At this point a dialog between clients is initiated where the two peers attempt to connect directly using the available IP addresses of the peer hosting the session... this may take a while... command/ctrl + ~ to see what is actually going on.
+    * At this point a dialog between clients is initiated where the two peers attempt to connect directly using the available IP addresses of the peer hosting the session... this may take a while... command/ctrl + ~ to see what is actually going on or just follow along with the updates in the status bar.
 1. Choose a view to share from the presented list of open views.
 
 
@@ -96,7 +93,7 @@ This is a known issue with the automatic resync mechanism.  Basically chunks of 
 
 #### Cut, Copy, and Paste no longer working
 
-Something bad happened with the plugin, you haven't installed the command proxy as instructed below, or you uninstalled the plugin without uninstalling the command proxy.  For most cases you can simply copy the file, if it exists, from *~/.subliminal_collaborator/Main.sublime-menu.backup* into *path/to/SublimeText/Packages/Default*, renaming it and overwriting *Main.sublime-menu*.
+Something bad happened with the plugin, you haven't installed the command proxy as instructed below, or you uninstalled the plugin without uninstalling the command proxy.  For most cases you can simply copy the file, if it exists, from **~/.subliminal_collaborator/Main.sublime-menu.backup** into **path/to/SublimeText/Packages/Default**, renaming it and overwriting **Main.sublime-menu**.
 
 
 Show your support by donating!
