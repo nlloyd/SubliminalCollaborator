@@ -33,7 +33,7 @@ Want to hear about the latest that is happening on this project? [Read about it 
 
 ### Setup and Configuration
 
-1. git clone into your Packages directory (When this goes Beta I will add it to the [Sublime Package Control](http://wbond.net/sublime_packages/package_control) repository)
+1. git clone into your Packages directory or install using [Sublime Package Control](http://wbond.net/sublime_packages/package_control).
 1. Start Sublime Text 2
 1. To generate a basic User/Accounts.sublime-settings file, select menu **Preferences > Package Settings > SubliminalCollaborator > Settings - User**
 1. Uncomment the following and fill in with the details for your chosen IRC server (can have multiple under "irc")... then save.
