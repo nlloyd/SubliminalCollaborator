@@ -66,7 +66,7 @@ class ViewMonitorThread(threading.Thread):
             self.peer.sendViewPositionUpdate(viewCenterRegion)
 
     def sendViewSize(self):
-        self.peer.sendMessage(interface.VIEW_SYNC, payload=str(self.peer.currentViewSize))
+        self.peer.sendMessage(interface.VIEW_SYNC, payload=str(self.view.size()))
 
     def run(self):
         logger.info('Monitoring view')
@@ -77,8 +77,7 @@ class ViewMonitorThread(threading.Thread):
                 sublime.set_timeout(self.grabAndSendViewPosition, 0)
                 if count == 10:
                     count = 0
-                    self.sendViewSize()
-                    # sublime.set_timeout(self.sendViewSize, 0)
+                    sublime.set_timeout(self.sendViewSize, 0)
             time.sleep(0.5)
             count += 1
         logger.info('Stopped monitoring view')
@@ -134,9 +133,6 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         # flag to inform EventListener if Proxy plugin is sending events
         # relates to a selection update issue around the cut command
         self.isProxyEventPublishing = False
-        # current size of the view, updated via EventListener.on_modified() or handleViewCommands() calls
-        # this is so the view sync/resync mechanism does not rely on the main thread to check view size
-        self.currentViewSize = 0
 
     def hostConnect(self, port = 0, ipaddress=''):
         """
@@ -524,7 +520,6 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
                     self.view.sel().add(region)
                 self.view.erase_regions(self.sharingWithUser)
                 self.recvEdit(toDo[1], toDo[2])
-        self.currentViewSize = self.view.size()
         self.toDoToViewQueueLock.release()
 
     def checkViewSyncState(self, peerViewSize):
@@ -532,7 +527,7 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         Compares a received view size with this sides' view size.... if they don't match a resync event is
         triggered.
         """
-        if self.currentViewSize != peerViewSize:
+        if self.view.size() != peerViewSize:
             logger.info('view out of sync!')
             self.sendMessage(interface.VIEW_RESYNC)
 
@@ -548,7 +543,7 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
             self.sendMessage(interface.CONNECTED)
             self.state = interface.STATE_CONNECTED
             logger.info('Connected to peer: %s' % self.sharingWithUser)
-            sublime.set_timeout(self.peerConnectedCallback, 0)
+            self.peerConnectedCallback()
 
     def recvd_DISCONNECT(self, messageSubType=None, payload=''):
         """
@@ -568,14 +563,14 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         self.toDoToViewQueue.append((interface.SHARE_VIEW, payload))
         self.toDoToViewQueueLock.release()
         self.sendMessage(interface.SHARE_VIEW_ACK)
-        sublime.set_timeout(self.handleViewChanges, 0)
+        self.handleViewChanges()
 
     def recvd_RESHARE_VIEW(self, messageSubType, payload):
         self.toDoToViewQueueLock.acquire()
         self.toDoToViewQueue.append((interface.RESHARE_VIEW, payload))
         self.toDoToViewQueueLock.release()
         self.sendMessage(interface.SHARE_VIEW_ACK)
-        sublime.set_timeout(self.handleViewChanges, 0)
+        self.handleViewChanges()
 
     def recvd_SHARE_VIEW_ACK(self, messageSubType, payload):
         self.ackdChunks = []
@@ -585,7 +580,7 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         self.toDoToViewQueue.append((interface.VIEW_CHUNK, payload))
         self.toDoToViewQueueLock.release()
         self.sendMessage(interface.VIEW_CHUNK_ACK, payload=str(len(payload)))
-        sublime.set_timeout(self.handleViewChanges, 0)
+        self.handleViewChanges()
 
     def recvd_VIEW_CHUNK_ACK(self, messageSubType, payload):
         ackdChunkSize = int(payload)
@@ -596,7 +591,7 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         self.toDoToViewQueue.append((interface.END_OF_VIEW, payload))
         self.toDoToViewQueueLock.release()
         self.sendMessage(interface.END_OF_VIEW_ACK)
-        sublime.set_timeout(self.handleViewChanges, 0)
+        self.handleViewChanges()
 
     def recvd_END_OF_VIEW_ACK(self, messageSubType, payload):
         if self.toAck == self.ackdChunks:
@@ -614,39 +609,38 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         self.toDoToViewQueueLock.acquire()
         self.toDoToViewQueue.append((interface.SELECTION, payload))
         self.toDoToViewQueueLock.release()
-        sublime.set_timeout(self.handleViewChanges, 0)
+        self.handleViewChanges()
 
     def recvd_POSITION(self, messageSubType, payload):
         self.toDoToViewQueueLock.acquire()
         self.toDoToViewQueue.append((interface.POSITION, payload))
         self.toDoToViewQueueLock.release()
-        sublime.set_timeout(self.handleViewChanges, 0)
+        self.handleViewChanges()
 
     def recvd_EDIT(self, messageSubType, payload):
         self.toDoToViewQueueLock.acquire()
         self.toDoToViewQueue.append((interface.EDIT, messageSubType, payload))
         self.toDoToViewQueueLock.release()
-        sublime.set_timeout(self.handleViewChanges, 0)
+        self.handleViewChanges()
 
     def recvd_SWAP_ROLE(self, messageSubType, payload):
-        sublime.set_timeout(self.onSwapRole, 0)
+        self.onSwapRole()
 
     def recvd_SWAP_ROLE_ACK(self, messageSubType, payload):
-        sublime.set_timeout(self.onSwapRoleAck, 0)
+        self.onSwapRoleAck()
 
     def recvd_SWAP_ROLE_NACK(self, messageSubType, payload):
-        sublime.set_timeout(self.onSwapRoleNAck, 0)
+        self.onSwapRoleNAck()
 
     def recvd_VIEW_SYNC(self, messageSubType, payload):
         self.toDoToViewQueueLock.acquire()
         # no pending edits... safe to check
         if len(self.toDoToViewQueue) == 0:
-            # sublime.set_timeout(functools.partial(self.checkViewSyncState, int(payload)), 0)
             self.checkViewSyncState(int(payload))
         self.toDoToViewQueueLock.release()
 
     def recvd_VIEW_RESYNC(self, messageSubType, payload):
-        sublime.set_timeout(self.resyncCollab, 0)
+        self.resyncCollab()
 
     def recvdUnknown(self, messageType, messageSubType, payload):
         logger.warn('Received unknown message: %s, %s, %s' % (messageType, messageSubType, payload))

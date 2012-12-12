@@ -210,7 +210,7 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
                 'port': port
             }
             deferredTrueNegotiate.addCallback(self.onNegotiateSession, **sessionParams)
-            sublime.set_timeout(functools.partial(self.onNegotiateCallback, deferredTrueNegotiate, username), 0)
+            self.onNegotiateCallback(deferredTrueNegotiate, username)
         if (accepted == True) or ((accepted == None) and self.retryNegotiate):
             # we havent rejected OR we are trying with a new IP address
             status_bar.status_message('trying to share with %s' % username)
