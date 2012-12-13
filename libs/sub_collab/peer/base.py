@@ -66,7 +66,7 @@ class ViewMonitorThread(threading.Thread):
             self.peer.sendViewPositionUpdate(viewCenterRegion)
 
     def sendViewSize(self):
-        self.peer.sendMessage(interface.VIEW_SYNC, payload=str(self.view.size()))
+        self.peer.sendMessage(interface.VIEW_SYNC, payload=str(self.peer.view.size()))
 
     def run(self):
         logger.info('Monitoring view')
