@@ -256,9 +256,7 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         if lineIdx < 0:
             lineIdx = 0
         viewCenterRegion = viewRegionLines[lineIdx]
-        if not viewCenterRegion == self.lastViewCenterLine:
-            self.lastViewCenterLine = viewCenterRegion
-            self.peer.sendViewPositionUpdate(viewCenterRegion)
+        self.sendViewPositionUpdate(viewCenterRegion)
         # start the view monitoring thread if not already running
         if not self.viewMonitorThread.is_alive():
             self.viewMonitorThread.start()
