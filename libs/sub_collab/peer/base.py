@@ -251,7 +251,7 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         self.sendMessage(interface.END_OF_VIEW, payload=self.view.settings().get('syntax'))
         self.view.set_read_only(False)
         # send view position as it stands now so the partner view is positioned appropriately post-resync
-        viewRegionLines = self.peer.view.split_by_newlines(self.peer.view.visible_region())
+        viewRegionLines = self.view.split_by_newlines(self.view.visible_region())
         lineIdx = len(viewRegionLines) / 2 - 1
         if lineIdx < 0:
             lineIdx = 0
