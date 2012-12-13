@@ -59,7 +59,7 @@ del logger.handlers[:]
 stdoutHandler = logging.StreamHandler(sys.stdout)
 stdoutHandler.setFormatter(logging.Formatter(fmt='[SubliminalCollaborator(%(levelname)s): %(message)s]'))
 logger.addHandler(stdoutHandler)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 def callInSublimeLoop(funcToCall):
     sublime.set_timeout(funcToCall, 0)

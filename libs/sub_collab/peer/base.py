@@ -186,6 +186,19 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
             logger.debug('Closing client-side connection')
             reactor.callFromThread(self.connection.disconnect)
 
+    def onDisconnect(self):
+        """
+        Callback method if we are disconnected.
+        """
+        if self.peerType == interface.CLIENT:
+            logger.debug('Disconnecting from peer at %s:%d' % (self.host, self.port))
+        else:
+            logger.debug('Disconnecting from peer at %d' % self.port)
+        self.disconnect()
+        self.state = interface.STATE_DISCONNECTED
+        logger.info('Disconnected from peer %s' % self.sharingWithUser)
+        status_bar.status_message('Stopped sharing with %s' % self.sharingWithUser)
+
     def startCollab(self, view):
         """
         Send the provided C{sublime.View} contents to the connected peer.
@@ -544,17 +557,7 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
             self.peerConnectedCallback()
 
     def recvd_DISCONNECT(self, messageSubType=None, payload=''):
-        """
-        Callback method if we receive a DISCONNECT message.
-        """
-        if self.peerType == interface.CLIENT:
-            logger.debug('Disconnecting from peer at %s:%d' % (self.host, self.port))
-        else:
-            logger.debug('Disconnecting from peer at %d' % self.port)
-        self.disconnect()
-        self.state = interface.STATE_DISCONNECTED
-        logger.info('Disconnected from peer %s' % self.sharingWithUser)
-        status_bar.status_message('Stopped sharing with %s' % self.sharingWithUser)
+        self.onDisconnect()
 
     def recvd_SHARE_VIEW(self, messageSubType, payload):
         self.toDoToViewQueueLock.acquire()

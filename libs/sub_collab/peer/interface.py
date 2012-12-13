@@ -168,7 +168,7 @@ class Peer(Interface):
         Disconnect from the peer-to-peer session.
         """
 
-    def recvd_DISCONNECT():
+    def onDisconnect():
         """
         Callback method if we are disconnected.
         """
