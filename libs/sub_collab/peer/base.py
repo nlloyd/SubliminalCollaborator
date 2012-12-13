@@ -48,6 +48,7 @@ class ViewMonitorThread(threading.Thread):
         threading.Thread.__init__(self)
         self.peer = peer
         self.lastViewCenterLine = None
+        self.shutdown = False
 
     def grabAndSendViewPosition(self):
         """
@@ -72,7 +73,9 @@ class ViewMonitorThread(threading.Thread):
         logger.info('Monitoring view')
         count = 0
         # we must be the host and connected
-        while (self.peer.role == interface.HOST_ROLE) and (self.peer.state == interface.STATE_CONNECTED):
+        while (self.peer.role == interface.HOST_ROLE) \
+                and (self.peer.state == interface.STATE_CONNECTED) \
+                and (not self.shutdown):
             if not self.peer.view == None:
                 sublime.set_timeout(self.grabAndSendViewPosition, 0)
                 if count == 10:
@@ -81,6 +84,9 @@ class ViewMonitorThread(threading.Thread):
             time.sleep(0.5)
             count += 1
         logger.info('Stopped monitoring view')
+
+    def destroy(self):
+        self.shutdown = True
 
 # build off of the Int32StringReceiver to leverage its unprocessed buffer handling
 class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.ServerFactory):
@@ -251,7 +257,10 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
                 logger.error('While waiting to resync view over a connection the peer was disconnected!')
                 self.disconnect()
                 return
-        logger.info('Resyncing view %s with %s' % (self.view.file_name(), self.sharingWithUser))
+        view_name = self.view.file_name()
+        if not view_name:
+            view_name = self.view.name()
+        logger.info('Resyncing view %s with %s' % (view_name, self.sharingWithUser))
         self.toAck = []
         self.sendMessage(interface.RESHARE_VIEW, payload=str(totalToSend))
         while begin < totalToSend:
@@ -304,6 +313,10 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         if self.view is None:
             logger.warn('Request to swap role when no view is being shared!')
             return
+        if self.role == interface.HOST_ROLE:
+            logger.debug('Stopping ViewMonitorThread until role swap is decided')
+            self.viewMonitorThread.destroy()
+            self.viewMonitorThread.join()
         self.sendMessage(interface.SWAP_ROLE)
 
     def onSwapRole(self):
@@ -313,6 +326,10 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         if self.view is None:
             logger.warn('Request from %s to swap role when no view is being shared!' % self.str())
             return
+        if self.role == interface.HOST_ROLE:
+            logger.debug('Stopping ViewMonitorThread until role swap is decided')
+            self.viewMonitorThread.destroy()
+            self.viewMonitorThread.join()
         message = None
         view_name = self.view.file_name()
         if not view_name or (len(view_name) == 0):
@@ -338,6 +355,8 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         else:
             self.sendMessage(interface.SWAP_ROLE_NACK)
         logger.info('session %s with %s role now changed to %s' % (view_name, self.str(), self.role))
+        # wait for the swap to complete on the client side... 0.5 second because the message is tiny
+        time.sleep(0.5)
 
     def onSwapRoleAck(self):
         """
@@ -364,6 +383,9 @@ class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serve
         Callback method to respond to rejected role swap response from the connected peer.
         The caller of swapRole() may have this called if the connected peer rejects a swap role request.
         """
+        if self.role == interface.HOST_ROLE:
+            self.viewMonitorThread = ViewMonitorThread()
+            self.viewMonitorThread.start()
         sublime.message_dialog('%s sharing %s did not want to swap roles' % (self.str(), self.view.file_name()))
 
     def sendViewPositionUpdate(self, centerOnRegion):
