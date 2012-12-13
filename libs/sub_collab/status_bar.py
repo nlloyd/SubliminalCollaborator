@@ -73,7 +73,7 @@ class StatusMaintainingPublisherThread(threading.Thread):
 
 
 if not 'STATUS_BAR_UPDATE_THREAD' in globals():
-    STATUS_BAR_UPDATE_THREAD = StatusMaintainingPublisherThread()
+    globals()['STATUS_BAR_UPDATE_THREAD'] = StatusMaintainingPublisherThread()
 
 
 def publish_now(message):
@@ -95,7 +95,7 @@ def status_message(message):
     messageLock.acquire()
     currentMessage = MESSAGE_FORMAT % message
     isHeartbeatMessage = False
-    sublime.set_timeout(functools.partial(publish_now, currentMessage), 0)
+    publish_now(currentMessage)
     messageLock.release()
 
 '''
@@ -113,7 +113,7 @@ def progress_message(message, progress, total):
     messageLock.acquire()
     currentMessage = PROGRESS_FORMAT % (message, ('=' * ticks + ' ' * space))
     isHeartbeatMessage = False
-    sublime.set_timeout(functools.partial(publish_now, currentMessage), 0)
+    publish_now(currentMessage)
     messageLock.release()
 
 '''

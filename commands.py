@@ -40,19 +40,17 @@ if runtime.platform.isWindows():
     if libs_path not in sys.path:
         sys.path.insert(0, libs_path)
 
-from twisted.internet import selectreactor
-if not 'SELECTREACTORINSTALLED' in globals():
-    selectreactor.install()
-    SELECTREACTORINSTALLED = True
-    
+if not 'REACTORINSTALLED' in globals():
+    from twisted.internet import _threadedselect
+    _threadedselect.install()
+    globals()['REACTORINSTALLED'] = True
+
 from sub_collab.negotiator import irc
 from sub_collab.peer import interface as pi
 from sub_collab import status_bar
 from sub_collab.peer import base
 from twisted.internet import reactor
 import threading, logging, time, shutil, fileinput, re, functools
-
-# log.startLogging(sys.stdout)
 
 logger = logging.getLogger(__name__)
 logger.propagate = False
@@ -63,18 +61,12 @@ stdoutHandler.setFormatter(logging.Formatter(fmt='[SubliminalCollaborator(%(leve
 logger.addHandler(stdoutHandler)
 logger.setLevel(logging.DEBUG)
 
-class ReactorThread(threading.Thread):
-    def __init__(self):
-        threading.Thread.__init__(self)
+def callInSublimeLoop(funcToCall):
+    sublime.set_timeout(funcToCall, 0)
 
-    def run(self):
-        if not reactor.running:
-            logger.info('Starting the event reactor on a thread')
-            reactor.run(installSignalHandlers=False)
-
-if not 'REACTOR_THREAD' in globals():
-    REACTOR_THREAD = ReactorThread()
-    REACTOR_THREAD.start()
+if not 'REACTORSTARTED' in globals():
+    reactor.interleave(callInSublimeLoop, installSignalHandlers=False)
+    globals()['REACTORSTARTED'] = True
 
 negotiatorFactoryMap = {
     'irc': irc.IRCNegotiator
@@ -497,7 +489,6 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
         if sessionsByViewId.has_key(view.id()):
             session = sessionsByViewId[view.id()]
             if (session.state == pi.STATE_CONNECTED) and (session.role == pi.HOST_ROLE):
-                session.currentViewSize = view.size()
                 command = view.command_history(0, False)
                 lastCommand = session.lastViewCommand
                 session.lastViewCommand = command
