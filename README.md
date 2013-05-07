@@ -16,7 +16,7 @@ The feature set target for **beta** has been achieved!  You can now, once you ar
     * Automatic resync if the Host and Partner view become out of sync
     * Swap on demand sharing roles (initiated by either Host or Partner)
 
-Also new, Google Group space for this project!  Since github doesn't offer much by way of a dialog with users and contributors we have [this Google Group]() setup for future use.
+Also new, Google Group space for this project!  Since github doesn't offer much by way of a dialog with users and contributors we have [this Google Group](https://groups.google.com/forum/?fromgroups#!forum/subliminalcollaborator) setup for future use.
 
 Have a feature idea that you want to discuss? [Bring it up here](https://groups.google.com/forum/?fromgroups#!forum/subliminalcollaborator)
 Have a question about a feature? [Bring it up here](https://groups.google.com/forum/?fromgroups#!forum/subliminalcollaborator)
