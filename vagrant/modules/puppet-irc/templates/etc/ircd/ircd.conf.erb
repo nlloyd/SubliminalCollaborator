@@ -1,0 +1,187 @@
+serverinfo {
+  name = "<%= fqdn %>";
+  description = "IRC hybrid-7 server";
+  network_name = "<%= network_name %>";
+  network_desc = "<%= network_desc %>";
+  hub = no;
+  vhost = "<%= ipaddress %>";
+  max_clients = 512;
+};
+
+admin {
+  name = "<%= admin_name %>";
+  description = "IRC Administrator";
+  email = "<%= admin_email %>";
+};
+
+log {
+  use_logging = yes;
+  fname_userlog = "logs/userlog";
+  fname_operlog = "logs/operlog";
+  fname_killlog = "logs/kill";
+  fname_klinelog = "logs/kline";
+  fname_glinelog = "logs/gline";
+  log_level = L_INFO;
+};
+
+class {
+  name = "users";
+  ping_time = 90 seconds;
+  number_per_ip = 100;
+  max_number = 1000;
+  sendq = 100 kbytes;
+};
+
+class {
+  name = "opers";
+  ping_time = 90 seconds;
+  number_per_ip = 10;
+  max_number = 100;
+  sendq = 100kbytes;
+};
+
+class {
+  name = "server";
+  ping_time = 90 seconds;
+  ping_warning = 15 seconds;
+  connectfreq = 5 minutes;
+  max_number = 5;
+  sendq = 2 megabytes;
+};
+
+listen {
+  host = "<%= listen_ip %>";
+  port = 6667;
+};
+
+auth {
+  user = "*@<%= listen_ip %>";
+<% auth_domains.each do |domain| -%>
+  user = "*@<%= domain %>";
+<% end -%>
+  spoof = "<%= spoof_domain %>";
+  spoof_notice = yes;
+  exceed_limit = yes;
+  kline_exempt = yes;
+  gline_exempt = yes;
+  no_tilde = yes;
+  class = "opers";
+};
+
+auth {
+  user = "*@*";
+  class = "users";
+};
+
+operator {
+  name = "<%= operator_name %>";
+  user = "<%= operator_name %>@127.0.0.1";
+<% auth_domains.each do |domain| -%>
+  user = "<%= domain %>";
+<% end -%>
+  password = "<%= operator_pass %>";
+  encrypted = yes;
+  class = "opers";
+  flags = global_kill, remote, kline, unkline, xline,
+    die, rehash, nick_changes, admin, operwall;
+};
+
+shared {
+  name = "<%= ipaddress %>";
+  user = "root@<%= ipaddress %>";
+  type = kline, unkline, resv;
+};
+
+resv {
+  reason = "There are no services on this network";
+  nick = "nickserv";
+  nick = "chanserv";
+  channel = "#services";
+  reason = "Clone bots";
+  nick = "clone*";
+};
+
+channel {
+  disable_fake_channels = yes;
+  restrict_channels = no;
+  disable_local_channels = no;
+  use_invex = yes;
+  use_except = yes;
+  use_knock = yes;
+  knock_delay = 1 minutes;
+  knock_delay_channel = 1 minute;
+  burst_topicwho = yes;
+  max_chans_per_user = 25;
+  quiet_on_ban = yes;
+  max_bans = 25;
+  join_flood_count = 16;
+  join_flood_time = 8 seconds;
+  default_split_user_count = 0;
+  default_split_server_count = 0;
+  no_create_on_split = yes;
+  no_join_on_split = no;
+};
+
+serverhide {
+  flatten_links = no;
+  links_delay = 5 minutes;
+  hidden = no;
+  disable_hidden = no;
+  hide_servers = no;
+}; 
+
+general {
+  oper_pass_resv = yes;
+  disable_remote_commands = no;
+  default_floodcount = 10;
+  failed_oper_notice = yes;
+  dots_in_ident = 2;
+  dot_in_ip6_addr = yes;
+  min_nonwildcard = 4;
+  anti_nick_flood = yes;
+  max_nick_time = 20 seconds;
+  max_nick_changes = 5;
+  anti_spam_exit_message_time = 0 minutes;
+  ts_warn_delta = 30 seconds;
+  ts_max_delta = 5 minutes;
+  kline_with_reason = yes;
+  warn_no_nline = yes;
+  stats_o_oper_only = yes;
+  stats_P_oper_only = no;
+  stats_i_oper_only = masked;
+  stats_k_oper_only=masked;
+  caller_id_wait = 1 minute;
+  pace_wait_simple = 1 second;
+  pace_wait = 10 seconds;
+  short_motd = no;
+  ping_cookie = no;
+  no_oper_flood = yes;
+  true_no_oper_flood = yes;
+  idletime = 0;
+  max_targets = 4;
+  client_flood = 20;
+  message_locale = "standard";
+  oper_only_umodes = bots, cconn, debug, full, skill, nchange,
+    rej, spy, external, operwall, locops, unauth;
+  oper_umodes = locops, servnotice, operwall, wallop;
+  default_cipher_preference = "BF/128";
+  throttle_time = 0;
+};
+
+glines {
+  enable = yes;
+  duration = 1 day;
+  logging = reject, block;
+  user = "god@I.still.hate.packets";
+  name = "hades.arpa";
+  action = reject, block;
+  user = "god@*";
+  name = "*";
+  action = block;
+};
+
+modules {
+<% module_paths.each do |path| -%>
+  path = "<%= path %>";
+<% end -%>
+};
