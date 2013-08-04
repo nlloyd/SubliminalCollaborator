@@ -1,0 +1,6 @@
+name    'evgeni-inspircd'
+version '0.0.1'
+source 'https://github.com/evgeni/puppet-inspircd'
+author 'Evgeni Golov <evgeni.golov@credativ.de>'
+license 'MIT'
+description 'InspIRCd Puppet module'

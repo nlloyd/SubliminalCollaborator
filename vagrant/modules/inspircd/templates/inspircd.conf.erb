@@ -1,0 +1,156 @@
+<server name="<%= scope.lookupvar('inspircd::config::servername') %>"
+        description="<%= scope.lookupvar('inspircd::config::description') %>"
+        network="<%= scope.lookupvar('inspircd::config::networkname') %>">
+
+<admin name="<%= scope.lookupvar('inspircd::config::adminname') %>"
+       nick="<%= scope.lookupvar('inspircd::config::adminnick') %>"
+       email="<%= scope.lookupvar('inspircd::config::adminemail') %>">
+
+<% if not sslonly -%>
+ <%- ips.each do |ip| -%>
+<bind address="<%= ip %>" port="6667" type="clients">
+ <%- end -%>
+<% end -%>
+
+<% if scope.lookupvar('inspircd::config::ssl') != "" -%>
+
+<module name="m_ssl_<%= scope.lookupvar('inspircd::config::ssl') %>.so">
+<<%= scope.lookupvar('inspircd::config::ssl') %>
+<% if scope.lookupvar('inspircd::config::cafile') != "" -%>
+        cafile="<%= scope.lookupvar('inspircd::config::cafile') %>"
+<% end -%>
+<% if scope.lookupvar('inspircd::config::certfile') != "" -%>
+        certfile="<%= scope.lookupvar('inspircd::config::certfile') %>"
+<% end -%>
+<% if scope.lookupvar('inspircd::config::keyfile') != "" -%>
+        keyfile="<%= scope.lookupvar('inspircd::config::keyfile') %>">
+<% end -%>
+
+<% ips.each do |ip| -%>
+<bind address="<%= ip %>" port="6697" type="clients" ssl="<%= scope.lookupvar('inspircd::config::ssl') %>">
+<% end -%>
+
+<% end -%>
+
+<connect allow="*"
+         timeout="60"
+         flood="20"
+         threshold="1"
+         pingfreq="120"
+         sendq="262144"
+         recvq="8192"
+         localmax="3"
+         globalmax="3">
+
+<module name="m_override.so">
+
+<class name="Shutdown"
+       commands="DIE RESTART REHASH LOADMODULE UNLOADMODULE RELOAD">
+<class name="ServerLink"
+       commands="CONNECT SQUIT RCONNECT MKPASSWD MKSHA256">
+<class name="BanControl"
+       commands="KILL GLINE KLINE ZLINE QLINE ELINE">
+<class name="OperChat"
+       commands="WALLOPS GLOBOPS SETIDLE SPYLIST SPYNAMES">
+<class name="HostCloak"
+       commands="SETHOST SETIDENT SETNAME CHGHOST CHGIDENT">
+
+<type name="NetAdmin"
+      classes="OperChat BanControl HostCloak Shutdown ServerLink"
+      override="INVITE KEY LIMIT BANWALK KICK MODEOP MODEDEOP MODEVOICE MODEDEVOICE MODEHALFOP MODEDEHALFOP OTHERMODE"
+      host="netadmin.<%= scope.lookupvar('inspircd::config::network') %>">
+<type name="GlobalOp"
+      classes="OperChat BanControl HostCloak ServerLink"
+      host="ircop.<%= scope.lookupvar('inspircd::config::network') %>">
+<type name="Helper"
+      classes="HostCloak"
+      host="helper.<%= scope.lookupvar('inspircd::config::network') %>">
+
+<module name="m_password_hash.so">
+<module name="m_md5.so">
+<module name="m_sha256.so">
+<module name="m_ripemd160.so">
+
+<% opers.each do |oper| -%>
+<oper name="<%= oper[0] %>"
+      password="<%= oper[1]['password'] %>"
+  <%- if oper[1]['hash'] -%>
+      hash="<%= oper[1]['hash'] %>"
+  <%- end -%>
+      host="<%= oper[1]['host'] %>"
+      type="<%= oper[1]['type'] %>">
+<% end -%>
+
+<% if ldapauth != "" -%>
+<module name="m_ldapauth.so">
+<ldapauth baserdn="<%= ldapauth['baserdn'] %>"
+  <%- if ldapauth['attribute'] -%>
+          attribute="<%= ldapauth['attribute'] %>"
+  <%- else -%>
+          attribute="uid"
+  <%- end -%>
+          server="<%= ldapauth['server'] %>"
+          killreason="Access denied"
+  <%- if ldapauth['searchscope'] -%>
+          searchscope="<%= ldapauth['searchscope'] %>"
+  <%- end -%>
+          binddn="<%= ldapauth['binddn'] %>"
+          bindauth="<%= ldapauth['bindauth'] %>"
+  <%- if ldapauth['useusername'] -%>
+          userfield="yes"
+  <%- end -%>
+          verbose="yes">
+<% end -%>
+
+<files motd="/etc/inspircd/inspircd.motd"
+       rules="/etc/inspircd/inspircd.rules">
+
+<channels users="20"
+          opers="60">
+
+<pid file="/var/run/inspircd.pid">
+
+<options prefixquit="Quit: "
+         noservices="no"
+         qaprefixes="no"
+         deprotectself="no"
+         deprotectothers="no"
+         flatlinks="no"
+         hideulines="no"
+         syntaxhints="no"
+         cyclehosts="yes"
+         ircumsgprefix="no"
+         announcets="yes"
+         disablehmac="no"
+         hostintopic="yes"
+         quietbursts="yes"
+         pingwarning="15"
+         allowhalfop="yes"
+         exemptchanops="">
+
+<security hidewhois=""
+          userstats="Pu"
+          customversion=""
+          hidesplits="no"
+          hidebans="no"
+          operspywhois="no"
+          hidemodes="eI"
+          maxtargets="20">
+
+<performance nouserdns="no"
+             maxwho="128"
+             softlimit="1024"
+             somaxconn="128"
+             netbuffersize="10240">
+
+<log method="file"
+     type="* -USERINPUT -USEROUTPUT"
+     level="default"
+     target="/var/log/inspircd.log">
+
+<badnick nick="ChanServ" reason="Reserved For Services">
+<badnick nick="NickServ" reason="Reserved For Services">
+<badnick nick="OperServ" reason="Reserved For Services">
+<badnick nick="MemoServ" reason="Reserved For Services">
+
+<whowas groupsize="10" maxgroups="100000" maxkeep="1w">

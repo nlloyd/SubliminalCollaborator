@@ -14,9 +14,22 @@ then
     wget -q http://apt.puppetlabs.com/$DEB
     sudo dpkg -i $DEB
 fi
+
 sudo apt-get update
-sudo apt-get install --yes puppet
+
+if [ -e /etc/puppet-updated ]
+then
+    echo 'puppet already updated'
+else
+    sudo apt-get install --yes puppet
+    date > /etc/puppet-updated
+fi
 
 ####
-
-puppet module install puppetlabs/stdlib
+if [ -e /etc/puppet-stdlib-installed ]
+then
+    echo 'puppetlabs/stdlib already installed'
+else
+    puppet module install puppetlabs/stdlib
+    date > /etc/puppet-stdlib-installed
+fi

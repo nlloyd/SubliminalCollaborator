@@ -1,17 +1,17 @@
 serverinfo {
-  name = "<%= fqdn %>";
+  name = "<%= @fqdn %>";
   description = "IRC hybrid-7 server";
-  network_name = "<%= network_name %>";
-  network_desc = "<%= network_desc %>";
+  network_name = "<%= @network_name %>";
+  network_desc = "<%= @network_desc %>";
   hub = no;
-  vhost = "<%= ipaddress %>";
+  vhost = "<%= @ipaddress %>";
   max_clients = 512;
 };
 
 admin {
-  name = "<%= admin_name %>";
+  name = "<%= @admin_name %>";
   description = "IRC Administrator";
-  email = "<%= admin_email %>";
+  email = "<%= @admin_email %>";
 };
 
 log {
@@ -50,16 +50,16 @@ class {
 };
 
 listen {
-  host = "<%= listen_ip %>";
+  host = "<%= @listen_ip %>";
   port = 6667;
 };
 
 auth {
-  user = "*@<%= listen_ip %>";
+  user = "*@<%= @listen_ip %>";
 <% auth_domains.each do |domain| -%>
-  user = "*@<%= domain %>";
+  user = "*@<%= @domain %>";
 <% end -%>
-  spoof = "<%= spoof_domain %>";
+  spoof = "<%= @spoof_domain %>";
   spoof_notice = yes;
   exceed_limit = yes;
   kline_exempt = yes;
@@ -74,12 +74,12 @@ auth {
 };
 
 operator {
-  name = "<%= operator_name %>";
-  user = "<%= operator_name %>@127.0.0.1";
+  name = "<%= @operator_name %>";
+  user = "<%= @operator_name %>@127.0.0.1";
 <% auth_domains.each do |domain| -%>
-  user = "<%= domain %>";
+  user = "<%= @domain %>";
 <% end -%>
-  password = "<%= operator_pass %>";
+  password = "<%= @operator_pass %>";
   encrypted = yes;
   class = "opers";
   flags = global_kill, remote, kline, unkline, xline,
@@ -87,8 +87,8 @@ operator {
 };
 
 shared {
-  name = "<%= ipaddress %>";
-  user = "root@<%= ipaddress %>";
+  name = "<%= @ipaddress %>";
+  user = "root@<%= @ipaddress %>";
   type = kline, unkline, resv;
 };
 
@@ -182,6 +182,6 @@ glines {
 
 modules {
 <% module_paths.each do |path| -%>
-  path = "<%= path %>";
+  path = "<%= @path %>";
 <% end -%>
 };
