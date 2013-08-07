@@ -1,6 +1,7 @@
 Vagrant.configure("2") do |config|
 
-  config.vm.box = "precise64"
+  config.vm.box = "centos-64-x64-vbox4210-nocm"
+  config.vm.box_url = "http://puppet-vagrant-boxes.puppetlabs.com/centos-64-x64-vbox4210-nocm.box"
 
   config.vm.hostname = "subliminal.local"
   config.vm.network :private_network, type: :dhcp
@@ -19,6 +20,7 @@ Vagrant.configure("2") do |config|
     puppet.options = "--verbose --debug"
     puppet.manifests_path = "vagrant/manifests"
     puppet.module_path = "vagrant/modules"
+    puppet.hiera_config_path = "vagrant"
   end
 
   # Provider-specific configuration so you can fine-tune various
