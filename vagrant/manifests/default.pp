@@ -40,6 +40,10 @@
 
 # ircd
 
+package { 'gnutls-bin':
+    ensure  => present
+}
+
 package { 'inspircd':
     ensure  => present
 }
