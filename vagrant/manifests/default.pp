@@ -43,6 +43,10 @@ package { "xorg-x11-fonts-100dpi":
     ensure  => present
 }
 
+package { "gtk2":
+    ensure  => present
+}
+
 package { "dbus":
     ensure  => present
 }
@@ -51,7 +55,7 @@ package { "dbus-x11":
     ensure  => present
 }
 
-service { "dbus":
+service { "messagebus":
     ensure      => running,
     enable      => true,
     hasstatus   => true,
