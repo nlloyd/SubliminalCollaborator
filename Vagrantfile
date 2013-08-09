@@ -1,10 +1,15 @@
 Vagrant.configure("2") do |config|
 
+  # config.vm.box = "precise64"
   config.vm.box = "centos-64-x64-vbox4210-nocm"
   config.vm.box_url = "http://puppet-vagrant-boxes.puppetlabs.com/centos-64-x64-vbox4210-nocm.box"
+  # config.vm.box = "fedora-18-x64-vbox4210-nocm"
+  # config.vm.box_url = "http://puppet-vagrant-boxes.puppetlabs.com/fedora-18-x64-vbox4210-nocm.box"
 
   config.vm.hostname = "subliminal.local"
   config.vm.network :private_network, type: :dhcp
+  config.vm.network :forwarded_port, host: 6667, guest: 6667
+  config.vm.network :forwarded_port, host: 6669, guest: 6669
 
   config.ssh.forward_x11 = true
 
@@ -20,44 +25,7 @@ Vagrant.configure("2") do |config|
     puppet.options = "--verbose --debug"
     puppet.manifests_path = "vagrant/manifests"
     puppet.module_path = "vagrant/modules"
-    puppet.hiera_config_path = "vagrant"
+    puppet.hiera_config_path = "vagrant/hiera.yaml"
   end
 
-  # Provider-specific configuration so you can fine-tune various
-  # backing providers for Vagrant. These expose provider-specific options.
-  # Example for VirtualBox:
-  #
-  # config.vm.provider :virtualbox do |vb|
-  #   # Don't boot with headless mode
-  #   vb.gui = true
-  #
-  #   # Use VBoxManage to customize the VM. For example to change memory:
-  #   vb.customize ["modifyvm", :id, "--memory", "1024"]
-  # end
-  #
-  # View the documentation for the provider you're using for more
-  # information on available options.
-
-  # Enable provisioning with Puppet stand alone.  Puppet manifests
-  # are contained in a directory path relative to this Vagrantfile.
-  # You will need to create the manifests directory and a manifest in
-  # the file precise64.pp in the manifests_path directory.
-  #
-  # An example Puppet manifest to provision the message of the day:
-  #
-  # # group { "puppet":
-  # #   ensure => "present",
-  # # }
-  # #
-  # # File { owner => 0, group => 0, mode => 0644 }
-  # #
-  # # file { '/etc/motd':
-  # #   content => "Welcome to your Vagrant-built virtual machine!
-  # #               Managed by Puppet.\n"
-  # # }
-  #
-  # config.vm.provision :puppet do |puppet|
-  #   puppet.manifests_path = "manifests"
-  #   puppet.manifest_file  = "init.pp"
-  # end
 end
