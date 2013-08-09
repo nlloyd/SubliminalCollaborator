@@ -35,11 +35,15 @@ package { "xorg-x11-xkb-utils":
     ensure  => present
 }
 
-package { "xorg-x11-fonts-75dpi":
+package { "gnu-free-mono-fonts":
     ensure  => present
 }
 
-package { "xorg-x11-fonts-100dpi":
+package { "gnu-free-sans-fonts":
+    ensure  => present
+}
+
+package { "gnu-free-serif-fonts":
     ensure  => present
 }
 
