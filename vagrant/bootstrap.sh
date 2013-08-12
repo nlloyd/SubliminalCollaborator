@@ -27,3 +27,12 @@ else
     puppet module install puppetlabs/stdlib
     date > /etc/puppet-stdlib-installed
 fi
+
+# install puppetlabs/firewall
+if [ -e /etc/puppet-firewall-installed ]
+then
+    echo 'puppetlabs/firewall already installed'
+else
+    puppet module install puppetlabs/firewall
+    date > /etc/puppet-firewall-installed
+fi

@@ -77,3 +77,23 @@ class {'irc_server':
     ssl_ports       => [6669],
     interfaces      => ['0.0.0.0']
 }
+
+firewall { '100 allow ircd regular and ssl access':
+    port   => [6667, 6669],
+    proto  => tcp,
+    action => accept,
+}
+
+# firewall basic setup
+
+resource { "firewall":
+    purge   => true
+}
+
+Firewall {
+  before  => Class['subliminal_firewall::post'],
+  require => Class['subliminal_firewall::pre'],
+}
+
+class { ['subliminal_firewall::pre', 'subliminal_firewall::post']: }
+class { 'firewall': }
