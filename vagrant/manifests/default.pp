@@ -68,25 +68,28 @@ service { "messagebus":
 
 # setup an ircd with ssl
 
+$ircd_port      = 6667
+$ircd_ssl_port  = 6669
+
 class {'irc_server':
     server_name     => 'irc.subliminal.local',
     server_password => 'subliminal',
     oper_name       => 'subliminal-op',
     oper_password   => 'imtheop',
-    ports           => [6667],
-    ssl_ports       => [6669],
+    ports           => [$ircd_port],
+    ssl_ports       => [$ircd_ssl_port],
     interfaces      => ['0.0.0.0']
 }
 
 firewall { '100 allow ircd regular and ssl access':
-    port   => [6667, 6669],
+    port   => [$ircd_port, $ircd_ssl_port],
     proto  => tcp,
     action => accept,
 }
 
 # firewall basic setup
 
-resource { "firewall":
+resources { "firewall":
     purge   => true
 }
 
