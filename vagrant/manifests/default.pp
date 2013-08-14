@@ -32,16 +32,28 @@ class { 'sublime_text':
     sublime_version => $sublime_version
 }
 
+include x11
+
 # setup subliminal collaborator and configuration
+
+
+file { ["/home/vagrant/.config", 
+        "/home/vagrant/.config/sublime-text-2", 
+        "/home/vagrant/.config/sublime-text-2/Packages", 
+        "/home/vagrant/.config/sublime-text-2/Packages/User"]:
+    ensure  => directory
+}
 
 file { "/home/vagrant/.config/sublime-text-2/Packages/SubliminalCollaborator":
     ensure  => link,
-    target  => "/vagrant"
+    target  => "/vagrant",
+    require => File['/home/vagrant/.config/sublime-text-2/Packages']
 }
 
 file { '/home/vagrant/.config/sublime-text-2/Packages/User/Accounts.sublime-settings':
     ensure  => file,
-    content => $accounts_config
+    content => $accounts_config,
+    require => File['/home/vagrant/.config/sublime-text-2/Packages/User']
 }
 
 file { "/home/vagrant/${client_privkey}":
