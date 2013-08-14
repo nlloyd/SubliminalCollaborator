@@ -1,79 +1,60 @@
 
-exec { "wget http://c758482.r82.cf2.rackcdn.com/Sublime%20Text%202.0.2%20x64.tar.bz2":
-    cwd     => '/var/tmp',
-    creates => '/var/tmp/Sublime Text 2.0.2 x64.tar.bz2',
-    path    => ["/bin", "/usr/bin", "/usr/sbin"]
-} ->
-exec { "tar xjf \"/var/tmp/Sublime Text 2.0.2 x64.tar.bz2\"":
-    cwd     => '/opt',
-    creates => '/opt/Sublime Text 2',
-    path    => ["/bin", "/usr/bin", "/usr/sbin"]
-} -> 
-file { "/usr/bin/sublime":
-    ensure    => link,
-    target    => "/opt/Sublime Text 2/sublime_text",
-    mode      => 'a+x'
+# variables
+
+$sublime_version    = '2.0.2'
+$ircd_port          = 6667
+$ircd_ssl_port      = 6669
+$ircd_server_passwd = 'subliminal'
+
+$client_privkey = 'client.privkey.pem'
+$client_pubkey  = 'client.pubkey.pub'
+
+$accounts_config = "
+{
+    'subliminal_collaborator': {
+        'irc': [
+            {
+                'host': 'localhost',
+                'port': 6667,
+                'username': 'vagrant',
+                'password': '${ircd_server_passwd}',
+                'channel': 'subliminalcollaboration'
+            }
+        ],
+        'connect_all_on_startup': false
+    }
+}
+"
+
+# setup sublime text
+
+class { 'sublime_text':
+    sublime_version => $sublime_version
 }
 
-package { "xorg-x11-server-Xorg":
-    ensure  => present
+# setup subliminal collaborator and configuration
+
+file { "/home/vagrant/.config/sublime-text-2/Packages/SubliminalCollaborator":
+    ensure  => link,
+    target  => "/vagrant"
 }
 
-package { "xorg-x11-apps":
-    ensure  => present
+file { '/home/vagrant/.config/sublime-text-2/Packages/User/Accounts.sublime-settings':
+    ensure  => file,
+    content => $accounts_config
 }
 
-package { "xorg-x11-utils":
-    ensure  => present
-}
-
-package { "xorg-x11-xdm":
-    ensure  => present
-}
-
-package { "xorg-x11-xkb-utils":
-    ensure  => present
-}
-
-package { "gnu-free-mono-fonts":
-    ensure  => present
-}
-
-package { "gnu-free-sans-fonts":
-    ensure  => present
-}
-
-package { "gnu-free-serif-fonts":
-    ensure  => present
-}
-
-package { "gtk2":
-    ensure  => present
-}
-
-package { "dbus":
-    ensure  => present
-}
-
-package { "dbus-x11":
-    ensure  => present
-}
-
-service { "messagebus":
-    ensure      => running,
-    enable      => true,
-    hasstatus   => true,
-    require     => Package[dbus]
+file { "/home/vagrant/${client_privkey}":
+    ensure  => present,
+    mode    => '0600',
+    source  => "puppet:///modules/ssl_client/${client_privkey}"
 }
 
 # setup an ircd with ssl
 
-$ircd_port      = 6667
-$ircd_ssl_port  = 6669
-
-class {'irc_server':
+class { 'irc_server':
     server_name     => 'irc.subliminal.local',
-    server_password => 'subliminal',
+    server_password => $ircd_server_passwd,
     oper_name       => 'subliminal-op',
     oper_password   => 'imtheop',
     ports           => [$ircd_port],
