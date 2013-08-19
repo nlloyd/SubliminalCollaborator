@@ -9,22 +9,21 @@ $ircd_server_passwd = 'subliminal'
 $client_privkey = 'client.privkey.pem'
 $client_pubkey  = 'client.pubkey.pub'
 
-$accounts_config = "
-{
-    'subliminal_collaborator': {
-        'irc': [
+$accounts_config = '{
+    "subliminal_collaborator": {
+        "irc": [
             {
-                'host': 'localhost',
-                'port': 6667,
-                'username': 'vagrant',
-                'password': '${ircd_server_passwd}',
-                'channel': 'subliminalcollaboration'
+                "host": "localhost",
+                "port": 6667,
+                "username": "vagrant",
+                "password": "${ircd_server_passwd}",
+                "channel": "subliminalcollaboration"
             }
         ],
-        'connect_all_on_startup': false
+        "connect_all_on_startup": false
     }
 }
-"
+'
 
 # setup sublime text
 
