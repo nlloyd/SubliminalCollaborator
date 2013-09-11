@@ -19,8 +19,9 @@
 #   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #   THE SOFTWARE.
-import sublime, sublime_plugin
-import sys, os, platform
+import os
+import platform
+import sys
 
 # this assures we use the included libs/twisted and libs/zope libraries
 # this is of particular importance on Mac OS X since an older version of twisted
@@ -40,33 +41,57 @@ if runtime.platform.isWindows():
     if libs_path not in sys.path:
         sys.path.insert(0, libs_path)
 
-if not 'REACTORINSTALLED' in globals():
+# --- configure logging system --- #
+import logging
+
+logging.basicConfig(
+    format="[SubliminalCollaborator|%(name)s(%(levelname)s): %(message)s]",
+    level=logging.DEBUG,
+    stream=sys.stdout
+    )
+# --- ------------------------ --- #
+
+logger = logging.getLogger("main")
+
+import sublime
+
+def callInSublimeLoop(funcToCall):
+    sublime.set_timeout(funcToCall, 0)
+
+# --- install and start the twisted reactor, if it hasn't already be started --- #
+from twisted.internet.error import ReactorAlreadyInstalledError, ReactorAlreadyRunning, ReactorNotRestartable
+
+reactorAlreadyInstalled = False
+try:
     from twisted.internet import _threadedselect
     _threadedselect.install()
-    globals()['REACTORINSTALLED'] = True
+except ReactorAlreadyInstalledError:
+    reactorAlreadyInstalled = True
 
+from twisted.internet import reactor
+
+try:
+    reactor.interleave(callInSublimeLoop, installSignalHandlers=False)
+except ReactorAlreadyRunning:
+    reactorAlreadyInstalled = True
+except ReactorNotRestartable:
+    reactorAlreadyInstalled = True
+
+if reactorAlreadyInstalled:
+    logger.debug('twisted reactor already installed')
+    if type(reactor) != _threadedselect.ThreadedSelectReactor:
+        logger.warn('unexpected reactor type installed: %s, it is best to use twisted.internet._threadedselect!' % type(reactor))
+else:
+    logger.debug('twisted reactor installed and running')
+# --- --------------------------------------------------------------------- --- #
+
+import sublime_plugin
 from sub_collab.negotiator import irc
 from sub_collab.peer import interface as pi
 from sub_collab import status_bar
 from sub_collab.peer import base
 from twisted.internet import reactor
 import threading, logging, time, shutil, fileinput, re, functools
-
-logger = logging.getLogger(__name__)
-logger.propagate = False
-# purge previous handlers set... for plugin reloading
-del logger.handlers[:]
-stdoutHandler = logging.StreamHandler(sys.stdout)
-stdoutHandler.setFormatter(logging.Formatter(fmt='[SubliminalCollaborator(%(levelname)s): %(message)s]'))
-logger.addHandler(stdoutHandler)
-logger.setLevel(logging.INFO)
-
-def callInSublimeLoop(funcToCall):
-    sublime.set_timeout(funcToCall, 0)
-
-if not 'REACTORSTARTED' in globals():
-    reactor.interleave(callInSublimeLoop, installSignalHandlers=False)
-    globals()['REACTORSTARTED'] = True
 
 negotiatorFactoryMap = {
     'irc': irc.IRCNegotiator
