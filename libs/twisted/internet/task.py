@@ -4,21 +4,24 @@
 
 """
 Scheduling utility methods and classes.
-
-@author: Jp Calderone
 """
+
+from __future__ import division, absolute_import
 
 __metaclass__ = type
 
+import sys
 import time
 
-from zope.interface import implements
+from zope.interface import implementer
 
-from twisted.python import reflect
+from twisted.python import log
+from twisted.python import _reflectpy3 as reflect
 from twisted.python.failure import Failure
 
 from twisted.internet import base, defer
 from twisted.internet.interfaces import IReactorTime
+from twisted.internet.error import ReactorNotRunning
 
 
 class LoopingCall:
@@ -159,7 +162,7 @@ class LoopingCall:
         assert not self.running, ("Tried to start an already running "
                                   "LoopingCall.")
         if interval < 0:
-            raise ValueError, "interval must be >= 0"
+            raise ValueError("interval must be >= 0")
         self.running = True
         d = self.deferred = defer.Deferred()
         self.starttime = self.clock.seconds()
@@ -241,8 +244,10 @@ class LoopingCall:
 
 
     def __repr__(self):
-        if hasattr(self.f, 'func_name'):
-            func = self.f.func_name
+        if hasattr(self.f, '__qualname__'):
+            func = self.f.__qualname__
+        elif hasattr(self.f, '__name__'):
+            func = self.f.__name__
             if hasattr(self.f, 'im_class'):
                 func = self.f.im_class.__name__ + '.' + func
         else:
@@ -333,7 +338,7 @@ class CooperativeTask(object):
     paused, resumed, and stopped.  It can also have its completion (or
     termination) monitored.
 
-    @see: L{CooperativeTask.cooperate}
+    @see: L{Cooperator.cooperate}
 
     @ivar _iterator: the iterator to iterate when this L{CooperativeTask} is
         asked to do work.
@@ -344,21 +349,21 @@ class CooperativeTask(object):
     @ivar _deferreds: the list of L{defer.Deferred}s to fire when this task
         completes, fails, or finishes.
 
-    @type _deferreds: L{list}
+    @type _deferreds: C{list}
 
     @type _cooperator: L{Cooperator}
 
     @ivar _pauseCount: the number of times that this L{CooperativeTask} has
         been paused; if 0, it is running.
 
-    @type _pauseCount: L{int}
+    @type _pauseCount: C{int}
 
     @ivar _completionState: The completion-state of this L{CooperativeTask}.
         C{None} if the task is not yet completed, an instance of L{TaskStopped}
         if C{stop} was called to stop this task early, of L{TaskFailed} if the
         application code in the iterator raised an exception which caused it to
         terminate, and of L{TaskDone} if it terminated normally via raising
-        L{StopIteration}.
+        C{StopIteration}.
 
     @type _completionState: L{TaskFinished}
     """
@@ -383,7 +388,7 @@ class CooperativeTask(object):
 
         @return: a L{defer.Deferred} that fires with the C{iterator} that this
             L{CooperativeTask} was created with when the iterator has been
-            exhausted (i.e. its C{next} method has raised L{StopIteration}), or
+            exhausted (i.e. its C{next} method has raised C{StopIteration}), or
             fails with the exception raised by C{next} if it raises some other
             exception.
 
@@ -476,7 +481,7 @@ class CooperativeTask(object):
         pausing if the result was a L{defer.Deferred}.
         """
         try:
-            result = self._iterator.next()
+            result = next(self._iterator)
         except StopIteration:
             self._completeWith(TaskDone(), self._iterator)
         except:
@@ -638,6 +643,17 @@ class Cooperator(object):
             self._delayedCall = None
 
 
+    @property
+    def running(self):
+        """
+        Is this L{Cooperator} is currently running?
+
+        @return: C{True} if the L{Cooperator} is running, C{False} otherwise.
+        @rtype: C{bool}
+        """
+        return (self._started and not self._stopped)
+
+
 
 _theCooperator = Cooperator()
 
@@ -646,6 +662,10 @@ def coiterate(iterator):
     Cooperatively iterate over the given iterator, dividing runtime between it
     and all other iterators which have been passed to this function and not yet
     exhausted.
+
+    @param iterator: the iterator to invoke.
+
+    @return: a Deferred that will fire when the iterator finishes.
     """
     return _theCooperator.coiterate(iterator)
 
@@ -664,13 +684,13 @@ def cooperate(iterator):
 
 
 
+@implementer(IReactorTime)
 class Clock:
     """
     Provide a deterministic, easily-controlled implementation of
     L{IReactorTime.callLater}.  This is commonly useful for writing
     deterministic unit tests for code which schedules events using this API.
     """
-    implements(IReactorTime)
 
     rightNow = 0.0
 
@@ -694,7 +714,7 @@ class Clock:
         """
         Sort the pending calls according to the time they are scheduled.
         """
-        self.calls.sort(lambda a, b: cmp(a.getTime(), b.getTime()))
+        self.calls.sort(key=lambda a: a.getTime())
 
 
     def callLater(self, when, what, *a, **kw):
@@ -778,6 +798,67 @@ def deferLater(clock, delay, callable, *args, **kw):
 
 
 
+def react(main, argv=(), _reactor=None):
+    """
+    Call C{main} and run the reactor until the L{Deferred} it returns fires.
+
+    This is intended as the way to start up an application with a well-defined
+    completion condition.  Use it to write clients or one-off asynchronous
+    operations.  Prefer this to calling C{reactor.run} directly, as this
+    function will also:
+
+      - Take care to call C{reactor.stop} once and only once, and at the right
+        time.
+      - Log any failures from the C{Deferred} returned by C{main}.
+      - Exit the application when done, with exit code 0 in case of success and
+        1 in case of failure. If C{main} fails with a C{SystemExit} error, the
+        code returned is used.
+
+    @param main: A callable which returns a L{Deferred}.  It should take as
+        many arguments as there are elements in the list C{argv}.
+
+    @param argv: A list of arguments to pass to C{main}. If omitted the
+        callable will be invoked with no additional arguments.
+
+    @param _reactor: An implementation detail to allow easier unit testing.  Do
+        not supply this parameter.
+
+    @since: 12.3
+    """
+    if _reactor is None:
+        from twisted.internet import reactor as _reactor
+    finished = main(_reactor, *argv)
+    codes = [0]
+
+    stopping = []
+    _reactor.addSystemEventTrigger('before', 'shutdown', stopping.append, True)
+
+    def stop(result, stopReactor):
+        if stopReactor:
+            try:
+                _reactor.stop()
+            except ReactorNotRunning:
+                pass
+
+        if isinstance(result, Failure):
+            if result.check(SystemExit) is not None:
+                code = result.value.code
+            else:
+                log.err(result, "main function encountered error")
+                code = 1
+            codes[0] = code
+
+    def cbFinish(result):
+        if stopping:
+            stop(result, False)
+        else:
+            _reactor.callWhenRunning(stop, result, True)
+
+    finished.addBoth(cbFinish)
+    _reactor.run()
+    sys.exit(codes[0])
+
+
 __all__ = [
     'LoopingCall',
 
@@ -785,5 +866,4 @@ __all__ = [
 
     'SchedulerStopped', 'Cooperator', 'coiterate',
 
-    'deferLater',
-    ]
+    'deferLater', 'react']

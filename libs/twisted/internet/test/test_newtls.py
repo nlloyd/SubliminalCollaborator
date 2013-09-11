@@ -5,9 +5,12 @@
 Tests for L{twisted.internet._newtls}.
 """
 
+from __future__ import division, absolute_import
+
 from twisted.trial import unittest
-from twisted.internet.test.reactormixins import ReactorBuilder, runProtocolsWithReactor
-from twisted.internet.test.reactormixins import ConnectableProtocol
+from twisted.internet.test.reactormixins import ReactorBuilder
+from twisted.internet.test.connectionmixins import (
+    ConnectableProtocol, runProtocolsWithReactor)
 from twisted.internet.test.test_tls import SSLCreator, TLSMixin
 from twisted.internet.test.test_tls import StartTLSClientCreator
 from twisted.internet.test.test_tls import ContextGeneratingMixin

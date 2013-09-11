@@ -28,9 +28,10 @@ this is not currently possible.
 @see: L{IReactorUNIXDatagram<twisted.internet.interfaces.IReactorUNIXDatagram>}
 @see: L{IReactorFDSet<twisted.internet.interfaces.IReactorFDSet>}
 @see: L{IReactorThreads<twisted.internet.interfaces.IReactorThreads>}
-@see: L{IReactorArbitrary<twisted.internet.interfaces.IReactorArbitrary>}
 @see: L{IReactorPluggableResolver<twisted.internet.interfaces.IReactorPluggableResolver>}
 """
+
+from __future__ import division, absolute_import
 
 import sys
 del sys.modules['twisted.internet.reactor']

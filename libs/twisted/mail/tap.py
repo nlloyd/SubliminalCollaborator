@@ -16,13 +16,9 @@ from twisted.mail import relay
 from twisted.mail import relaymanager
 from twisted.mail import alias
 
-from twisted.mail.protocols import SSLContextFactory
-
 from twisted.internet import endpoints
 
 from twisted.python import usage
-from twisted.python import deprecate
-from twisted.python import versions
 
 from twisted.cred import checkers
 from twisted.cred import strcred
@@ -70,7 +66,31 @@ class Options(usage.Options, strcred.AuthOptionMixin):
                                "certificate" : usage.CompleteFiles("*.pem")}
                    )
 
-    longdesc = "This creates a mail.tap file that can be used by twistd."
+    longdesc = """
+    An SMTP / POP3 email server plugin for twistd.
+
+    Examples:
+
+    1. SMTP and POP server
+
+    twistd mail --maildirdbmdomain=example.com=/tmp/example.com
+    --user=joe=password
+
+    Starts an SMTP server that only accepts emails to joe@example.com and saves
+    them to /tmp/example.com.
+
+    Also starts a POP mail server which will allow a client to log in using
+    username: joe@example.com and password: password and collect any email that
+    has been saved in /tmp/example.com.  
+
+    2. SMTP relay
+
+    twistd mail --relay=/tmp/mail_queue
+
+    Starts an SMTP server that accepts emails to any email address and relays
+    them to an appropriate remote SMTP server. Queued emails will be
+    temporarily stored in /tmp/mail_queue.
+    """
 
     def __init__(self):
         usage.Options.__init__(self)
@@ -112,19 +132,6 @@ class Options(usage.Options, strcred.AuthOptionMixin):
     opt_s = opt_smtp
 
 
-    def opt_passwordfile(self, filename):
-        """
-        Specify a file containing username:password login info for authenticated
-        ESMTP connections. (DEPRECATED; see --help-auth instead)
-        """
-        ch = checkers.OnDiskUsernamePasswordDatabase(filename)
-        self.service.smtpPortal.registerChecker(ch)
-        msg = deprecate.getDeprecationWarningString(
-            self.opt_passwordfile, versions.Version('twisted.mail', 11, 0, 0))
-        warnings.warn(msg, category=DeprecationWarning, stacklevel=2)
-    opt_P = opt_passwordfile
-
-
     def opt_default(self):
         """Make the most recently specified domain the default domain."""
         if self.last_domain:
@@ -135,7 +142,11 @@ class Options(usage.Options, strcred.AuthOptionMixin):
 
 
     def opt_maildirdbmdomain(self, domain):
-        """generate an SMTP/POP3 virtual domain which saves to \"path\"
+        """Generate an SMTP/POP3 virtual domain. This option requires
+        an argument of the form 'NAME=PATH' where NAME is the DNS
+        Domain Name for which email will be accepted and where PATH is
+        a the filesystem path to a Maildir folder. [Example:
+        'example.com=/tmp/example.com']
         """
         try:
             name, path = domain.split('=')
@@ -286,7 +297,8 @@ def _toEndpoint(description, certificate=None):
         category=DeprecationWarning, stacklevel=3)
 
     if certificate:
-        ctx = SSLContextFactory(certificate)
+        from twisted.internet.ssl import DefaultOpenSSLContextFactory
+        ctx = DefaultOpenSSLContextFactory(certificate, certificate)
         return endpoints.SSL4ServerEndpoint(reactor, port, ctx)
     return endpoints.TCP4ServerEndpoint(reactor, port)
 

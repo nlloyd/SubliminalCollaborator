@@ -6,25 +6,24 @@
 Posix reactor base class
 """
 
-import warnings
+from __future__ import division, absolute_import
+
 import socket
 import errno
 import os
 import sys
 
-from zope.interface import implements, classImplements
+from zope.interface import implementer, classImplements
 
-from twisted.python.compat import set
+from twisted.python.compat import _PY3
 from twisted.internet.interfaces import IReactorUNIX, IReactorUNIXDatagram
 from twisted.internet.interfaces import (
-    IReactorTCP, IReactorUDP, IReactorSSL, _IReactorArbitrary, IReactorSocket)
+    IReactorTCP, IReactorUDP, IReactorSSL, IReactorSocket)
 from twisted.internet.interfaces import IReactorProcess, IReactorMulticast
 from twisted.internet.interfaces import IHalfCloseableDescriptor
-from twisted.internet import error
-from twisted.internet import tcp, udp
+from twisted.internet import error, udp, tcp
 
 from twisted.python import log, failure, util
-from twisted.persisted import styles
 from twisted.python.runtime import platformType, platform
 
 from twisted.internet.base import ReactorBase, _SignalReactorMixin
@@ -44,16 +43,16 @@ except ImportError:
     except ImportError:
         ssl = None
 
-try:
-    from twisted.internet import unix
-    unixEnabled = True
-except ImportError:
-    unixEnabled = False
+unixEnabled = (platformType == 'posix')
 
 processEnabled = False
-if platformType == 'posix':
-    from twisted.internet import fdesc, process, _signals
-    processEnabled = True
+if unixEnabled:
+    from twisted.internet import fdesc
+    # Enable on Python 3 in ticket #5987:
+    if not _PY3:
+        from twisted.internet import process, _signals
+        processEnabled = True
+
 
 if platform.isWindows():
     try:
@@ -63,7 +62,7 @@ if platform.isWindows():
         win32process = None
 
 
-class _SocketWaker(log.Logger, styles.Ephemeral):
+class _SocketWaker(log.Logger):
     """
     The I{self-pipe trick<http://cr.yp.to/docs/selfpipe.html>}, implemented
     using a pair of sockets rather than pipes (due to the lack of support in
@@ -94,9 +93,9 @@ class _SocketWaker(log.Logger, styles.Ephemeral):
         """Send a byte to my connection.
         """
         try:
-            util.untilConcludes(self.w.send, 'x')
-        except socket.error, (err, msg):
-            if err != errno.WSAEWOULDBLOCK:
+            util.untilConcludes(self.w.send, b'x')
+        except socket.error as e:
+            if e.args[0] != errno.WSAEWOULDBLOCK:
                 raise
 
     def doRead(self):
@@ -113,7 +112,7 @@ class _SocketWaker(log.Logger, styles.Ephemeral):
 
 
 
-class _FDWaker(object, log.Logger, styles.Ephemeral):
+class _FDWaker(log.Logger, object):
     """
     The I{self-pipe trick<http://cr.yp.to/docs/selfpipe.html>}, used to wake
     up the main loop from another thread or a signal handler.
@@ -179,8 +178,8 @@ class _UnixWaker(_FDWaker):
         # between EINTR (try again) and EAGAIN (do nothing).
         if self.o is not None:
             try:
-                util.untilConcludes(os.write, self.o, 'x')
-            except OSError, e:
+                util.untilConcludes(os.write, self.o, b'x')
+            except OSError as e:
                 # XXX There is no unit test for raising the exception
                 # for other errnos. See #4285.
                 if e.errno != errno.EAGAIN:
@@ -265,6 +264,7 @@ class _DisconnectSelectableMixin(object):
 
 
 
+@implementer(IReactorTCP, IReactorUDP, IReactorMulticast)
 class PosixReactorBase(_SignalReactorMixin, _DisconnectSelectableMixin,
                        ReactorBase):
     """
@@ -273,7 +273,6 @@ class PosixReactorBase(_SignalReactorMixin, _DisconnectSelectableMixin,
     @ivar _childWaker: C{None} or a reference to the L{_SIGCHLDWaker}
         which is used to properly notice child process termination.
     """
-    implements(_IReactorArbitrary, IReactorTCP, IReactorUDP, IReactorMulticast)
 
     # Callable that creates a waker, overrideable so that subclasses can
     # substitute their own implementation:
@@ -299,7 +298,7 @@ class PosixReactorBase(_SignalReactorMixin, _DisconnectSelectableMixin,
         handling SIGCHLD to know when to try to reap child processes.
         """
         _SignalReactorMixin._handleSignals(self)
-        if platformType == 'posix':
+        if platformType == 'posix' and processEnabled:
             if not self._childWaker:
                 self._childWaker = _SIGCHLDWaker(self)
                 self._internalReaders.add(self._childWaker)
@@ -358,9 +357,11 @@ class PosixReactorBase(_SignalReactorMixin, _DisconnectSelectableMixin,
                 from twisted.internet._dumbwin32proc import Process
                 return Process(self, processProtocol, executable, args, env, path)
             else:
-                raise NotImplementedError, "spawnProcess not available since pywin32 is not installed."
+                raise NotImplementedError(
+                    "spawnProcess not available since pywin32 is not installed.")
         else:
-            raise NotImplementedError, "spawnProcess only available on Windows or POSIX."
+            raise NotImplementedError(
+                "spawnProcess only available on Windows or POSIX.")
 
     # IReactorUDP
 
@@ -390,18 +391,19 @@ class PosixReactorBase(_SignalReactorMixin, _DisconnectSelectableMixin,
     # IReactorUNIX
 
     def connectUNIX(self, address, factory, timeout=30, checkPID=0):
-        """@see: twisted.internet.interfaces.IReactorUNIX.connectUNIX
-        """
         assert unixEnabled, "UNIX support is not present"
+        # Move this import back up to main level when twisted.internet.unix is
+        # ported to Python 3:
+        from twisted.internet import unix
         c = unix.Connector(address, factory, timeout, self, checkPID)
         c.connect()
         return c
 
-    def listenUNIX(self, address, factory, backlog=50, mode=0666, wantPID=0):
-        """
-        @see: twisted.internet.interfaces.IReactorUNIX.listenUNIX
-        """
+    def listenUNIX(self, address, factory, backlog=50, mode=0o666, wantPID=0):
         assert unixEnabled, "UNIX support is not present"
+        # Move this import back up to main level when twisted.internet.unix is
+        # ported to Python 3:
+        from twisted.internet import unix
         p = unix.Port(address, factory, backlog, mode, self, wantPID)
         p.startListening()
         return p
@@ -410,7 +412,7 @@ class PosixReactorBase(_SignalReactorMixin, _DisconnectSelectableMixin,
     # IReactorUNIXDatagram
 
     def listenUNIXDatagram(self, address, protocol, maxPacketSize=8192,
-                           mode=0666):
+                           mode=0o666):
         """
         Connects a given L{DatagramProtocol} to the given path.
 
@@ -419,24 +421,31 @@ class PosixReactorBase(_SignalReactorMixin, _DisconnectSelectableMixin,
         @returns: object conforming to L{IListeningPort}.
         """
         assert unixEnabled, "UNIX support is not present"
+        # Move this import back up to main level when twisted.internet.unix is
+        # ported to Python 3:
+        from twisted.internet import unix
         p = unix.DatagramPort(address, protocol, maxPacketSize, mode, self)
         p.startListening()
         return p
 
     def connectUNIXDatagram(self, address, protocol, maxPacketSize=8192,
-                            mode=0666, bindAddress=None):
+                            mode=0o666, bindAddress=None):
         """
         Connects a L{ConnectedDatagramProtocol} instance to a path.
 
         EXPERIMENTAL.
         """
         assert unixEnabled, "UNIX support is not present"
+        # Move this import back up to main level when twisted.internet.unix is
+        # ported to Python 3:
+        from twisted.internet import unix
         p = unix.ConnectedDatagramPort(address, protocol, maxPacketSize, mode, bindAddress, self)
         p.startListening()
         return p
 
 
     # IReactorSocket (but not on Windows)
+
     def adoptStreamPort(self, fileDescriptor, addressFamily, factory):
         """
         Create a new L{IListeningPort} from an already-initialized socket.
@@ -454,19 +463,26 @@ class PosixReactorBase(_SignalReactorMixin, _DisconnectSelectableMixin,
         p.startListening()
         return p
 
+    def adoptStreamConnection(self, fileDescriptor, addressFamily, factory):
+        """
+        @see:
+            L{twisted.internet.interfaces.IReactorSocket.adoptStreamConnection}
+        """
+        if addressFamily not in (socket.AF_INET, socket.AF_INET6):
+            raise error.UnsupportedAddressFamily(addressFamily)
+
+        return tcp.Server._fromConnectedSocket(
+            fileDescriptor, addressFamily, factory, self)
+
 
     # IReactorTCP
 
     def listenTCP(self, port, factory, backlog=50, interface=''):
-        """@see: twisted.internet.interfaces.IReactorTCP.listenTCP
-        """
         p = tcp.Port(port, factory, backlog, interface, self)
         p.startListening()
         return p
 
     def connectTCP(self, host, port, factory, timeout=30, bindAddress=None):
-        """@see: twisted.internet.interfaces.IReactorTCP.connectTCP
-        """
         c = tcp.Connector(host, port, factory, timeout, bindAddress, self)
         c.connect()
         return c
@@ -474,8 +490,6 @@ class PosixReactorBase(_SignalReactorMixin, _DisconnectSelectableMixin,
     # IReactorSSL (sometimes, not implemented)
 
     def connectSSL(self, host, port, factory, contextFactory, timeout=30, bindAddress=None):
-        """@see: twisted.internet.interfaces.IReactorSSL.connectSSL
-        """
         if tls is not None:
             tlsFactory = tls.TLSMemoryBIOFactory(contextFactory, True, factory)
             return self.connectTCP(host, port, tlsFactory, timeout, bindAddress)
@@ -490,8 +504,6 @@ class PosixReactorBase(_SignalReactorMixin, _DisconnectSelectableMixin,
 
 
     def listenSSL(self, port, factory, contextFactory, backlog=50, interface=''):
-        """@see: twisted.internet.interfaces.IReactorSSL.listenSSL
-        """
         if tls is not None:
             tlsFactory = tls.TLSMemoryBIOFactory(contextFactory, False, factory)
             port = self.listenTCP(port, tlsFactory, backlog, interface)
@@ -504,31 +516,6 @@ class PosixReactorBase(_SignalReactorMixin, _DisconnectSelectableMixin,
             return p
         else:
             assert False, "SSL support is not present"
-
-
-    # IReactorArbitrary
-    def listenWith(self, portType, *args, **kw):
-        warnings.warn(
-            "listenWith is deprecated since Twisted 10.1.  "
-            "See IReactorFDSet.",
-            category=DeprecationWarning,
-            stacklevel=2)
-        kw['reactor'] = self
-        p = portType(*args, **kw)
-        p.startListening()
-        return p
-
-
-    def connectWith(self, connectorType, *args, **kw):
-        warnings.warn(
-            "connectWith is deprecated since Twisted 10.1.  "
-            "See IReactorFDSet.",
-            category=DeprecationWarning,
-            stacklevel=2)
-        kw['reactor'] = self
-        c = connectorType(*args, **kw)
-        c.connect()
-        return c
 
 
     def _removeAll(self, readers, writers):

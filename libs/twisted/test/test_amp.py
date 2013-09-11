@@ -12,7 +12,6 @@ import decimal
 from zope.interface import implements
 from zope.interface.verify import verifyClass, verifyObject
 
-from twisted.python.util import setIDFunction
 from twisted.python import filepath
 from twisted.python.failure import Failure
 from twisted.protocols import amp
@@ -655,7 +654,7 @@ class CommandDispatchTests(unittest.TestCase):
         self.sender.expectError()
 
         callResult = self.dispatcher.callRemote(Hello, hello='world')
-        callResult.addCallback(lambda result: 1 / 0)
+        callResult.addCallback(lambda result: 1 // 0)
 
         self.dispatcher.ampBoxReceived(amp.AmpBox({
                     'hello': "yay", 'print': "ignored", '_answer': "1"}))
@@ -671,7 +670,7 @@ class CommandDispatchTests(unittest.TestCase):
         self.sender.expectError()
 
         callResult = self.dispatcher.callRemote(Hello, hello='world')
-        callResult.addErrback(lambda result: 1 / 0)
+        callResult.addErrback(lambda result: 1 // 0)
 
         self.dispatcher.ampBoxReceived(amp.AmpBox({
                     '_error': '1', '_error_code': 'bugs',
@@ -1358,13 +1357,10 @@ class AMPTest(unittest.TestCase):
         otherProto = TestProto(None, "outgoing data")
         a = amp.AMP()
         a.innerProtocol = otherProto
-        def fakeID(obj):
-            return {a: 0x1234}.get(obj, id(obj))
-        self.addCleanup(setIDFunction, setIDFunction(fakeID))
 
         self.assertEqual(
-            repr(a), "<AMP inner <TestProto #%d> at 0x1234>" % (
-                otherProto.instanceId,))
+            repr(a), "<AMP inner <TestProto #%d> at 0x%x>" % (
+                otherProto.instanceId, id(a)))
 
 
     def test_innerProtocolNotInRepr(self):
@@ -1373,10 +1369,7 @@ class AMPTest(unittest.TestCase):
         is set.
         """
         a = amp.AMP()
-        def fakeID(obj):
-            return {a: 0x4321}.get(obj, id(obj))
-        self.addCleanup(setIDFunction, setIDFunction(fakeID))
-        self.assertEqual(repr(a), "<AMP at 0x4321>")
+        self.assertEqual(repr(a), "<AMP at 0x%x>" % (id(a),))
 
 
     def test_simpleSSLRepr(self):
@@ -1832,11 +1825,11 @@ class AMPTest(unittest.TestCase):
                     mixedCase='mixed case arg test',
                     dash_arg='x',
                     underscore_arg='y',
+                    From=s.transport.getPeer(),
 
                     # XXX - should optional arguments just not be passed?
                     # passing None seems a little odd, looking at the way it
                     # turns out here... -glyph
-                    From=('file', 'file'),
                     Print=None,
                     optional=None,
                     )))

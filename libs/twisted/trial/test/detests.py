@@ -1,4 +1,12 @@
-from __future__ import generators
+# Copyright (c) Twisted Matrix Laboratories.
+# See LICENSE for details.
+
+"""
+Tests for Deferred handling by L{twisted.trial.unittest.TestCase}.
+"""
+
+from __future__ import division, absolute_import
+
 from twisted.trial import unittest
 from twisted.internet import defer, threads, reactor
 
@@ -18,7 +26,7 @@ class DeferredSetUpOK(unittest.TestCase):
 
 class DeferredSetUpFail(unittest.TestCase):
     testCalled = False
-    
+
     def setUp(self):
         return defer.fail(unittest.FailTest('i fail'))
 
@@ -29,7 +37,7 @@ class DeferredSetUpFail(unittest.TestCase):
 
 class DeferredSetUpCallbackFail(unittest.TestCase):
     testCalled = False
-    
+
     def setUp(self):
         d = defer.succeed('value')
         d.addCallback(self._cb_setUpCalled)
@@ -41,10 +49,10 @@ class DeferredSetUpCallbackFail(unittest.TestCase):
     def test_ok(self):
         DeferredSetUpCallbackFail.testCalled = True
 
-    
+
 class DeferredSetUpError(unittest.TestCase):
     testCalled = False
-    
+
     def setUp(self):
         return defer.fail(RuntimeError('deliberate error'))
 
@@ -54,7 +62,7 @@ class DeferredSetUpError(unittest.TestCase):
 
 class DeferredSetUpNeverFire(unittest.TestCase):
     testCalled = False
-    
+
     def setUp(self):
         return defer.Deferred()
 
@@ -64,7 +72,7 @@ class DeferredSetUpNeverFire(unittest.TestCase):
 
 class DeferredSetUpSkip(unittest.TestCase):
     testCalled = False
-    
+
     def setUp(self):
         d = defer.succeed('value')
         d.addCallback(self._cb1)
@@ -79,7 +87,7 @@ class DeferredSetUpSkip(unittest.TestCase):
 
 class DeferredTests(unittest.TestCase):
     touched = False
-    
+
     def _cb_fail(self, reason):
         self.fail(reason)
 
@@ -134,7 +142,7 @@ class DeferredTests(unittest.TestCase):
 
 class TimeoutTests(unittest.TestCase):
     timedOut = None
-    
+
     def test_pass(self):
         d = defer.Deferred()
         reactor.callLater(0, d.callback, 'hoorj!')
@@ -159,7 +167,7 @@ class TimeoutTests(unittest.TestCase):
         return defer.Deferred()
     test_expectedFailure.timeout = 0.1
     test_expectedFailure.todo = "i will get it right, eventually"
-    
+
     def test_skip(self):
         return defer.Deferred()
     test_skip.timeout = 0.1

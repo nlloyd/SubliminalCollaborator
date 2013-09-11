@@ -3,7 +3,7 @@
 # See LICENSE for details.
 
 """
-Internet Relay Chat Protocol for client and server.
+Internet Relay Chat protocol for client and server.
 
 Future Plans
 ============
@@ -23,6 +23,9 @@ Test coverage needs to be better.
 @var MAX_COMMAND_LENGTH: The maximum length of a command, as defined by RFC
     2812 section 2.3.
 
+@var attributes: Singleton instance of L{_CharacterAttributes}, used for
+    constructing formatted text information.
+
 @author: Kevin Turner
 
 @see: RFC 1459: Internet Relay Chat Protocol
@@ -32,16 +35,16 @@ Test coverage needs to be better.
 """
 
 import errno, os, random, re, stat, struct, sys, time, types, traceback
+import operator
 import string, socket
 import warnings
 import textwrap
 from os import path
 
-from twisted.internet import reactor, protocol, task, defer
+from twisted.internet import reactor, protocol, task
 from twisted.persisted import styles
 from twisted.protocols import basic
-from twisted.python import log, reflect, text
-from twisted.python.compat import set
+from twisted.python import log, reflect, text, _textattributes
 
 NUL = chr(0)
 CR = chr(015)
@@ -53,9 +56,6 @@ SPC = chr(040)
 MAX_COMMAND_LENGTH = 512
 
 CHANNEL_PREFIXES = '&#!+'
-
-NICK_PREFIXES = '~&@%+'
-
 
 class IRCBadMessage(Exception):
     pass
@@ -277,7 +277,7 @@ class IRC(protocol.Protocol):
                   " look like a command to me: %s" % command
 
         line = string.join([command] + list(parameter_list))
-        if prefix.has_key('prefix'):
+        if 'prefix' in prefix:
             line = ":%s %s" % (prefix['prefix'], line)
         self.sendLine(line)
 
@@ -303,7 +303,6 @@ class IRC(protocol.Protocol):
                 continue
             if line[-1] == CR:
                 line = line[:-1]
-            print line
             prefix, command, params = parsemsg(line)
             # mIRC is a big pile of doo-doo
             command = command.upper()
@@ -1264,18 +1263,6 @@ class IRCClient(basic.LineReceiver):
         intact.
         """
 
-        
-    def channelNames(self, channel, names):
-        """Called when a list of users in the channel has been requested.
-
-        Also called when first joining a channel.
-
-        @param channel: the name of the channel where the users are in.
-        @param names: a list of users that are in the specified channel.
-        """
-        pass
-
-
     def left(self, channel):
         """
         Called when I have left a channel.
@@ -1425,10 +1412,6 @@ class IRCClient(basic.LineReceiver):
             C{'#'} will be prepended to it.
         @type key: C{str}
         @param key: If specified, the key used to join the channel.
-
-        @return: C{defer.Deferred} which will return in the result field a map 
-                 with the channel name as a key and a list of user nicknames 
-                 currently in the channel (including the client's)
         """
         if channel[0] not in CHANNEL_PREFIXES:
             channel = '#' + channel
@@ -1436,38 +1419,6 @@ class IRCClient(basic.LineReceiver):
             self.sendLine("JOIN %s %s" % (channel, key))
         else:
             self.sendLine("JOIN %s" % (channel,))
-
-        # setup a deferred and event queue entry to handle the 
-        currentDeferred = defer.Deferred()
-        queue = self._events.setdefault('NAMES', {})
-        queue.setdefault(channel, []).append(currentDeferred)
-
-    def names(self, *channels):
-        """
-        Tells the server to give a list of users in the specified channels.
-
-        Multiple channels can be specified at one time, `channelNames` will be 
-        called multiple times for each channel.
-        """
-        currentDeferred = defer.Deferred()
-        queue = self._events.setdefault('NAMES', {})
-        # dump all names of all visible channels
-        if not channels:
-            allChannels = queue.setdefault('ALL', [])
-            allChannels.append(currentDeferred)
-            self.sendLine("NAMES")
-        elif len(channels) == 1:
-            channel = channels[0]
-            self.sendLine("NAMES %s" % channel)
-            queue.setdefault(channel, []).append(currentDeferred)
-        else:
-            # some servers do not support multiple channel names at once
-            for channel in channels:
-                self.sendLine("NAMES %s" % channel)
-                # append it multiple times for each channel
-                queue.setdefault('ALL', []).append(currentDeferred)
-
-        return currentDeferred
 
     def leave(self, channel, reason=None):
         """
@@ -1884,50 +1835,6 @@ class IRCClient(basic.LineReceiver):
         Called when the login was incorrect.
         """
         raise IRCPasswordMismatch("Password Incorrect.")
- 
-
-    def irc_RPL_NAMREPLY(self, prefix, params):
-        """
-        Handles the raw NAMREPLY that is returned as answer to
-        the NAMES command. Accumulates users until ENDOFNAMES.
-        """
-        channel = params[2]
-        prefixed_users = params[3].split()
-        users = []
-        for prefixed_user in prefixed_users:
-            users.append(prefixed_user.lstrip(NICK_PREFIXES))
-        
-        self._namreply.setdefault(channel, [])
-        self._namreply[channel].extend(users)
-
-
-    def irc_RPL_ENDOFNAMES(self, prefix, params):
-        """
-        Handles the end of the NAMREPLY. This is called when all
-        NAMREPLYs have finished. It calls the higher-level
-        functions as well as fires the deferreds.
-        """
-        channel = params[1]
-        # is there an ongoing ALL event?
-        if 'ALL' not in self._events['NAMES']:
-            users = self._namreply.pop(channel, [])
-            # get the deferred and fire it
-            currentDeferred = self._events['NAMES'][channel].pop(0)
-            currentDeferred.callback({channel : users})
-            # traditional callback
-            self.channelNames(channel, users)
-        else:
-            currentDeferred = self._events['NAMES']['ALL'].pop(0)
-            # only call when that one was the last one in the queue
-            if not self._events['NAMES']['ALL']:
-                # fire callback
-                currentDeferred.callback(self._namreply)
-                # also call the traditional callback
-                for channel, users in self._namreply.iteritems():
-                    self.channelNames(channel, users)
-
-                # reset the NAMES reply now
-                self._namreply = {}
 
 
     def irc_RPL_WELCOME(self, prefix, params):
@@ -2378,7 +2285,7 @@ class IRCClient(basic.LineReceiver):
         if len(data) < 3:
             raise IRCBadMessage, "malformed DCC CHAT request: %r" % (data,)
 
-        (protocol, address, port) = data[:3]
+        (filename, address, port) = data[:3]
 
         address = dccParseAddress(address)
         try:
@@ -2386,7 +2293,7 @@ class IRCClient(basic.LineReceiver):
         except ValueError:
             raise IRCBadMessage, "Indecipherable port %r" % (port,)
 
-        self.dccDoChat(user, channel, protocol, address, port, data)
+        self.dccDoChat(user, channel, address, port, data)
 
     ### The dccDo methods are the slightly higher-level siblings of
     ### common dcc_ methods; the arguments have been parsed for them.
@@ -2413,7 +2320,7 @@ class IRCClient(basic.LineReceiver):
         request made by us.  By default it will do nothing."""
         pass
 
-    def dccDoChat(self, user, channel, protocol, address, port, data):
+    def dccDoChat(self, user, channel, address, port, data):
         pass
         #factory = DccChatFactory(self, queryData=(user, channel, data))
         #reactor.connectTCP(address, port, factory)
@@ -2501,10 +2408,6 @@ class IRCClient(basic.LineReceiver):
 
     def connectionMade(self):
         self.supported = ServerSupportedFeatures()
-        # container for deferreds
-        self._events = {}
-        # container for NAME replies
-        self._namreply = {}
         self._queue = []
         if self.performLogin:
             self.register(self.nickname)
@@ -2516,7 +2419,7 @@ class IRCClient(basic.LineReceiver):
         line = lowDequote(line)
         try:
             prefix, command, params = parsemsg(line)
-            if numeric_to_symbolic.has_key(command):
+            if command in numeric_to_symbolic:
                 command = numeric_to_symbolic[command]
             self.handleCommand(command, prefix, params)
         except IRCBadMessage:
@@ -2974,6 +2877,445 @@ class DccFileReceive(DccFileReceiveBasic):
         s = ("<%s at %x: GET %s>"
              % (self.__class__, id(self), self.filename))
         return s
+
+
+
+_OFF = '\x0f'
+_BOLD = '\x02'
+_COLOR = '\x03'
+_REVERSE_VIDEO = '\x16'
+_UNDERLINE = '\x1f'
+
+# Mapping of IRC color names to their color values.
+_IRC_COLORS = dict(
+    zip(['white', 'black', 'blue', 'green', 'lightRed', 'red', 'magenta',
+         'orange', 'yellow', 'lightGreen', 'cyan', 'lightCyan', 'lightBlue',
+         'lightMagenta', 'gray', 'lightGray'], range(16)))
+
+# Mapping of IRC color values to their color names.
+_IRC_COLOR_NAMES = dict((code, name) for name, code in _IRC_COLORS.items())
+
+
+
+class _CharacterAttributes(_textattributes.CharacterAttributesMixin):
+    """
+    Factory for character attributes, including foreground and background color
+    and non-color attributes such as bold, reverse video and underline.
+
+    Character attributes are applied to actual text by using object
+    indexing-syntax (C{obj['abc']}) after accessing a factory attribute, for
+    example::
+
+        attributes.bold['Some text']
+
+    These can be nested to mix attributes::
+
+        attributes.bold[attributes.underline['Some text']]
+
+    And multiple values can be passed::
+
+        attributes.normal[attributes.bold['Some'], ' text']
+
+    Non-color attributes can be accessed by attribute name, available
+    attributes are:
+
+        - bold
+        - reverseVideo
+        - underline
+
+    Available colors are:
+
+        0. white
+        1. black
+        2. blue
+        3. green
+        4. light red
+        5. red
+        6. magenta
+        7. orange
+        8. yellow
+        9. light green
+        10. cyan
+        11. light cyan
+        12. light blue
+        13. light magenta
+        14. gray
+        15. light gray
+
+    @ivar fg: Foreground colors accessed by attribute name, see above
+        for possible names.
+
+    @ivar bg: Background colors accessed by attribute name, see above
+        for possible names.
+
+    @since: 13.1
+    """
+    fg = _textattributes._ColorAttribute(
+        _textattributes._ForegroundColorAttr, _IRC_COLORS)
+    bg = _textattributes._ColorAttribute(
+        _textattributes._BackgroundColorAttr, _IRC_COLORS)
+
+    attrs = {
+        'bold': _BOLD,
+        'reverseVideo': _REVERSE_VIDEO,
+        'underline': _UNDERLINE}
+
+
+
+attributes = _CharacterAttributes()
+
+
+
+class _FormattingState(_textattributes._FormattingStateMixin):
+    """
+    Formatting state/attributes of a single character.
+
+    Attributes include:
+        - Formatting nullifier
+        - Bold
+        - Underline
+        - Reverse video
+        - Foreground color
+        - Background color
+
+    @since: 13.1
+    """
+    compareAttributes = (
+        'off', 'bold', 'underline', 'reverseVideo', 'foreground', 'background')
+
+
+    def __init__(self, off=False, bold=False, underline=False,
+                 reverseVideo=False, foreground=None, background=None):
+        self.off = off
+        self.bold = bold
+        self.underline = underline
+        self.reverseVideo = reverseVideo
+        self.foreground = foreground
+        self.background = background
+
+
+    def toMIRCControlCodes(self):
+        """
+        Emit a mIRC control sequence that will set up all the attributes this
+        formatting state has set.
+
+        @return: A string containing mIRC control sequences that mimic this
+            formatting state.
+        """
+        attrs = []
+        if self.bold:
+            attrs.append(_BOLD)
+        if self.underline:
+            attrs.append(_UNDERLINE)
+        if self.reverseVideo:
+            attrs.append(_REVERSE_VIDEO)
+        if self.foreground is not None or self.background is not None:
+            c = ''
+            if self.foreground is not None:
+                c += '%02d' % (self.foreground,)
+            if self.background is not None:
+                c += ',%02d' % (self.background,)
+            attrs.append(_COLOR + c)
+        return _OFF + ''.join(map(str, attrs))
+
+
+
+def _foldr(f, z, xs):
+    """
+    Apply a function of two arguments cumulatively to the items of
+    a sequence, from right to left, so as to reduce the sequence to
+    a single value.
+
+    @type f: C{callable} taking 2 arguments
+
+    @param z: Initial value.
+
+    @param xs: Sequence to reduce.
+
+    @return: Single value resulting from reducing C{xs}.
+    """
+    return reduce(lambda x, y: f(y, x), reversed(xs), z)
+
+
+
+class _FormattingParser(_CommandDispatcherMixin):
+    """
+    A finite-state machine that parses formatted IRC text.
+
+    Currently handled formatting includes: bold, reverse, underline,
+    mIRC color codes and the ability to remove all current formatting.
+
+    @see: U{http://www.mirc.co.uk/help/color.txt}
+
+    @type _formatCodes: C{dict} mapping C{str} to C{str}
+    @cvar _formatCodes: Mapping of format code values to names.
+
+    @type state: C{str}
+    @ivar state: Current state of the finite-state machine.
+
+    @type _buffer: C{str}
+    @ivar _buffer: Buffer, containing the text content, of the formatting
+        sequence currently being parsed, the buffer is used as the content for
+        L{_attrs} before being added to L{_result} and emptied upon calling
+        L{emit}.
+
+    @type _attrs: C{set}
+    @ivar _attrs: Set of the applicable formatting states (bold, underline,
+        etc.) for the current L{_buffer}, these are applied to L{_buffer} when
+        calling L{emit}.
+
+    @type foreground: L{_ForegroundColorAttr}
+    @ivar foreground: Current foreground color attribute, or C{None}.
+
+    @type background: L{_BackgroundColorAttr}
+    @ivar background: Current background color attribute, or C{None}.
+
+    @ivar _result: Current parse result.
+    """
+    prefix = 'state'
+
+
+    _formatCodes = {
+        _OFF: 'off',
+        _BOLD: 'bold',
+        _COLOR: 'color',
+        _REVERSE_VIDEO: 'reverseVideo',
+        _UNDERLINE: 'underline'}
+
+
+    def __init__(self):
+        self.state = 'TEXT'
+        self._buffer = ''
+        self._attrs = set()
+        self._result = None
+        self.foreground = None
+        self.background = None
+
+
+    def process(self, ch):
+        """
+        Handle input.
+
+        @type ch: C{str}
+        @param ch: A single character of input to process
+        """
+        self.dispatch(self.state, ch)
+
+
+    def complete(self):
+        """
+        Flush the current buffer and return the final parsed result.
+
+        @return: Structured text and attributes.
+        """
+        self.emit()
+        if self._result is None:
+            self._result = attributes.normal
+        return self._result
+
+
+    def emit(self):
+        """
+        Add the currently parsed input to the result.
+        """
+        if self._buffer:
+            attrs = [getattr(attributes, name) for name in self._attrs]
+            attrs.extend(filter(None, [self.foreground, self.background]))
+            if not attrs:
+                attrs.append(attributes.normal)
+            attrs.append(self._buffer)
+
+            attr = _foldr(operator.getitem, attrs.pop(), attrs)
+            if self._result is None:
+                self._result = attr
+            else:
+                self._result[attr]
+            self._buffer = ''
+
+
+    def state_TEXT(self, ch):
+        """
+        Handle the "text" state.
+
+        Along with regular text, single token formatting codes are handled
+        in this state too.
+
+        @param ch: The character being processed.
+        """
+        formatName = self._formatCodes.get(ch)
+        if formatName == 'color':
+            self.emit()
+            self.state = 'COLOR_FOREGROUND'
+        else:
+            if formatName is None:
+                self._buffer += ch
+            else:
+                self.emit()
+                if formatName == 'off':
+                    self._attrs = set()
+                    self.foreground = self.background = None
+                else:
+                    self._attrs.symmetric_difference_update([formatName])
+
+
+    def state_COLOR_FOREGROUND(self, ch):
+        """
+        Handle the foreground color state.
+
+        Foreground colors can consist of up to two digits and may optionally
+        end in a I{,}. Any non-digit or non-comma characters are treated as
+        invalid input and result in the state being reset to "text".
+
+        @param ch: The character being processed.
+        """
+        # Color codes may only be a maximum of two characters.
+        if ch.isdigit() and len(self._buffer) < 2:
+            self._buffer += ch
+        else:
+            if self._buffer:
+                # Wrap around for color numbers higher than we support, like
+                # most other IRC clients.
+                col = int(self._buffer) % len(_IRC_COLORS)
+                self.foreground = getattr(attributes.fg, _IRC_COLOR_NAMES[col])
+            else:
+                # If there were no digits, then this has been an empty color
+                # code and we can reset the color state.
+                self.foreground = self.background = None
+
+            if ch == ',' and self._buffer:
+                # If there's a comma and it's not the first thing, move on to
+                # the background state.
+                self._buffer = ''
+                self.state = 'COLOR_BACKGROUND'
+            else:
+                # Otherwise, this is a bogus color code, fall back to text.
+                self._buffer = ''
+                self.state = 'TEXT'
+                self.emit()
+                self.process(ch)
+
+
+    def state_COLOR_BACKGROUND(self, ch):
+        """
+        Handle the background color state.
+
+        Background colors can consist of up to two digits and must occur after
+        a foreground color and must be preceded by a I{,}. Any non-digit
+        character is treated as invalid input and results in the state being
+        set to "text".
+
+        @param ch: The character being processed.
+        """
+        # Color codes may only be a maximum of two characters.
+        if ch.isdigit() and len(self._buffer) < 2:
+            self._buffer += ch
+        else:
+            if self._buffer:
+                # Wrap around for color numbers higher than we support, like
+                # most other IRC clients.
+                col = int(self._buffer) % len(_IRC_COLORS)
+                self.background = getattr(attributes.bg, _IRC_COLOR_NAMES[col])
+                self._buffer = ''
+
+            self.emit()
+            self.state = 'TEXT'
+            self.process(ch)
+
+
+
+def parseFormattedText(text):
+    """
+    Parse text containing IRC formatting codes into structured information.
+
+    Color codes are mapped from 0 to 15 and wrap around if greater than 15.
+
+    @type text: C{str}
+    @param text: Formatted text to parse.
+
+    @return: Structured text and attributes.
+
+    @since: 13.1
+    """
+    state = _FormattingParser()
+    for ch in text:
+        state.process(ch)
+    return state.complete()
+
+
+
+def assembleFormattedText(formatted):
+    """
+    Assemble formatted text from structured information.
+
+    Currently handled formatting includes: bold, reverse, underline,
+    mIRC color codes and the ability to remove all current formatting.
+
+    It is worth noting that assembled text will always begin with the control
+    code to disable other attributes for the sake of correctness.
+
+    For example::
+
+        from twisted.words.protocols.irc import attributes as A
+        assembleFormattedText(
+            A.normal[A.bold['Time: '], A.fg.lightRed['Now!']])
+
+    Would produce "Time: " in bold formatting, followed by "Now!" with a
+    foreground color of light red and without any additional formatting.
+
+    Available attributes are:
+        - bold
+        - reverseVideo
+        - underline
+
+    Available colors are:
+        0. white
+        1. black
+        2. blue
+        3. green
+        4. light red
+        5. red
+        6. magenta
+        7. orange
+        8. yellow
+        9. light green
+        10. cyan
+        11. light cyan
+        12. light blue
+        13. light magenta
+        14. gray
+        15. light gray
+
+    @see: U{http://www.mirc.co.uk/help/color.txt}
+
+    @param formatted: Structured text and attributes.
+
+    @rtype: C{str}
+    @return: String containing mIRC control sequences that mimic those
+        specified by L{formatted}.
+
+    @since: 13.1
+    """
+    return _textattributes.flatten(
+        formatted, _FormattingState(), 'toMIRCControlCodes')
+
+
+
+def stripFormatting(text):
+    """
+    Remove all formatting codes from C{text}, leaving only the text.
+
+    @type text: C{str}
+    @param text: Formatted text to parse.
+
+    @rtype: C{str}
+    @return: Plain text without any control sequences.
+
+    @since: 13.1
+    """
+    formatted = parseFormattedText(text)
+    return _textattributes.flatten(
+        formatted, _textattributes.DefaultFormattingState())
+
 
 
 # CTCP constants and helper functions

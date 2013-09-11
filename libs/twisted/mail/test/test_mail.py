@@ -13,7 +13,9 @@ import StringIO
 import rfc822
 import tempfile
 import signal
+from hashlib import md5
 
+from zope.interface.verify import verifyClass
 from zope.interface import Interface, implements
 
 from twisted.trial import unittest
@@ -31,7 +33,6 @@ from twisted.internet.error import ProcessDone, ProcessTerminated
 from twisted.internet import address
 from twisted.python import failure
 from twisted.python.filepath import FilePath
-from twisted.python.hashlib import md5
 
 from twisted import mail
 import twisted.mail.mail
@@ -146,8 +147,10 @@ class BounceTestCase(unittest.TestCase):
     def setUp(self):
         self.domain = mail.mail.BounceDomain()
 
+
     def testExists(self):
         self.assertRaises(smtp.AddressError, self.domain.exists, "any user")
+
 
     def testRelay(self):
         self.assertEqual(
@@ -155,12 +158,12 @@ class BounceTestCase(unittest.TestCase):
             False
         )
 
-    def testMessage(self):
-        self.assertRaises(NotImplementedError, self.domain.startMessage, "whomever")
 
     def testAddUser(self):
         self.domain.addUser("bob", "password")
         self.assertRaises(smtp.SMTPBadRcpt, self.domain.exists, "bob")
+
+
 
 class FileMessageTestCase(unittest.TestCase):
     def setUp(self):
@@ -568,6 +571,21 @@ class MaildirTestCase(unittest.TestCase):
         self.failIf(os.path.exists(j(self.d, '.Trash', 'cur', f)))
         self.failUnless(os.path.exists(j(self.d, msgs[5])))
 
+
+
+class AbstractMaildirDomainTestCase(unittest.TestCase):
+    """
+    Tests for L{twisted.mail.maildir.AbstractMaildirDomain}.
+    """
+    def test_interface(self):
+        """
+        L{maildir.AbstractMaildirDomain} implements L{mail.IAliasableDomain}.
+        """
+        verifyClass(mail.mail.IAliasableDomain,
+            mail.maildir.AbstractMaildirDomain)
+
+
+
 class MaildirDirdbmDomainTestCase(unittest.TestCase):
     def setUp(self):
         self.P = self.mktemp()
@@ -807,9 +825,13 @@ class VirtualPOP3TestCase(unittest.TestCase):
             self.P.authenticateUserPASS('user', 'wrong password'),
             cred.error.UnauthorizedLogin)
 
+
+
 class empty(smtp.User):
     def __init__(self):
         pass
+
+
 
 class RelayTestCase(unittest.TestCase):
     def testExists(self):
@@ -845,6 +867,8 @@ class RelayTestCase(unittest.TestCase):
             user.dest = 'who@cares'
 
             self.assertRaises(smtp.SMTPBadRcpt, domain.exists, user)
+
+
 
 class RelayerTestCase(unittest.TestCase):
     def setUp(self):
@@ -1043,8 +1067,6 @@ def tearDownDNS(self):
     dl = []
     dl.append(defer.maybeDeferred(self.port.stopListening))
     dl.append(defer.maybeDeferred(self.udpPort.stopListening))
-    if self.resolver.protocol.transport is not None:
-        dl.append(defer.maybeDeferred(self.resolver.protocol.transport.stopListening))
     try:
         self.resolver._parseCall.cancel()
     except:
@@ -1695,6 +1717,76 @@ class AliasTestCase(unittest.TestCase):
 
 
 
+class DummyDomain(object):
+    """
+    Test domain for L{AddressAliasTests}.
+    """
+    def __init__(self, address):
+        self.address = address
+
+
+    def exists(self, user, memo=None):
+        """
+        @returns: When a C{memo} is passed in this will raise a
+            L{smtp.SMTPBadRcpt} exception, otherwise a boolean
+            indicating if the C{user} and string version of
+            L{self.address} are equal or not.
+        @rtype: C{bool}
+        """
+        if memo:
+            raise mail.smtp.SMTPBadRcpt('ham')
+
+        return lambda: user == str(self.address)
+
+
+
+class AddressAliasTests(unittest.TestCase):
+    """
+    Tests for L{twisted.mail.alias.AddressAlias}.
+    """
+
+    def setUp(self):
+        """
+        Setup an L{AddressAlias}.
+        """
+        self.address = mail.smtp.Address('foo@bar')
+        domains = {self.address.domain: DummyDomain(self.address)}
+        self.alias = mail.alias.AddressAlias(self.address, domains,
+            self.address)
+
+
+    def test_createMessageReceiver(self):
+        """
+        L{createMessageReceiever} calls C{exists()} on the domain object
+        which key matches the C{alias} passed to L{AddressAlias}.
+        """
+        self.assertTrue(self.alias.createMessageReceiver())
+
+
+    def test_str(self):
+        """
+        The string presentation of L{AddressAlias} includes the alias.
+        """
+        self.assertEqual(str(self.alias), '<Address foo@bar>')
+
+
+    def test_resolve(self):
+        """
+        L{resolve} will look for additional aliases when an C{aliasmap}
+        dictionary is passed, and returns C{None} if none were found.
+        """
+        self.assertEqual(self.alias.resolve({self.address: 'bar'}), None)
+
+
+    def test_resolveWithoutAliasmap(self):
+        """
+        L{resolve} returns C{None} when the alias could not be found in the
+        C{aliasmap} and no L{mail.smtp.User} with this alias exists either.
+        """
+        self.assertEqual(self.alias.resolve({}), None)
+
+
+
 class DummyProcess(object):
     __slots__ = ['onEnd']
 
@@ -2029,6 +2121,29 @@ class TestDomain:
             if aliases:
                 return lambda: aliases
             raise smtp.SMTPBadRcpt(user)
+
+
+
+class SSLContextFactoryTests(unittest.TestCase):
+    """
+    Tests for twisted.mail.protocols.SSLContextFactory.
+    """
+    def test_deprecation(self):
+        """
+        Accessing L{twisted.mail.protocols.SSLContextFactory} emits a
+        deprecation warning recommending the use of the more general SSL context
+        factory from L{twisted.internet.ssl}.
+        """
+        mail.protocols.SSLContextFactory
+        warningsShown = self.flushWarnings([self.test_deprecation])
+        self.assertEqual(len(warningsShown), 1)
+        self.assertIdentical(warningsShown[0]['category'], DeprecationWarning)
+        self.assertEqual(
+            warningsShown[0]['message'],
+            'twisted.mail.protocols.SSLContextFactory was deprecated in '
+            'Twisted 12.2.0: Use twisted.internet.ssl.'
+            'DefaultOpenSSLContextFactory instead.')
+
 
 
 from twisted.python.runtime import platformType

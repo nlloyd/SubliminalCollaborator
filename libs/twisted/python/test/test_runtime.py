@@ -2,20 +2,51 @@
 # See LICENSE for details.
 
 """
-Tests for runtime checks.
+Tests for L{twisted.python.runtime}.
 """
+
+from __future__ import division, absolute_import
 
 import sys
 
-from twisted.python.runtime import Platform
-from twisted.trial.unittest import TestCase
+from twisted.trial.util import suppress as SUPRESS
+from twisted.trial.unittest import SynchronousTestCase
+
+from twisted.python.runtime import Platform, shortPythonVersion
+
+
+class PythonVersionTests(SynchronousTestCase):
+    """
+    Tests the shortPythonVersion method.
+    """
+
+    def test_shortPythonVersion(self):
+        """
+        Verify if the Python version is returned correctly.
+        """
+        ver = shortPythonVersion().split('.')
+        for i in range(3):
+            self.assertEqual(int(ver[i]), sys.version_info[i])
 
 
 
-class PlatformTests(TestCase):
+class PlatformTests(SynchronousTestCase):
     """
     Tests for the default L{Platform} initializer.
     """
+
+    isWinNTDeprecationMessage = ('twisted.python.runtime.Platform.isWinNT was '
+        'deprecated in Twisted 13.0. Use Platform.isWindows instead.')
+
+
+    def test_isKnown(self):
+        """
+        L{Platform.isKnown} returns a boolean indicating whether this is one of
+        the L{runtime.knownPlatforms}.
+        """
+        platform = Platform()
+        self.assertTrue(platform.isKnown())
+
 
     def test_isVistaConsistency(self):
         """
@@ -49,8 +80,51 @@ class PlatformTests(TestCase):
             self.assertTrue(sys.platform.startswith("linux"))
 
 
+    def test_isWinNT(self):
+        """
+        L{Platform.isWinNT} can return only C{False} or C{True} and can not
+        return C{True} if L{Platform.getType} is not C{"win32"}.
+        """
+        platform = Platform()
+        isWinNT = platform.isWinNT()
+        self.assertIn(isWinNT, (False, True))
+        if platform.getType() != "win32":
+            self.assertEqual(isWinNT, False)
 
-class ForeignPlatformTests(TestCase):
+    test_isWinNT.suppress = [SUPRESS(category=DeprecationWarning,
+         message=isWinNTDeprecationMessage)]
+
+
+    def test_isWinNTDeprecated(self):
+        """
+        L{Platform.isWinNT} is deprecated in favor of L{platform.isWindows}.
+        """
+        platform = Platform()
+        result = platform.isWinNT()
+        warnings = self.flushWarnings([self.test_isWinNTDeprecated])
+        self.assertEqual(len(warnings), 1)
+        self.assertEqual(
+            warnings[0]['message'], self.isWinNTDeprecationMessage)
+
+
+    def test_supportsThreads(self):
+        """
+        L{Platform.supportsThreads} returns C{True} if threads can be created in
+        this runtime, C{False} otherwise.
+        """
+        # It's difficult to test both cases of this without faking the threading
+        # module.  Perhaps an adequate test is to just test the behavior with
+        # the current runtime, whatever that happens to be.
+        try:
+            import threading
+        except ImportError:
+            self.assertFalse(Platform().supportsThreads())
+        else:
+            self.assertTrue(Platform().supportsThreads())
+
+
+
+class ForeignPlatformTests(SynchronousTestCase):
     """
     Tests for L{Platform} based overridden initializer values.
     """

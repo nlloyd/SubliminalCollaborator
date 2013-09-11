@@ -6,7 +6,7 @@
 Logging and metrics infrastructure.
 """
 
-from __future__ import division
+from __future__ import division, absolute_import
 
 import sys
 import time
@@ -16,16 +16,20 @@ import logging
 
 from zope.interface import Interface
 
-from twisted.python import util, context, reflect
-
+from twisted.python.compat import unicode, _PY3
+from twisted.python import context
+from twisted.python import _reflectpy3 as reflect
+from twisted.python import util
+from twisted.python import failure
+from twisted.python.threadable import synchronize
 
 
 class ILogContext:
     """
-    Actually, this interface is just a synoym for the dictionary interface,
+    Actually, this interface is just a synonym for the dictionary interface,
     but it serves as a key for the default information in a log.
 
-    I do not inherit from Interface because the world is a cruel place.
+    I do not inherit from C{Interface} because the world is a cruel place.
     """
 
 
@@ -89,90 +93,6 @@ def callWithLogger(logger, func, *args, **kw):
 
 
 
-_keepErrors = 0
-_keptErrors = []
-_ignoreErrors = []
-
-def startKeepingErrors():
-    """
-    DEPRECATED in Twisted 2.5.
-
-    Support function for testing frameworks.
-
-    Start keeping errors in a buffer which can be retrieved (and emptied) with
-    flushErrors.
-    """
-    warnings.warn("log.startKeepingErrors is deprecated since Twisted 2.5",
-                  category=DeprecationWarning, stacklevel=2)
-    global _keepErrors
-    _keepErrors = 1
-
-
-def flushErrors(*errorTypes):
-    """
-    DEPRECATED in Twisted 2.5.  See L{TestCase.flushLoggedErrors}.
-
-    Support function for testing frameworks.
-
-    Return a list of errors that occurred since the last call to flushErrors().
-    (This will return None unless startKeepingErrors has been called.)
-    """
-
-    warnings.warn("log.flushErrors is deprecated since Twisted 2.5. "
-                  "If you need to flush errors from within a unittest, "
-                  "use TestCase.flushLoggedErrors instead.",
-                  category=DeprecationWarning, stacklevel=2)
-    return _flushErrors(*errorTypes)
-
-
-def _flushErrors(*errorTypes):
-    """
-    PRIVATE. DEPRECATED. DON'T USE.
-    """
-    global _keptErrors
-    k = _keptErrors
-    _keptErrors = []
-    if errorTypes:
-        for erk in k:
-            shouldReLog = 1
-            for errT in errorTypes:
-                if erk.check(errT):
-                    shouldReLog = 0
-            if shouldReLog:
-                err(erk)
-    return k
-
-def ignoreErrors(*types):
-    """
-    DEPRECATED
-    """
-    warnings.warn("log.ignoreErrors is deprecated since Twisted 2.5",
-                  category=DeprecationWarning, stacklevel=2)
-    _ignore(*types)
-
-def _ignore(*types):
-    """
-    PRIVATE. DEPRECATED. DON'T USE.
-    """
-    for type in types:
-        _ignoreErrors.append(type)
-
-def clearIgnores():
-    """
-    DEPRECATED
-    """
-    warnings.warn("log.clearIgnores is deprecated since Twisted 2.5",
-                  category=DeprecationWarning, stacklevel=2)
-    _clearIgnores()
-
-def _clearIgnores():
-    """
-    PRIVATE. DEPRECATED. DON'T USE.
-    """
-    global _ignoreErrors
-    _ignoreErrors = []
-
-
 def err(_stuff=None, _why=None, **kw):
     """
     Write a failure to the log.
@@ -196,20 +116,6 @@ def err(_stuff=None, _why=None, **kw):
     if _stuff is None:
         _stuff = failure.Failure()
     if isinstance(_stuff, failure.Failure):
-        if _keepErrors:
-            if _ignoreErrors:
-                keep = 0
-                for err in _ignoreErrors:
-                    r = _stuff.check(err)
-                    if r:
-                        keep = 0
-                        break
-                    else:
-                        keep = 1
-                if keep:
-                    _keptErrors.append(_stuff)
-            else:
-                _keptErrors.append(_stuff)
         msg(failure=_stuff, why=_why, isError=1, **kw)
     elif isinstance(_stuff, Exception):
         msg(failure=failure.Failure(_stuff), why=_why, isError=1, **kw)
@@ -230,6 +136,7 @@ class Logger:
         be called more times than the number of output lines.
         """
         return '-'
+
 
 
 class LogPublisher:
@@ -263,23 +170,23 @@ class LogPublisher:
         """
         Log a new message.
 
-        For example::
+        The message should be a native string, i.e. bytes on Python 2 and
+        Unicode on Python 3. For compatibility with both use the native string
+        syntax, for example::
 
         >>> log.msg('Hello, world.')
 
-        In particular, you MUST avoid the forms::
+        You MUST avoid passing in Unicode on Python 2, and the form::
 
-        >>> log.msg(u'Hello, world.')
         >>> log.msg('Hello ', 'world.')
 
-        These forms work (sometimes) by accident and will be disabled
-        entirely in the future.
+        This form only works (sometimes) by accident.
         """
         actualEventDict = (context.get(ILogContext) or {}).copy()
         actualEventDict.update(kw)
         actualEventDict['message'] = message
         actualEventDict['time'] = time.time()
-        for i in xrange(len(self.observers) - 1, -1, -1):
+        for i in range(len(self.observers) - 1, -1, -1):
             try:
                 self.observers[i](actualEventDict)
             except KeyboardInterrupt:
@@ -338,6 +245,7 @@ class LogPublisher:
             else:
                 _oldshowwarning(message, category, filename, lineno, file, line)
 
+synchronize(LogPublisher)
 
 
 
@@ -349,6 +257,7 @@ except NameError:
     removeObserver = theLogPublisher.removeObserver
     msg = theLogPublisher.msg
     showwarning = theLogPublisher.showwarning
+
 
 
 def _safeFormat(fmtString, fmtDict):
@@ -423,6 +332,7 @@ class FileLogObserver:
         self.write = f.write
         self.flush = f.flush
 
+
     def getTimezoneOffset(self, when):
         """
         Return the current local timezone offset from UTC.
@@ -437,6 +347,7 @@ class FileLogObserver:
         offset = datetime.utcfromtimestamp(when) - datetime.fromtimestamp(when)
         return offset.days * (60 * 60 * 24) + offset.seconds
 
+
     def formatTime(self, when):
         """
         Format the given UTC value as a string representing that time in the
@@ -445,7 +356,7 @@ class FileLogObserver:
         By default it's formatted as a ISO8601-like string (ISO8601 date and
         ISO8601 time separated by a space). It can be customized using the
         C{timeFormat} attribute, which will be used as input for the underlying
-        C{time.strftime} call.
+        L{datetime.datetime.strftime} call.
 
         @type when: C{int}
         @param when: POSIX (ie, UTC) timestamp for which to find the offset.
@@ -453,7 +364,7 @@ class FileLogObserver:
         @rtype: C{str}
         """
         if self.timeFormat is not None:
-            return time.strftime(self.timeFormat, time.localtime(when))
+            return datetime.fromtimestamp(when).strftime(self.timeFormat)
 
         tzOffset = -self.getTimezoneOffset(when)
         when = datetime.utcfromtimestamp(when + tzOffset)
@@ -566,7 +477,7 @@ class StdioOnnaStick:
             encoding = sys.getdefaultencoding()
         self.encoding = encoding
         self.buf = ''
-
+  
     def close(self):
         pass
 
@@ -585,7 +496,7 @@ class StdioOnnaStick:
     tell = read
 
     def write(self, data):
-        if isinstance(data, unicode):
+        if not _PY3 and isinstance(data, unicode):
             data = data.encode(self.encoding)
         d = (self.buf + data).split('\n')
         self.buf = d[-1]
@@ -595,7 +506,7 @@ class StdioOnnaStick:
 
     def writelines(self, lines):
         for line in lines:
-            if isinstance(line, unicode):
+            if not _PY3 and isinstance(line, unicode):
                 line = line.encode(self.encoding)
             msg(line, printed=1, isError=self.isError)
 
@@ -691,11 +602,6 @@ class DefaultObserver:
     def stop(self):
         removeObserver(self._emit)
 
-
-# Some more sibling imports, at the bottom and unqualified to avoid
-# unresolvable circularity
-import threadable, failure
-threadable.synchronize(LogPublisher)
 
 
 try:

@@ -3,15 +3,18 @@
 # See LICENSE for details.
 
 
-"""Protocol support for twisted.mail."""
+"""
+Protocol support for L{twisted.mail}.
+"""
 
-# twisted imports
 from twisted.mail import pop3
 from twisted.mail import smtp
 from twisted.internet import protocol
 from twisted.internet import defer
 from twisted.copyright import longversion
 from twisted.python import log
+from twisted.python.deprecate import deprecatedModuleAttribute
+from twisted.python.versions import Version
 
 from twisted import cred
 import twisted.cred.error
@@ -23,7 +26,9 @@ from zope.interface import implements
 
 
 class DomainDeliveryBase:
-    """A server that uses twisted.mail service's domains."""
+    """
+    A server that uses L{twisted.mail} service's domains.
+    """
 
     implements(smtp.IMessageDelivery)
     
@@ -65,11 +70,6 @@ class DomainDeliveryBase:
             raise smtp.SMTPBadSender(origin, 501, "Sender address must contain domain.")
         return origin
 
-    def startMessage(self, users):
-        ret = []
-        for user in users:
-            ret.append(self.service.domains[user.dest.domain].startMessage(user))
-        return ret
 
 
 class SMTPDomainDelivery(DomainDeliveryBase):
@@ -209,10 +209,16 @@ class POP3Factory(protocol.ServerFactory):
 # can be changed, of course.
 #
 class SSLContextFactory:
-    """An SSL Context Factory
-    
+    """
+    An SSL Context Factory.
+
     This loads a certificate and private key from a specified file.
     """
+    deprecatedModuleAttribute(
+        Version("Twisted", 12, 2, 0),
+        "Use twisted.internet.ssl.DefaultOpenSSLContextFactory instead.",
+        "twisted.mail.protocols", "SSLContextFactory")
+
     def __init__(self, filename):
         self.filename = filename
 

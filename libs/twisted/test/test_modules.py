@@ -18,8 +18,24 @@ from twisted.python import modules
 from twisted.python.filepath import FilePath
 from twisted.python.reflect import namedAny
 
-from twisted.python.test.modules_helpers import TwistedModulesTestCase
-from twisted.test.test_paths import zipit
+from twisted.python.test.modules_helpers import TwistedModulesMixin
+from twisted.python.test.test_zippath import zipit
+
+
+class TwistedModulesTestCase(TwistedModulesMixin, TestCase):
+    """
+    Base class for L{modules} test cases.
+    """
+    def findByIteration(self, modname, where=modules, importPackages=False):
+        """
+        You don't ever actually want to do this, so it's not in the public
+        API, but sometimes we want to compare the result of an iterative call
+        with a lookup call and make sure they're the same for test purposes.
+        """
+        for modinfo in where.walkModules(importPackages=importPackages):
+            if modinfo.name == modname:
+                return modinfo
+        self.fail("Unable to find module %r through iteration." % (modname,))
 
 
 
@@ -476,3 +492,23 @@ class PythonPathTestCase(TestCase):
             "(PEP 302 violation - check your local configuration).")
         self.assertEqual(len(warnings), 1)
         self.assertEqual(thisModule.name, __name__)
+
+
+    def test_containsModule(self):
+        """
+        L{PythonPath} implements the C{in} operator so that when it is the
+        right-hand argument and the name of a module which exists on that
+        L{PythonPath} is the left-hand argument, the result is C{True}.
+        """
+        thePath = modules.PythonPath()
+        self.assertIn('os', thePath)
+
+
+    def test_doesntContainModule(self):
+        """
+        L{PythonPath} implements the C{in} operator so that when it is the
+        right-hand argument and the name of a module which does not exist on
+        that L{PythonPath} is the left-hand argument, the result is C{False}.
+        """
+        thePath = modules.PythonPath()
+        self.assertNotIn('bogusModule', thePath)

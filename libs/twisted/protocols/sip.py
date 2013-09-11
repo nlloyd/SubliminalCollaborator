@@ -16,13 +16,13 @@ See L{twisted.cred.credentials} and L{twisted.cred._digest} for its new home.
 
 # system imports
 import socket, time, sys, random, warnings
+from hashlib import md5
 from zope.interface import implements, Interface
 
 # twisted imports
 from twisted.python import log, util
 from twisted.python.deprecate import deprecated
 from twisted.python.versions import Version
-from twisted.python.hashlib import md5
 from twisted.internet import protocol, defer, reactor
 
 from twisted import cred
@@ -632,6 +632,7 @@ class MessagesParser(basic.LineReceiver):
         self.length = None # body length
         self.bodyReceived = 0 # how much of the body we received
         self.message = None
+        self.header = None
         self.setLineMode(remainingData)
 
     def invalidMessage(self):
@@ -699,24 +700,36 @@ class MessagesParser(basic.LineReceiver):
         else:
             assert self.state == "headers"
         if line:
-            # XXX support multi-line headers
-            try:
-                name, value = line.split(":", 1)
-            except ValueError:
-                self.invalidMessage()
-                return
-            self.message.addHeader(name, value.lstrip())
-            if name.lower() == "content-length":
+            # multiline header
+            if line.startswith(" ") or line.startswith("\t"):
+                name, value = self.header
+                self.header = name, (value + line.lstrip())
+            else:
+                # new header
+                if self.header:
+                    self.message.addHeader(*self.header)
+                    self.header = None
                 try:
-                    self.length = int(value.lstrip())
+                    name, value = line.split(":", 1)
                 except ValueError:
                     self.invalidMessage()
                     return
+                self.header = name, value.lstrip()
+                # XXX we assume content-length won't be multiline
+                if name.lower() == "content-length":
+                    try:
+                        self.length = int(value.lstrip())
+                    except ValueError:
+                        self.invalidMessage()
+                        return
         else:
             # CRLF, we now have message body until self.length bytes,
             # or if no length was given, until there is no more data
             # from the connection sending us data.
             self.state = "body"
+            if self.header:
+                self.message.addHeader(*self.header)
+                self.header = None
             if self.length == 0:
                 self.messageDone()
                 return
@@ -1289,7 +1302,7 @@ class InMemoryRegistry:
     def getAddress(self, userURI):
         if userURI.host != self.domain:
             return defer.fail(LookupError("unknown domain"))
-        if self.users.has_key(userURI.username):
+        if userURI.username in self.users:
             dc, url = self.users[userURI.username]
             return defer.succeed(url)
         else:
@@ -1321,7 +1334,7 @@ class InMemoryRegistry:
         if logicalURL.host != self.domain:
             log.msg("Registration for domain we don't handle.")
             return defer.fail(RegistrationError(404))
-        if self.users.has_key(logicalURL.username):
+        if logicalURL.username in self.users:
             dc, old = self.users[logicalURL.username]
             dc.reset(3600)
         else:

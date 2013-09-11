@@ -14,22 +14,20 @@ return an C{IResolver}.
 
 Future plans: Proper nameserver acquisition on Windows/MacOS,
 better caching, respect timeouts
-
-@author: Jp Calderone
 """
 
 import os
 import errno
 import warnings
 
-from zope.interface import implements
-
 # Twisted imports
+from twisted.python.compat import nativeString
 from twisted.python.runtime import platform
-from twisted.internet import error, defer, protocol, interfaces
+from twisted.python.filepath import FilePath
+from twisted.internet import error, defer, protocol
 from twisted.python import log, failure
-from twisted.python.deprecate import getWarningMethod
 from twisted.names import dns, common
+
 
 
 class Resolver(common.ResolverBase):
@@ -46,8 +44,6 @@ class Resolver(common.ResolverBase):
         L{IReactorTime} which will be used to set up network resources and
         track timeouts.
     """
-    implements(interfaces.IResolver)
-
     index = 0
     timeout = None
 
@@ -60,16 +56,6 @@ class Resolver(common.ResolverBase):
     resolv = None
     _lastResolvTime = None
     _resolvReadInterval = 60
-
-    def _getProtocol(self):
-        getWarningMethod()(
-            "Resolver.protocol is deprecated; use Resolver.queryUDP instead.",
-            PendingDeprecationWarning,
-            stacklevel=0)
-        self.protocol = dns.DNSDatagramProtocol(self)
-        return self.protocol
-    protocol = property(_getProtocol)
-
 
     def __init__(self, resolv=None, servers=None, timeout=(1, 3, 11, 45), reactor=None):
         """
@@ -117,7 +103,7 @@ class Resolver(common.ResolverBase):
         self.resolv = resolv
 
         if not len(self.servers) and not resolv:
-            raise ValueError, "No nameservers specified"
+            raise ValueError("No nameservers specified")
 
         self.factory = DNSClientFactory(self, timeout)
         self.factory.noisy = 0   # Be quiet by default
@@ -142,14 +128,22 @@ class Resolver(common.ResolverBase):
         self.maybeParseConfig()
 
 
+    def _openFile(self, path):
+        """
+        Wrapper used for opening files in the class, exists primarily for unit
+        testing purposes.
+        """
+        return FilePath(path).open()
+
+
     def maybeParseConfig(self):
         if self.resolv is None:
             # Don't try to parse it, don't set up a call loop
             return
 
         try:
-            resolvConf = file(self.resolv)
-        except IOError, e:
+            resolvConf = self._openFile(self.resolv)
+        except IOError as e:
             if e.errno == errno.ENOENT:
                 # Missing resolv.conf is treated the same as an empty resolv.conf
                 self.parseConfig(())
@@ -161,6 +155,7 @@ class Resolver(common.ResolverBase):
                 log.msg('%s changed, reparsing' % (self.resolv,))
                 self._lastResolvTime = mtime
                 self.parseConfig(resolvConf)
+            resolvConf.close()
 
         # Check again in a little while
         self._parseCall = self._reactor.callLater(
@@ -171,21 +166,18 @@ class Resolver(common.ResolverBase):
         servers = []
         for L in resolvConf:
             L = L.strip()
-            if L.startswith('nameserver'):
-                resolver = (L.split()[1], dns.PORT)
+            if L.startswith(b'nameserver'):
+                resolver = (nativeString(L.split()[1]), dns.PORT)
                 servers.append(resolver)
                 log.msg("Resolver added %r to server list" % (resolver,))
-            elif L.startswith('domain'):
+            elif L.startswith(b'domain'):
                 try:
                     self.domain = L.split()[1]
                 except IndexError:
-                    self.domain = ''
+                    self.domain = b''
                 self.search = None
-            elif L.startswith('search'):
-                try:
-                    self.search = L.split()[1:]
-                except IndexError:
-                    self.search = ''
+            elif L.startswith(b'search'):
+                self.search = L.split()[1:]
                 self.domain = None
         if not servers:
             servers.append(('127.0.0.1', dns.PORT))
@@ -217,15 +209,7 @@ class Resolver(common.ResolverBase):
         Return a new L{DNSDatagramProtocol} bound to a randomly selected port
         number.
         """
-        if 'protocol' in self.__dict__:
-            # Some code previously asked for or set the deprecated `protocol`
-            # attribute, so it probably expects that object to be used for
-            # queries.  Give it back and skip the super awesome source port
-            # randomization logic.  This is actually a really good reason to
-            # remove this deprecated backward compatibility as soon as
-            # possible. -exarkun
-            return self.protocol
-        proto = dns.DNSDatagramProtocol(self)
+        proto = dns.DNSDatagramProtocol(self, reactor=self._reactor)
         while True:
             try:
                 self._reactor.listenUDP(dns.randomSource(), proto)
@@ -418,12 +402,7 @@ class Resolver(common.ResolverBase):
 
 
     # This one doesn't ever belong on UDP
-    def lookupZone(self, name, timeout = 10):
-        """
-        Perform an AXFR request. This is quite different from usual
-        DNS requests. See http://cr.yp.to/djbdns/axfr-notes.html for
-        more information.
-        """
+    def lookupZone(self, name, timeout=10):
         address = self.pickServer()
         if address is None:
             return defer.fail(IOError('No domain name servers available'))
@@ -439,15 +418,18 @@ class Resolver(common.ResolverBase):
             connector, timeout or 10)
         return d.addCallback(self._cbLookupZone, connector)
 
+
     def _timeoutZone(self, d, controller, connector, seconds):
         connector.disconnect()
         controller.timeoutCall = None
         controller.deferred = None
         d.errback(error.TimeoutError("Zone lookup timed out after %d seconds" % (seconds,)))
 
+
     def _cbLookupZone(self, result, connector):
         connector.disconnect()
         return (result, [], [])
+
 
 
 class AXFRController:
@@ -458,6 +440,7 @@ class AXFRController:
         self.deferred = deferred
         self.soa = None
         self.records = []
+
 
     def connectionMade(self, protocol):
         # dig saids recursion-desired to 0, so I will too
@@ -551,9 +534,9 @@ def createResolver(servers=None, resolvconf=None, hosts=None):
     from twisted.names import resolve, cache, root, hosts as hostsModule
     if platform.getType() == 'posix':
         if resolvconf is None:
-            resolvconf = '/etc/resolv.conf'
+            resolvconf = b'/etc/resolv.conf'
         if hosts is None:
-            hosts = '/etc/hosts'
+            hosts = b'/etc/hosts'
         theResolver = Resolver(resolvconf, servers)
         hostResolver = hostsModule.Resolver(hosts)
     else:
@@ -566,6 +549,8 @@ def createResolver(servers=None, resolvconf=None, hosts=None):
 
     L = [hostResolver, cache.CacheResolver(), theResolver]
     return resolve.ResolverChain(L)
+
+
 
 theResolver = None
 def getResolver():
@@ -584,6 +569,8 @@ def getResolver():
         except ValueError:
             theResolver = createResolver(servers=[('127.0.0.1', 53)])
     return theResolver
+
+
 
 def getHostByName(name, timeout=None, effort=10):
     """
@@ -607,333 +594,179 @@ def getHostByName(name, timeout=None, effort=10):
     """
     return getResolver().getHostByName(name, timeout, effort)
 
+
+
 def lookupAddress(name, timeout=None):
     """
-    Perform an A record lookup.
-
-    @type name: C{str}
-    @param name: DNS name to resolve.
-
-    @type timeout: Sequence of C{int}
-    @param timeout: Number of seconds after which to reissue the query.
-    When the last timeout expires, the query is considered failed.
-
-    @rtype: C{Deferred}
+    @see: L{twisted.internet.interfaces.IResolver.lookupAddress}
     """
     return getResolver().lookupAddress(name, timeout)
 
+
+
 def lookupIPV6Address(name, timeout=None):
     """
-    Perform an AAAA record lookup.
-
-    @type name: C{str}
-    @param name: DNS name to resolve.
-
-    @type timeout: Sequence of C{int}
-    @param timeout: Number of seconds after which to reissue the query.
-    When the last timeout expires, the query is considered failed.
-
-    @rtype: C{Deferred}
+    @see: L{twisted.internet.interfaces.IResolver.lookupIPV6Address}
     """
     return getResolver().lookupIPV6Address(name, timeout)
 
+
+
 def lookupAddress6(name, timeout=None):
     """
-    Perform an A6 record lookup.
-
-    @type name: C{str}
-    @param name: DNS name to resolve.
-
-    @type timeout: Sequence of C{int}
-    @param timeout: Number of seconds after which to reissue the query.
-    When the last timeout expires, the query is considered failed.
-
-    @rtype: C{Deferred}
+    @see: L{twisted.internet.interfaces.IResolver.lookupAddress6}
     """
     return getResolver().lookupAddress6(name, timeout)
 
+
+
 def lookupMailExchange(name, timeout=None):
     """
-    Perform an MX record lookup.
-
-    @type name: C{str}
-    @param name: DNS name to resolve.
-
-    @type timeout: Sequence of C{int}
-    @param timeout: Number of seconds after which to reissue the query.
-    When the last timeout expires, the query is considered failed.
-
-    @rtype: C{Deferred}
+    @see: L{twisted.internet.interfaces.IResolver.lookupMailExchange}
     """
     return getResolver().lookupMailExchange(name, timeout)
 
+
+
 def lookupNameservers(name, timeout=None):
     """
-    Perform an NS record lookup.
-
-    @type name: C{str}
-    @param name: DNS name to resolve.
-
-    @type timeout: Sequence of C{int}
-    @param timeout: Number of seconds after which to reissue the query.
-    When the last timeout expires, the query is considered failed.
-
-    @rtype: C{Deferred}
+    @see: L{twisted.internet.interfaces.IResolver.lookupNameservers}
     """
     return getResolver().lookupNameservers(name, timeout)
 
+
+
 def lookupCanonicalName(name, timeout=None):
     """
-    Perform a CNAME record lookup.
-
-    @type name: C{str}
-    @param name: DNS name to resolve.
-
-    @type timeout: Sequence of C{int}
-    @param timeout: Number of seconds after which to reissue the query.
-    When the last timeout expires, the query is considered failed.
-
-    @rtype: C{Deferred}
+    @see: L{twisted.internet.interfaces.IResolver.lookupCanonicalName}
     """
     return getResolver().lookupCanonicalName(name, timeout)
 
+
+
 def lookupMailBox(name, timeout=None):
     """
-    Perform an MB record lookup.
-
-    @type name: C{str}
-    @param name: DNS name to resolve.
-
-    @type timeout: Sequence of C{int}
-    @param timeout: Number of seconds after which to reissue the query.
-    When the last timeout expires, the query is considered failed.
-
-    @rtype: C{Deferred}
+    @see: L{twisted.internet.interfaces.IResolver.lookupMailBox}
     """
     return getResolver().lookupMailBox(name, timeout)
 
+
+
 def lookupMailGroup(name, timeout=None):
     """
-    Perform an MG record lookup.
-
-    @type name: C{str}
-    @param name: DNS name to resolve.
-
-    @type timeout: Sequence of C{int}
-    @param timeout: Number of seconds after which to reissue the query.
-    When the last timeout expires, the query is considered failed.
-
-    @rtype: C{Deferred}
+    @see: L{twisted.internet.interfaces.IResolver.lookupMailGroup}
     """
     return getResolver().lookupMailGroup(name, timeout)
 
+
+
 def lookupMailRename(name, timeout=None):
     """
-    Perform an MR record lookup.
-
-    @type name: C{str}
-    @param name: DNS name to resolve.
-
-    @type timeout: Sequence of C{int}
-    @param timeout: Number of seconds after which to reissue the query.
-    When the last timeout expires, the query is considered failed.
-
-    @rtype: C{Deferred}
+    @see: L{twisted.internet.interfaces.IResolver.lookupMailRename}
     """
     return getResolver().lookupMailRename(name, timeout)
 
+
+
 def lookupPointer(name, timeout=None):
     """
-    Perform a PTR record lookup.
-
-    @type name: C{str}
-    @param name: DNS name to resolve.
-
-    @type timeout: Sequence of C{int}
-    @param timeout: Number of seconds after which to reissue the query.
-    When the last timeout expires, the query is considered failed.
-
-    @rtype: C{Deferred}
+    @see: L{twisted.internet.interfaces.IResolver.lookupPointer}
     """
     return getResolver().lookupPointer(name, timeout)
 
+
+
 def lookupAuthority(name, timeout=None):
     """
-    Perform an SOA record lookup.
-
-    @type name: C{str}
-    @param name: DNS name to resolve.
-
-    @type timeout: Sequence of C{int}
-    @param timeout: Number of seconds after which to reissue the query.
-    When the last timeout expires, the query is considered failed.
-
-    @rtype: C{Deferred}
+    @see: L{twisted.internet.interfaces.IResolver.lookupAuthority}
     """
     return getResolver().lookupAuthority(name, timeout)
 
+
+
 def lookupNull(name, timeout=None):
     """
-    Perform a NULL record lookup.
-
-    @type name: C{str}
-    @param name: DNS name to resolve.
-
-    @type timeout: Sequence of C{int}
-    @param timeout: Number of seconds after which to reissue the query.
-    When the last timeout expires, the query is considered failed.
-
-    @rtype: C{Deferred}
+    @see: L{twisted.internet.interfaces.IResolver.lookupNull}
     """
     return getResolver().lookupNull(name, timeout)
 
+
+
 def lookupWellKnownServices(name, timeout=None):
     """
-    Perform a WKS record lookup.
-
-    @type name: C{str}
-    @param name: DNS name to resolve.
-
-    @type timeout: Sequence of C{int}
-    @param timeout: Number of seconds after which to reissue the query.
-    When the last timeout expires, the query is considered failed.
-
-    @rtype: C{Deferred}
+    @see: L{twisted.internet.interfaces.IResolver.lookupWellKnownServices}
     """
     return getResolver().lookupWellKnownServices(name, timeout)
 
+
+
 def lookupService(name, timeout=None):
     """
-    Perform an SRV record lookup.
-
-    @type name: C{str}
-    @param name: DNS name to resolve.
-
-    @type timeout: Sequence of C{int}
-    @param timeout: Number of seconds after which to reissue the query.
-    When the last timeout expires, the query is considered failed.
-
-    @rtype: C{Deferred}
+    @see: L{twisted.internet.interfaces.IResolver.lookupService}
     """
     return getResolver().lookupService(name, timeout)
 
+
+
 def lookupHostInfo(name, timeout=None):
     """
-    Perform a HINFO record lookup.
-
-    @type name: C{str}
-    @param name: DNS name to resolve.
-
-    @type timeout: Sequence of C{int}
-    @param timeout: Number of seconds after which to reissue the query.
-    When the last timeout expires, the query is considered failed.
-
-    @rtype: C{Deferred}
+    @see: L{twisted.internet.interfaces.IResolver.lookupHostInfo}
     """
     return getResolver().lookupHostInfo(name, timeout)
 
+
+
 def lookupMailboxInfo(name, timeout=None):
     """
-    Perform an MINFO record lookup.
-
-    @type name: C{str}
-    @param name: DNS name to resolve.
-
-    @type timeout: Sequence of C{int}
-    @param timeout: Number of seconds after which to reissue the query.
-    When the last timeout expires, the query is considered failed.
-
-    @rtype: C{Deferred}
+    @see: L{twisted.internet.interfaces.IResolver.lookupMailboxInfo}
     """
     return getResolver().lookupMailboxInfo(name, timeout)
 
+
+
 def lookupText(name, timeout=None):
     """
-    Perform a TXT record lookup.
-
-    @type name: C{str}
-    @param name: DNS name to resolve.
-
-    @type timeout: Sequence of C{int}
-    @param timeout: Number of seconds after which to reissue the query.
-    When the last timeout expires, the query is considered failed.
-
-    @rtype: C{Deferred}
+    @see: L{twisted.internet.interfaces.IResolver.lookupText}
     """
     return getResolver().lookupText(name, timeout)
 
+
+
 def lookupSenderPolicy(name, timeout=None):
     """
-    Perform a SPF record lookup.
-
-    @type name: C{str}
-    @param name: DNS name to resolve.
-
-    @type timeout: Sequence of C{int}
-    @param timeout: Number of seconds after which to reissue the query.
-    When the last timeout expires, the query is considered failed.
-
-    @rtype: C{Deferred}
+    @see: L{twisted.internet.interfaces.IResolver.lookupSenderPolicy}
     """
     return getResolver().lookupSenderPolicy(name, timeout)
 
+
+
 def lookupResponsibility(name, timeout=None):
     """
-    Perform an RP record lookup.
-
-    @type name: C{str}
-    @param name: DNS name to resolve.
-
-    @type timeout: Sequence of C{int}
-    @param timeout: Number of seconds after which to reissue the query.
-    When the last timeout expires, the query is considered failed.
-
-    @rtype: C{Deferred}
+    @see: L{twisted.internet.interfaces.IResolver.lookupResponsibility}
     """
     return getResolver().lookupResponsibility(name, timeout)
 
+
+
 def lookupAFSDatabase(name, timeout=None):
     """
-    Perform an AFSDB record lookup.
-
-    @type name: C{str}
-    @param name: DNS name to resolve.
-
-    @type timeout: Sequence of C{int}
-    @param timeout: Number of seconds after which to reissue the query.
-    When the last timeout expires, the query is considered failed.
-
-    @rtype: C{Deferred}
+    @see: L{twisted.internet.interfaces.IResolver.lookupAFSDatabase}
     """
     return getResolver().lookupAFSDatabase(name, timeout)
 
+
+
 def lookupZone(name, timeout=None):
     """
-    Perform an AXFR record lookup.
-
-    @type name: C{str}
-    @param name: DNS name to resolve.
-
-    @type timeout: C{int}
-    @param timeout: When this timeout expires, the query is considered failed.
-
-    @rtype: C{Deferred}
+    @see: L{twisted.internet.interfaces.IResolver.lookupZone}
     """
-    # XXX: timeout here is not a list of ints, it is a single int.
     return getResolver().lookupZone(name, timeout)
+
+
 
 def lookupAllRecords(name, timeout=None):
     """
-    ALL_RECORD lookup.
-
-    @type name: C{str}
-    @param name: DNS name to resolve.
-
-    @type timeout: Sequence of C{int}
-    @param timeout: Number of seconds after which to reissue the query.
-    When the last timeout expires, the query is considered failed.
-
-    @rtype: C{Deferred}
+    @see: L{twisted.internet.interfaces.IResolver.lookupAllRecords}
     """
     return getResolver().lookupAllRecords(name, timeout)
 
@@ -941,15 +774,6 @@ def lookupAllRecords(name, timeout=None):
 
 def lookupNamingAuthorityPointer(name, timeout=None):
     """
-    NAPTR lookup.
-
-    @type name: C{str}
-    @param name: DNS name to resolve.
-
-    @type timeout: Sequence of C{int}
-    @param timeout: Number of seconds after which to reissue the query.
-        When the last timeout expires, the query is considered failed.
-
-    @rtype: C{Deferred}
+    @see: L{twisted.internet.interfaces.IResolver.lookupNamingAuthorityPointer}
     """
     return getResolver().lookupNamingAuthorityPointer(name, timeout)

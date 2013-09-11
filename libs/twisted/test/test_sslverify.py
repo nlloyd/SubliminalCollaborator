@@ -6,20 +6,21 @@
 Tests for L{twisted.internet._sslverify}.
 """
 
+from __future__ import division, absolute_import
+
 import itertools
 
 try:
     from OpenSSL import SSL
-    from OpenSSL.crypto import PKey, X509, X509Req
+    from OpenSSL.crypto import PKey, X509
     from OpenSSL.crypto import TYPE_RSA
     from twisted.internet import _sslverify as sslverify
 except ImportError:
     pass
 
+from twisted.python.compat import nativeString
 from twisted.trial import unittest
 from twisted.internet import protocol, defer, reactor
-from twisted.python.reflect import objgrep, isSame
-from twisted.python import log
 
 from twisted.internet.error import CertificateError, ConnectionLost
 from twisted.internet import interfaces
@@ -70,7 +71,14 @@ A_PEER_CERTIFICATE_PEM = """
 
 
 
-counter = itertools.count().next
+def counter(counter=itertools.count()):
+    """
+    Each time we're called, return the next integer in the natural numbers.
+    """
+    return next(counter)
+
+
+
 def makeCertificate(**kw):
     keypair = PKey()
     keypair.generate_key(TYPE_RSA, 512)
@@ -80,7 +88,7 @@ def makeCertificate(**kw):
     certificate.gmtime_adj_notAfter(60 * 60 * 24 * 365) # One year
     for xname in certificate.get_issuer(), certificate.get_subject():
         for (k, v) in kw.items():
-            setattr(xname, k, v)
+            setattr(xname, k, nativeString(v))
 
     certificate.set_serial_number(counter())
     certificate.set_pubkey(keypair)
@@ -102,12 +110,64 @@ class DataCallbackProtocol(protocol.Protocol):
             d.errback(reason)
 
 class WritingProtocol(protocol.Protocol):
-    byte = 'x'
+    byte = b'x'
     def connectionMade(self):
         self.transport.write(self.byte)
 
     def connectionLost(self, reason):
         self.factory.onLost.errback(reason)
+
+
+
+class FakeContext(object):
+    """
+    Introspectable fake of an C{OpenSSL.SSL.Context}.
+
+    Saves call arguments for later introspection.
+
+    Necessary because C{Context} offers poor introspection.  cf. this
+    U{pyOpenSSL bug<https://bugs.launchpad.net/pyopenssl/+bug/1173899>}.
+
+    @ivar _method: See C{method} parameter of L{__init__}.
+    @ivar _options: C{int} of C{OR}ed values from calls of L{set_options}.
+    @ivar _certificate: Set by L{use_certificate}.
+    @ivar _privateKey: Set by L{use_privatekey}.
+    @ivar _verify: Set by L{set_verify}.
+    @ivar _verifyDepth: Set by L{set_verify_depth}.
+    @ivar _sessionID: Set by L{set_session_id}.
+    @ivar _extraCertChain: Accumulated C{list} of all extra certificates added
+        by L{add_extra_chain_cert}.
+    """
+    _options = 0
+
+    def __init__(self, method):
+        self._method = method
+        self._extraCertChain = []
+
+    def set_options(self, options):
+        self._options |= options
+
+    def use_certificate(self, certificate):
+        self._certificate = certificate
+
+    def use_privatekey(self, privateKey):
+        self._privateKey = privateKey
+
+    def check_privatekey(self):
+        return None
+
+    def set_verify(self, flags, callback):
+        self._verify = flags, callback
+
+    def set_verify_depth(self, depth):
+        self._verifyDepth = depth
+
+    def set_session_id(self, sessionID):
+        self._sessionID = sessionID
+
+    def add_extra_chain_cert(self, cert):
+        self._extraCertChain.append(cert)
+
 
 
 class OpenSSLOptions(unittest.TestCase):
@@ -124,11 +184,20 @@ class OpenSSLOptions(unittest.TestCase):
         Create class variables of client and server certificates.
         """
         self.sKey, self.sCert = makeCertificate(
-            O="Server Test Certificate",
-            CN="server")
+            O=b"Server Test Certificate",
+            CN=b"server")
         self.cKey, self.cCert = makeCertificate(
-            O="Client Test Certificate",
-            CN="client")
+            O=b"Client Test Certificate",
+            CN=b"client")
+        self.caCert1 = makeCertificate(
+            O=b"CA Test Certificate 1",
+            CN=b"ca1")[1]
+        self.caCert2 = makeCertificate(
+            O=b"CA Test Certificate",
+            CN=b"ca2")[1]
+        self.caCerts = [self.caCert1, self.caCert2]
+        self.extraCertChain = self.caCerts
+
 
     def tearDown(self):
         if self.serverPort is not None:
@@ -166,33 +235,169 @@ class OpenSSLOptions(unittest.TestCase):
         self.clientConn = reactor.connectSSL('127.0.0.1',
                 self.serverPort.getHost().port, clientFactory, clientCertOpts)
 
+
+    def test_constructorWithOnlyPrivateKey(self):
+        """
+        C{privateKey} and C{certificate} make only sense if both are set.
+        """
+        self.assertRaises(
+            ValueError,
+            sslverify.OpenSSLCertificateOptions, privateKey=self.sKey
+        )
+
+
+    def test_constructorWithOnlyCertificate(self):
+        """
+        C{privateKey} and C{certificate} make only sense if both are set.
+        """
+        self.assertRaises(
+            ValueError,
+            sslverify.OpenSSLCertificateOptions, certificate=self.sCert
+        )
+
+
+    def test_constructorWithCertificateAndPrivateKey(self):
+        """
+        Specifying C{privateKey} and C{certificate} initializes correctly.
+        """
+        opts = sslverify.OpenSSLCertificateOptions(privateKey=self.sKey,
+                                                   certificate=self.sCert)
+        self.assertEqual(opts.privateKey, self.sKey)
+        self.assertEqual(opts.certificate, self.sCert)
+        self.assertEqual(opts.extraCertChain, [])
+
+
+    def test_constructorDoesNotAllowVerifyWithoutCACerts(self):
+        """
+        C{verify} must not be C{True} without specifying C{caCerts}.
+        """
+        self.assertRaises(
+            ValueError,
+            sslverify.OpenSSLCertificateOptions,
+            privateKey=self.sKey, certificate=self.sCert, verify=True
+        )
+
+
+    def test_constructorAllowsCACertsWithoutVerify(self):
+        """
+        It's currently a NOP, but valid.
+        """
+        opts = sslverify.OpenSSLCertificateOptions(privateKey=self.sKey,
+                                                   certificate=self.sCert,
+                                                   caCerts=self.caCerts)
+        self.assertFalse(opts.verify)
+        self.assertEqual(self.caCerts, opts.caCerts)
+
+
+    def test_constructorWithVerifyAndCACerts(self):
+        """
+        Specifying C{verify} and C{caCerts} initializes correctly.
+        """
+        opts = sslverify.OpenSSLCertificateOptions(privateKey=self.sKey,
+                                                   certificate=self.sCert,
+                                                   verify=True,
+                                                   caCerts=self.caCerts)
+        self.assertTrue(opts.verify)
+        self.assertEqual(self.caCerts, opts.caCerts)
+
+
+    def test_constructorSetsExtraChain(self):
+        """
+        Setting C{extraCertChain} works if C{certificate} and C{privateKey} are
+        set along with it.
+        """
+        opts = sslverify.OpenSSLCertificateOptions(
+            privateKey=self.sKey,
+            certificate=self.sCert,
+            extraCertChain=self.extraCertChain,
+        )
+        self.assertEqual(self.extraCertChain, opts.extraCertChain)
+
+
+    def test_constructorDoesNotAllowExtraChainWithoutPrivateKey(self):
+        """
+        A C{extraCertChain} without C{privateKey} doesn't make sense and is
+        thus rejected.
+        """
+        self.assertRaises(
+            ValueError,
+            sslverify.OpenSSLCertificateOptions,
+            certificate=self.sCert,
+            extraCertChain=self.extraCertChain,
+        )
+
+
+    def test_constructorDoesNotAllowExtraChainWithOutPrivateKey(self):
+        """
+        A C{extraCertChain} without C{certificate} doesn't make sense and is
+        thus rejected.
+        """
+        self.assertRaises(
+            ValueError,
+            sslverify.OpenSSLCertificateOptions,
+            privateKey=self.sKey,
+            extraCertChain=self.extraCertChain,
+        )
+
+
+    def test_extraChainFilesAreAddedIfSupplied(self):
+        """
+        If C{extraCertChain} is set and all prerequisites are met, the
+        specified chain certificates are added to C{Context}s that get
+        created.
+        """
+        opts = sslverify.OpenSSLCertificateOptions(
+            privateKey=self.sKey,
+            certificate=self.sCert,
+            extraCertChain=self.extraCertChain,
+        )
+        opts._contextFactory = FakeContext
+        ctx = opts.getContext()
+        self.assertEqual(self.sKey, ctx._privateKey)
+        self.assertEqual(self.sCert, ctx._certificate)
+        self.assertEqual(self.extraCertChain, ctx._extraCertChain)
+
+
+    def test_extraChainDoesNotBreakPyOpenSSL(self):
+        """
+        C{extraCertChain} doesn't break C{OpenSSL.SSL.Context} creation.
+        """
+        opts = sslverify.OpenSSLCertificateOptions(
+            privateKey=self.sKey,
+            certificate=self.sCert,
+            extraCertChain=self.extraCertChain,
+        )
+        ctx = opts.getContext()
+        self.assertIsInstance(ctx, SSL.Context)
+
+
     def test_abbreviatingDistinguishedNames(self):
         """
         Check that abbreviations used in certificates correctly map to
         complete names.
         """
         self.assertEqual(
-                sslverify.DN(CN='a', OU='hello'),
-                sslverify.DistinguishedName(commonName='a',
-                                            organizationalUnitName='hello'))
+                sslverify.DN(CN=b'a', OU=b'hello'),
+                sslverify.DistinguishedName(commonName=b'a',
+                                            organizationalUnitName=b'hello'))
         self.assertNotEquals(
-                sslverify.DN(CN='a', OU='hello'),
-                sslverify.DN(CN='a', OU='hello', emailAddress='xxx'))
-        dn = sslverify.DN(CN='abcdefg')
-        self.assertRaises(AttributeError, setattr, dn, 'Cn', 'x')
+                sslverify.DN(CN=b'a', OU=b'hello'),
+                sslverify.DN(CN=b'a', OU=b'hello', emailAddress=b'xxx'))
+        dn = sslverify.DN(CN=b'abcdefg')
+        self.assertRaises(AttributeError, setattr, dn, 'Cn', b'x')
         self.assertEqual(dn.CN, dn.commonName)
-        dn.CN = 'bcdefga'
+        dn.CN = b'bcdefga'
         self.assertEqual(dn.CN, dn.commonName)
 
 
     def testInspectDistinguishedName(self):
-        n = sslverify.DN(commonName='common name',
-                         organizationName='organization name',
-                         organizationalUnitName='organizational unit name',
-                         localityName='locality name',
-                         stateOrProvinceName='state or province name',
-                         countryName='country name',
-                         emailAddress='email address')
+        n = sslverify.DN(commonName=b'common name',
+                         organizationName=b'organization name',
+                         organizationalUnitName=b'organizational unit name',
+                         localityName=b'locality name',
+                         stateOrProvinceName=b'state or province name',
+                         countryName=b'country name',
+                         emailAddress=b'email address')
         s = n.inspect()
         for k in [
             'common name',
@@ -207,7 +412,7 @@ class OpenSSLOptions(unittest.TestCase):
 
 
     def testInspectDistinguishedNameWithoutAllFields(self):
-        n = sslverify.DN(localityName='locality name')
+        n = sslverify.DN(localityName=b'locality name')
         s = n.inspect()
         for k in [
             'common name',
@@ -232,22 +437,22 @@ class OpenSSLOptions(unittest.TestCase):
         self.assertEqual(
             c.inspect().split('\n'),
             ["Certificate For Subject:",
-             "  Organizational Unit Name: Security",
-             "         Organization Name: Twisted Matrix Labs",
              "               Common Name: example.twistedmatrix.com",
-             "    State Or Province Name: Massachusetts",
              "              Country Name: US",
              "             Email Address: nobody@twistedmatrix.com",
              "             Locality Name: Boston",
+             "         Organization Name: Twisted Matrix Labs",
+             "  Organizational Unit Name: Security",
+             "    State Or Province Name: Massachusetts",
              "",
              "Issuer:",
-             "  Organizational Unit Name: Security",
-             "         Organization Name: Twisted Matrix Labs",
              "               Common Name: example.twistedmatrix.com",
-             "    State Or Province Name: Massachusetts",
              "              Country Name: US",
              "             Email Address: nobody@twistedmatrix.com",
              "             Locality Name: Boston",
+             "         Organization Name: Twisted Matrix Labs",
+             "  Organizational Unit Name: Security",
+             "    State Or Province Name: Massachusetts",
              "",
              "Serial Number: 12345",
              "Digest: C4:96:11:00:30:C3:EC:EE:A3:55:AA:ED:8C:84:85:18",
@@ -272,11 +477,10 @@ class OpenSSLOptions(unittest.TestCase):
             fixBrokenPeers=True,
             enableSessionTickets=True)
         context = firstOpts.getContext()
+        self.assertIdentical(context, firstOpts._context)
+        self.assertNotIdentical(context, None)
         state = firstOpts.__getstate__()
-
-        # The context shouldn't be in the state to serialize
-        self.failIf(objgrep(state, context, isSame),
-                    objgrep(state, context, isSame))
+        self.assertNotIn("_context", state)
 
         opts = sslverify.OpenSSLCertificateOptions()
         opts.__setstate__(state)
@@ -327,6 +531,7 @@ class OpenSSLOptions(unittest.TestCase):
         return onData.addCallback(
             lambda result: self.assertEqual(result, WritingProtocol.byte))
 
+
     def test_refusedAnonymousClientConnection(self):
         """
         Check that anonymous connections are refused when certificates are
@@ -346,8 +551,8 @@ class OpenSSLOptions(unittest.TestCase):
                                consumeErrors=True)
 
 
-        def afterLost(((cSuccess, cResult), (sSuccess, sResult))):
-
+        def afterLost(result):
+            ((cSuccess, cResult), (sSuccess, sResult)) = result
             self.failIf(cSuccess)
             self.failIf(sSuccess)
             # Win32 fails to report the SSL Error, and report a connection lost
@@ -375,8 +580,8 @@ class OpenSSLOptions(unittest.TestCase):
 
         d = defer.DeferredList([onClientLost, onServerLost],
                                consumeErrors=True)
-        def afterLost(((cSuccess, cResult), (sSuccess, sResult))):
-
+        def afterLost(result):
+            ((cSuccess, cResult), (sSuccess, sResult)) = result
             self.failIf(cSuccess)
             self.failIf(sSuccess)
 
@@ -456,6 +661,17 @@ class OpenSSLOptions(unittest.TestCase):
 
         return onData.addCallback(
                 lambda result: self.assertEqual(result, WritingProtocol.byte))
+
+
+    def test_SSLv2IsDisabledForSSLv23(self):
+        """
+        SSLv2 is insecure and should be disabled so when users use
+        SSLv23_METHOD, they get at least SSLV3.  It does nothing if
+        SSLv2_METHOD chosen explicitly.
+        """
+        opts = sslverify.OpenSSLCertificateOptions()
+        ctx = opts.getContext()
+        self.assertEqual(SSL.OP_NO_SSLv2, ctx.set_options(0) & SSL.OP_NO_SSLv2)
 
 
 

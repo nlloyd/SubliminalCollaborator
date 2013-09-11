@@ -5,13 +5,13 @@
 # Author: Robert Collins
 
 
-import StringIO, os, sys
+import StringIO, os, pdb, sys
 from zope.interface import implements
 from zope.interface.verify import verifyObject
 
 from twisted.trial.itrial import IReporter, ITestCase
 from twisted.trial import unittest, runner, reporter, util
-from twisted.python import failure, log, reflect, filepath
+from twisted.python import failure, log, reflect
 from twisted.python.filepath import FilePath
 from twisted.scripts import trial
 from twisted.plugins import twisted_trial
@@ -154,7 +154,7 @@ class TrialRunnerTestsMixin:
 
 
 
-class TestTrialRunner(TrialRunnerTestsMixin, unittest.TestCase):
+class TestTrialRunner(TrialRunnerTestsMixin, unittest.SynchronousTestCase):
     """
     Tests for L{runner.TrialRunner} with the feature to turn unclean errors
     into warnings disabled.
@@ -176,7 +176,7 @@ class TestTrialRunner(TrialRunnerTestsMixin, unittest.TestCase):
 
 
 class TrialRunnerWithUncleanWarningsReporter(TrialRunnerTestsMixin,
-                                             unittest.TestCase):
+                                             unittest.SynchronousTestCase):
     """
     Tests for the TrialRunner's interaction with an unclean-error suppressing
     reporter.
@@ -191,11 +191,10 @@ class TrialRunnerWithUncleanWarningsReporter(TrialRunnerTestsMixin,
 
 
 class DryRunMixin(object):
-
-    suppress = [util.suppress(
-        category=DeprecationWarning,
-        message="Test visitors deprecated in Twisted 8.0")]
-
+    """
+    Mixin for testing that 'dry run' mode works with various
+    L{pyunit.TestCase} subclasses.
+    """
 
     def setUp(self):
         self.log = []
@@ -240,7 +239,20 @@ class DryRunMixin(object):
 
 
 
-class DryRunTest(DryRunMixin, unittest.TestCase):
+class SynchronousDryRunTest(DryRunMixin, unittest.SynchronousTestCase):
+    """
+    Check that 'dry run' mode works well with trial's L{SynchronousTestCase}.
+    """
+    def makeTestFixtures(self):
+        class PyunitCase(unittest.SynchronousTestCase):
+            def test_foo(self):
+                pass
+        self.test = PyunitCase('test_foo')
+        self.suite = pyunit.TestSuite()
+
+
+
+class DryRunTest(DryRunMixin, unittest.SynchronousTestCase):
     """
     Check that 'dry run' mode works well with Trial tests.
     """
@@ -253,7 +265,7 @@ class DryRunTest(DryRunMixin, unittest.TestCase):
 
 
 
-class PyUnitDryRunTest(DryRunMixin, unittest.TestCase):
+class PyUnitDryRunTest(DryRunMixin, unittest.SynchronousTestCase):
     """
     Check that 'dry run' mode works well with stdlib unittest tests.
     """
@@ -266,7 +278,7 @@ class PyUnitDryRunTest(DryRunMixin, unittest.TestCase):
 
 
 
-class TestRunner(unittest.TestCase):
+class TestRunner(unittest.SynchronousTestCase):
     def setUp(self):
         self.config = trial.Options()
         # whitebox hack a reporter in, because plugins are CACHED and will
@@ -398,7 +410,7 @@ class TestRunner(unittest.TestCase):
 
         where = {}
 
-        class ConcurrentCase(unittest.TestCase):
+        class ConcurrentCase(unittest.SynchronousTestCase):
             def test_first(self):
                 """
                 Start a second test run which will have a default working
@@ -442,7 +454,7 @@ class TestRunner(unittest.TestCase):
         firstRunner = self.getRunner()
         secondRunner = self.getRunner()
 
-        class ConcurrentCase(unittest.TestCase):
+        class ConcurrentCase(unittest.SynchronousTestCase):
             def test_concurrent(self):
                 """
                 Try to start another runner in the same working directory and
@@ -475,108 +487,94 @@ class TestRunner(unittest.TestCase):
         self.assertEqual(self.standardReport, result._calls)
 
 
-    def test_runner_debug(self):
+    def runSampleSuite(self, my_runner):
+        loader = runner.TestLoader()
+        suite = loader.loadByName('twisted.trial.test.sample', True)
+        return my_runner.run(suite)
+
+
+    def test_runnerDebug(self):
+        """
+        Trial uses its debugger if the `--debug` option is passed.
+        """
         self.parseOptions(['--reporter', 'capturing',
                            '--debug', 'twisted.trial.test.sample'])
         my_runner = self.getRunner()
-        debugger = CapturingDebugger()
-        def get_debugger():
-            return debugger
-        my_runner._getDebugger = get_debugger
-        loader = runner.TestLoader()
-        suite = loader.loadByName('twisted.trial.test.sample', True)
-        result = my_runner.run(suite)
+        debugger = my_runner.debugger = CapturingDebugger()
+        result = self.runSampleSuite(my_runner)
         self.assertEqual(self.standardReport, result._calls)
         self.assertEqual(['runcall'], debugger._calls)
 
 
-
-class RemoveSafelyTests(unittest.TestCase):
-    """
-    Tests for L{_removeSafely}.
-    """
-    def test_removeSafelyNoTrialMarker(self):
+    def test_runnerDebuggerDefaultsToPdb(self):
         """
-        If a path doesn't contain a node named C{"_trial_marker"}, that path is
-        not removed by L{runner._removeSafely} and a L{runner._NoTrialMarker}
-        exception is raised instead.
+        Trial uses pdb if no debugger is specified by `--debugger`
         """
-        directory = self.mktemp()
-        os.mkdir(directory)
-        dirPath = filepath.FilePath(directory)
-        self.assertRaises(util._NoTrialMarker, util._removeSafely, dirPath)
+        self.parseOptions(['--debug', 'twisted.trial.test.sample'])
+
+        self.runcall_called = False
+        def runcall(pdb, suite, result):
+            self.runcall_called = True
+        self.patch(pdb.Pdb, "runcall", runcall)
+
+        self.runSampleSuite(self.getRunner())
+
+        self.assertTrue(self.runcall_called)
 
 
-    def test_removeSafelyRemoveFailsMoveSucceeds(self):
+    def test_runnerDebuggerWithExplicitlyPassedPdb(self):
         """
-        If an L{OSError} is raised while removing a path in
-        L{runner._removeSafely}, an attempt is made to move the path to a new
-        name.
+        Trial uses pdb if pdb is passed explicity to the `--debugger` arg.
         """
-        def dummyRemove():
-            """
-            Raise an C{OSError} to emulate the branch of L{runner._removeSafely}
-            in which path removal fails.
-            """
-            raise OSError()
+        self.parseOptions([
+            '--reporter', 'capturing',
+            '--debugger', 'pdb',
+            '--debug', 'twisted.trial.test.sample',
+        ])
 
-        # Patch stdout so we can check the print statements in _removeSafely
-        out = StringIO.StringIO()
-        self.patch(sys, 'stdout', out)
+        self.runcall_called = False
+        def runcall(pdb, suite, result):
+            self.runcall_called = True
+        self.patch(pdb.Pdb, "runcall", runcall)
 
-        # Set up a trial directory with a _trial_marker
-        directory = self.mktemp()
-        os.mkdir(directory)
-        dirPath = filepath.FilePath(directory)
-        dirPath.child('_trial_marker').touch()
-        # Ensure that path.remove() raises an OSError
-        dirPath.remove = dummyRemove
+        self.runSampleSuite(self.getRunner())
 
-        util._removeSafely(dirPath)
-        self.assertIn("could not remove FilePath", out.getvalue())
+        self.assertTrue(self.runcall_called)
 
 
-    def test_removeSafelyRemoveFailsMoveFails(self):
+    cdebugger = CapturingDebugger()
+
+
+    def test_runnerDebugger(self):
         """
-        If an L{OSError} is raised while removing a path in
-        L{runner._removeSafely}, an attempt is made to move the path to a new
-        name. If that attempt fails, the L{OSError} is re-raised.
+        Trial uses specified debugger if the debugger is available.
         """
-        def dummyRemove():
-            """
-            Raise an C{OSError} to emulate the branch of L{runner._removeSafely}
-            in which path removal fails.
-            """
-            raise OSError("path removal failed")
+        self.parseOptions([
+            '--reporter', 'capturing',
+            '--debugger',
+            'twisted.trial.test.test_runner.TestRunner.cdebugger',
+            '--debug',
+            'twisted.trial.test.sample',
+        ])
+        my_runner = self.getRunner()
+        result = self.runSampleSuite(my_runner)
+        self.assertEqual(self.standardReport, result._calls)
+        self.assertEqual(['runcall'], my_runner.debugger._calls)
 
-        def dummyMoveTo(path):
-            """
-            Raise an C{OSError} to emulate the branch of L{runner._removeSafely}
-            in which path movement fails.
-            """
-            raise OSError("path movement failed")
 
-        # Patch stdout so we can check the print statements in _removeSafely
-        out = StringIO.StringIO()
-        self.patch(sys, 'stdout', out)
-
-        # Set up a trial directory with a _trial_marker
-        directory = self.mktemp()
-        os.mkdir(directory)
-        dirPath = filepath.FilePath(directory)
-        dirPath.child('_trial_marker').touch()
-
-        # Ensure that path.remove() and path.moveTo() both raise OSErrors
-        dirPath.remove = dummyRemove
-        dirPath.moveTo = dummyMoveTo
-
-        error = self.assertRaises(OSError, util._removeSafely, dirPath)
-        self.assertEqual(str(error), "path movement failed")
-        self.assertIn("could not remove FilePath", out.getvalue())
+    def test_exitfirst(self):
+        """
+        If trial was passed the C{--exitfirst} option, the constructed test
+        result object is wrapped with L{reporter._ExitWrapper}.
+        """
+        self.parseOptions(["--exitfirst"])
+        runner = self.getRunner()
+        result = runner._makeResult()
+        self.assertIsInstance(result, reporter._ExitWrapper)
 
 
 
-class TestTrialSuite(unittest.TestCase):
+class TestTrialSuite(unittest.SynchronousTestCase):
 
     def test_imports(self):
         # FIXME, HTF do you test the reactor can be cleaned up ?!!!
@@ -585,10 +583,10 @@ class TestTrialSuite(unittest.TestCase):
 
 
 
-class TestUntilFailure(unittest.TestCase):
-    class FailAfter(unittest.TestCase):
+class TestUntilFailure(unittest.SynchronousTestCase):
+    class FailAfter(pyunit.TestCase):
         """
-        A test  case that fails when run 3 times in a row.
+        A test case that fails when run 3 times in a row.
         """
         count = []
         def test_foo(self):
@@ -693,7 +691,7 @@ class BreakingSuite(runner.TestSuite):
 
 
 
-class TestLoggedErrors(unittest.TestCase):
+class TestLoggedErrors(unittest.SynchronousTestCase):
     """
     It is possible for an error generated by a test to be logged I{outside} of
     any test. The log observers constructed by L{TestCase} won't catch these
@@ -727,7 +725,7 @@ class TestLoggedErrors(unittest.TestCase):
 
 
 
-class TestTestHolder(unittest.TestCase):
+class TestTestHolder(unittest.SynchronousTestCase):
 
     def setUp(self):
         self.description = "description"
@@ -880,11 +878,11 @@ class ExcInfoHoldingErrorHolderTests(ErrorHolderTestsMixin, TestTestHolder):
 
 
 
-class TestMalformedMethod(unittest.TestCase):
+class TestMalformedMethod(unittest.SynchronousTestCase):
     """
     Test that trial manages when test methods don't have correct signatures.
     """
-    class ContainMalformed(unittest.TestCase):
+    class ContainMalformed(pyunit.TestCase):
         """
         This TestCase holds malformed test methods that trial should handle.
         """
@@ -926,7 +924,7 @@ class TestMalformedMethod(unittest.TestCase):
 
 
 
-class DestructiveTestSuiteTestCase(unittest.TestCase):
+class DestructiveTestSuiteTestCase(unittest.SynchronousTestCase):
     """
     Test for L{runner.DestructiveTestSuite}.
     """
@@ -936,7 +934,7 @@ class DestructiveTestSuiteTestCase(unittest.TestCase):
         Thes destructive test suite should run the tests normally.
         """
         called = []
-        class MockTest(unittest.TestCase):
+        class MockTest(pyunit.TestCase):
             def test_foo(test):
                 called.append(True)
         test = MockTest('test_foo')
@@ -977,7 +975,7 @@ class DestructiveTestSuiteTestCase(unittest.TestCase):
         Checks that the test suite cleanups its tests during the run, so that
         it ends empty.
         """
-        class MockTest(unittest.TestCase):
+        class MockTest(pyunit.TestCase):
             def test_foo(test):
                 pass
         test = MockTest('test_foo')
@@ -989,7 +987,7 @@ class DestructiveTestSuiteTestCase(unittest.TestCase):
 
 
 
-class TestRunnerDeprecation(unittest.TestCase):
+class TestRunnerDeprecation(unittest.SynchronousTestCase):
 
     class FakeReporter(reporter.Reporter):
         """
@@ -1032,3 +1030,22 @@ class TestRunnerDeprecation(unittest.TestCase):
             "%s should implement done() but doesn't. Falling back to "
             "printErrors() and friends." % reflect.qual(result.__class__),
             __file__, f)
+
+
+
+class DryRunVisitorDeprecation(unittest.TestCase):
+    """
+    Test for L{DryRunVisitor}
+    """
+
+    def test_deprecated(self):
+        """
+        L{DryRunVisitor} is deprecated.
+        """
+        runner.DryRunVisitor
+        warningsShown = self.flushWarnings([self.test_deprecated])
+        self.assertEqual(1, len(warningsShown))
+        self.assertEqual(
+                "twisted.trial.runner.DryRunVisitor was deprecated in "
+                "Twisted 13.0.0: Trial no longer has support for visitors",
+                warningsShown[0]['message'])

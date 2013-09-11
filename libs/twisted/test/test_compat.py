@@ -6,101 +6,78 @@
 Tests for L{twisted.python.compat}.
 """
 
-import types, socket
+from __future__ import division, absolute_import
+
+import socket, sys, traceback
 
 from twisted.trial import unittest
 
-from twisted.python.compat import set, frozenset, reduce
+from twisted.python.compat import reduce, execfile, _PY3
+from twisted.python.compat import comparable, cmp, nativeString, networkString
+from twisted.python.compat import unicode as unicodeCompat, lazyByteSlice
+from twisted.python.compat import reraise, NativeStringIO, iterbytes, intToBytes
+from twisted.python.filepath import FilePath
+
+
+class CompatTestCase(unittest.SynchronousTestCase):
+    """
+    Various utility functions in C{twisted.python.compat} provide same
+    functionality as modern Python variants.
+    """
+
+    def test_set(self):
+        """
+        L{set} should behave like the expected set interface.
+        """
+        a = set()
+        a.add('b')
+        a.add('c')
+        a.add('a')
+        b = list(a)
+        b.sort()
+        self.assertEqual(b, ['a', 'b', 'c'])
+        a.remove('b')
+        b = list(a)
+        b.sort()
+        self.assertEqual(b, ['a', 'c'])
+
+        a.discard('d')
+
+        b = set(['r', 's'])
+        d = a.union(b)
+        b = list(d)
+        b.sort()
+        self.assertEqual(b, ['a', 'c', 'r', 's'])
+
+
+    def test_frozenset(self):
+        """
+        L{frozenset} should behave like the expected frozenset interface.
+        """
+        a = frozenset(['a', 'b'])
+        self.assertRaises(AttributeError, getattr, a, "add")
+        self.assertEqual(sorted(a), ['a', 'b'])
+
+        b = frozenset(['r', 's'])
+        d = a.union(b)
+        b = list(d)
+        b.sort()
+        self.assertEqual(b, ['a', 'b', 'r', 's'])
+
+
+    def test_reduce(self):
+        """
+        L{reduce} should behave like the builtin reduce.
+        """
+        self.assertEqual(15, reduce(lambda x, y: x + y, [1, 2, 3, 4, 5]))
+        self.assertEqual(16, reduce(lambda x, y: x + y, [1, 2, 3, 4, 5], 1))
 
 
 
-class IterableCounter:
-    def __init__(self, lim=0):
-        self.lim = lim
-        self.i = -1
-
-    def __iter__(self):
-        return self
-
-    def next(self):
-        self.i += 1
-        if self.i >= self.lim:
-            raise StopIteration
-        return self.i
-
-class CompatTestCase(unittest.TestCase):
-    def testDict(self):
-        d1 = {'a': 'b'}
-        d2 = dict(d1)
-        self.assertEqual(d1, d2)
-        d1['a'] = 'c'
-        self.assertNotEquals(d1, d2)
-        d2 = dict(d1.items())
-        self.assertEqual(d1, d2)
-
-    def testBool(self):
-        self.assertEqual(bool('hi'), True)
-        self.assertEqual(bool(True), True)
-        self.assertEqual(bool(''), False)
-        self.assertEqual(bool(False), False)
-
-    def testIteration(self):
-        lst1, lst2 = range(10), []
-
-        for i in iter(lst1):
-            lst2.append(i)
-        self.assertEqual(lst1, lst2)
-        del lst2[:]
-
-        try:
-            iterable = iter(lst1)
-            while 1:
-                lst2.append(iterable.next())
-        except StopIteration:
-            pass
-        self.assertEqual(lst1, lst2)
-        del lst2[:]
-
-        for i in iter(IterableCounter(10)):
-            lst2.append(i)
-        self.assertEqual(lst1, lst2)
-        del lst2[:]
-
-        try:
-            iterable = iter(IterableCounter(10))
-            while 1:
-                lst2.append(iterable.next())
-        except StopIteration:
-            pass
-        self.assertEqual(lst1, lst2)
-        del lst2[:]
-
-        for i in iter(IterableCounter(20).next, 10):
-            lst2.append(i)
-        self.assertEqual(lst1, lst2)
-
-    def testIsinstance(self):
-        self.assert_(isinstance(u'hi', types.StringTypes))
-        self.assert_(isinstance(self, unittest.TestCase))
-        # I'm pretty sure it's impossible to implement this
-        # without replacing isinstance on 2.2 as well :(
-        # self.assert_(isinstance({}, dict))
-
-    def testStrip(self):
-        self.assertEqual(' x '.lstrip(' '), 'x ')
-        self.assertEqual(' x x'.lstrip(' '), 'x x')
-        self.assertEqual(' x '.rstrip(' '), ' x')
-        self.assertEqual('x x '.rstrip(' '), 'x x')
-
-        self.assertEqual('\t x '.lstrip('\t '), 'x ')
-        self.assertEqual(' \tx x'.lstrip('\t '), 'x x')
-        self.assertEqual(' x\t '.rstrip(' \t'), ' x')
-        self.assertEqual('x x \t'.rstrip(' \t'), 'x x')
-
-        self.assertEqual('\t x '.strip('\t '), 'x')
-        self.assertEqual(' \tx x'.strip('\t '), 'x x')
-        self.assertEqual(' x\t '.strip(' \t'), 'x')
-        self.assertEqual('x x \t'.strip(' \t'), 'x x')
+class IPv6Tests(unittest.SynchronousTestCase):
+    """
+    C{inet_pton} and C{inet_ntop} implementations support IPv6.
+    """
 
     def testNToP(self):
         from twisted.python.compat import inet_ntop
@@ -151,49 +128,496 @@ class CompatTestCase(unittest.TestCase):
                         '1.2.3.4']:
             self.assertRaises(ValueError, f, badaddr)
 
-    def test_set(self):
+if _PY3:
+    IPv6Tests.skip = "These tests are only relevant to old versions of Python"
+
+
+
+class ExecfileCompatTestCase(unittest.SynchronousTestCase):
+    """
+    Tests for the Python 3-friendly L{execfile} implementation.
+    """
+
+    def writeScript(self, content):
         """
-        L{set} should behave like the expected set interface.
+        Write L{content} to a new temporary file, returning the L{FilePath}
+        for the new file.
         """
-        a = set()
-        a.add('b')
-        a.add('c')
-        a.add('a')
-        b = list(a)
-        b.sort()
-        self.assertEqual(b, ['a', 'b', 'c'])
-        a.remove('b')
-        b = list(a)
-        b.sort()
-        self.assertEqual(b, ['a', 'c'])
-
-        a.discard('d')
-
-        b = set(['r', 's'])
-        d = a.union(b)
-        b = list(d)
-        b.sort()
-        self.assertEqual(b, ['a', 'c', 'r', 's'])
+        path = self.mktemp()
+        with open(path, "wb") as f:
+            f.write(content.encode("ascii"))
+        return FilePath(path.encode("utf-8"))
 
 
-    def test_frozenset(self):
+    def test_execfileGlobals(self):
         """
-        L{frozenset} should behave like the expected frozenset interface.
+        L{execfile} executes the specified file in the given global namespace.
         """
-        a = frozenset(['a', 'b'])
-        self.assertRaises(AttributeError, getattr, a, "add")
-        self.assertEqual(list(a), ['a', 'b'])
-
-        b = frozenset(['r', 's'])
-        d = a.union(b)
-        b = list(d)
-        b.sort()
-        self.assertEqual(b, ['a', 'b', 'r', 's'])
+        script = self.writeScript(u"foo += 1\n")
+        globalNamespace = {"foo": 1}
+        execfile(script.path, globalNamespace)
+        self.assertEqual(2, globalNamespace["foo"])
 
 
-    def test_reduce(self):
+    def test_execfileGlobalsAndLocals(self):
         """
-        L{reduce} should behave like the builtin reduce.
+        L{execfile} executes the specified file in the given global and local
+        namespaces.
         """
-        self.assertEqual(15, reduce(lambda x, y: x + y, [1, 2, 3, 4, 5]))
-        self.assertEqual(16, reduce(lambda x, y: x + y, [1, 2, 3, 4, 5], 1))
+        script = self.writeScript(u"foo += 1\n")
+        globalNamespace = {"foo": 10}
+        localNamespace = {"foo": 20}
+        execfile(script.path, globalNamespace, localNamespace)
+        self.assertEqual(10, globalNamespace["foo"])
+        self.assertEqual(21, localNamespace["foo"])
+
+
+    def test_execfileUniversalNewlines(self):
+        """
+        L{execfile} reads in the specified file using universal newlines so
+        that scripts written on one platform will work on another.
+        """
+        for lineEnding in u"\n", u"\r", u"\r\n":
+            script = self.writeScript(u"foo = 'okay'" + lineEnding)
+            globalNamespace = {"foo": None}
+            execfile(script.path, globalNamespace)
+            self.assertEqual("okay", globalNamespace["foo"])
+
+
+
+class PY3Tests(unittest.SynchronousTestCase):
+    """
+    Identification of Python 2 vs. Python 3.
+    """
+
+    def test_python2(self):
+        """
+        On Python 2, C{_PY3} is False.
+        """
+        if sys.version.startswith("2."):
+            self.assertFalse(_PY3)
+
+
+    def test_python3(self):
+        """
+        On Python 3, C{_PY3} is True.
+        """
+        if sys.version.startswith("3."):
+            self.assertTrue(_PY3)
+
+
+
+@comparable
+class Comparable(object):
+    """
+    Objects that can be compared to each other, but not others.
+    """
+    def __init__(self, value):
+        self.value = value
+
+
+    def __cmp__(self, other):
+        if not isinstance(other, Comparable):
+            return NotImplemented
+        return cmp(self.value, other.value)
+
+
+
+class ComparableTests(unittest.SynchronousTestCase):
+    """
+    L{comparable} decorated classes emulate Python 2's C{__cmp__} semantics.
+    """
+
+    def test_equality(self):
+        """
+        Instances of a class that is decorated by C{comparable} support
+        equality comparisons.
+        """
+        # Make explicitly sure we're using ==:
+        self.assertTrue(Comparable(1) == Comparable(1))
+        self.assertFalse(Comparable(2) == Comparable(1))
+
+
+    def test_nonEquality(self):
+        """
+        Instances of a class that is decorated by C{comparable} support
+        inequality comparisons.
+        """
+        # Make explicitly sure we're using !=:
+        self.assertFalse(Comparable(1) != Comparable(1))
+        self.assertTrue(Comparable(2) != Comparable(1))
+
+
+    def test_greaterThan(self):
+        """
+        Instances of a class that is decorated by C{comparable} support
+        greater-than comparisons.
+        """
+        self.assertTrue(Comparable(2) > Comparable(1))
+        self.assertFalse(Comparable(0) > Comparable(3))
+
+
+    def test_greaterThanOrEqual(self):
+        """
+        Instances of a class that is decorated by C{comparable} support
+        greater-than-or-equal comparisons.
+        """
+        self.assertTrue(Comparable(1) >= Comparable(1))
+        self.assertTrue(Comparable(2) >= Comparable(1))
+        self.assertFalse(Comparable(0) >= Comparable(3))
+
+
+    def test_lessThan(self):
+        """
+        Instances of a class that is decorated by C{comparable} support
+        less-than comparisons.
+        """
+        self.assertTrue(Comparable(0) < Comparable(3))
+        self.assertFalse(Comparable(2) < Comparable(0))
+
+
+    def test_lessThanOrEqual(self):
+        """
+        Instances of a class that is decorated by C{comparable} support
+        less-than-or-equal comparisons.
+        """
+        self.assertTrue(Comparable(3) <= Comparable(3))
+        self.assertTrue(Comparable(0) <= Comparable(3))
+        self.assertFalse(Comparable(2) <= Comparable(0))
+
+
+
+class Python3ComparableTests(unittest.SynchronousTestCase):
+    """
+    Python 3-specific functionality of C{comparable}.
+    """
+
+    def test_notImplementedEquals(self):
+        """
+        Instances of a class that is decorated by C{comparable} support
+        returning C{NotImplemented} from C{__eq__} if it is returned by the
+        underlying C{__cmp__} call.
+        """
+        self.assertEqual(Comparable(1).__eq__(object()), NotImplemented)
+
+
+    def test_notImplementedNotEquals(self):
+        """
+        Instances of a class that is decorated by C{comparable} support
+        returning C{NotImplemented} from C{__ne__} if it is returned by the
+        underlying C{__cmp__} call.
+        """
+        self.assertEqual(Comparable(1).__ne__(object()), NotImplemented)
+
+
+    def test_notImplementedGreaterThan(self):
+        """
+        Instances of a class that is decorated by C{comparable} support
+        returning C{NotImplemented} from C{__gt__} if it is returned by the
+        underlying C{__cmp__} call.
+        """
+        self.assertEqual(Comparable(1).__gt__(object()), NotImplemented)
+
+
+    def test_notImplementedLessThan(self):
+        """
+        Instances of a class that is decorated by C{comparable} support
+        returning C{NotImplemented} from C{__lt__} if it is returned by the
+        underlying C{__cmp__} call.
+        """
+        self.assertEqual(Comparable(1).__lt__(object()), NotImplemented)
+
+
+    def test_notImplementedGreaterThanEquals(self):
+        """
+        Instances of a class that is decorated by C{comparable} support
+        returning C{NotImplemented} from C{__ge__} if it is returned by the
+        underlying C{__cmp__} call.
+        """
+        self.assertEqual(Comparable(1).__ge__(object()), NotImplemented)
+
+
+    def test_notImplementedLessThanEquals(self):
+        """
+        Instances of a class that is decorated by C{comparable} support
+        returning C{NotImplemented} from C{__le__} if it is returned by the
+        underlying C{__cmp__} call.
+        """
+        self.assertEqual(Comparable(1).__le__(object()), NotImplemented)
+
+if not _PY3:
+    # On Python 2, we just use __cmp__ directly, so checking detailed
+    # comparison methods doesn't makes sense.
+    Python3ComparableTests.skip = "Python 3 only."
+
+
+
+class CmpTests(unittest.SynchronousTestCase):
+    """
+    L{cmp} should behave like the built-in Python 2 C{cmp}.
+    """
+
+    def test_equals(self):
+        """
+        L{cmp} returns 0 for equal objects.
+        """
+        self.assertEqual(cmp(u"a", u"a"), 0)
+        self.assertEqual(cmp(1, 1), 0)
+        self.assertEqual(cmp([1], [1]), 0)
+
+
+    def test_greaterThan(self):
+        """
+        L{cmp} returns 1 if its first argument is bigger than its second.
+        """
+        self.assertEqual(cmp(4, 0), 1)
+        self.assertEqual(cmp(b"z", b"a"), 1)
+
+
+    def test_lessThan(self):
+        """
+        L{cmp} returns -1 if its first argument is smaller than its second.
+        """
+        self.assertEqual(cmp(0.1, 2.3), -1)
+        self.assertEqual(cmp(b"a", b"d"), -1)
+
+
+
+class StringTests(unittest.SynchronousTestCase):
+    """
+    Compatibility functions and types for strings.
+    """
+
+    def assertNativeString(self, original, expected):
+        """
+        Raise an exception indicating a failed test if the output of
+        C{nativeString(original)} is unequal to the expected string, or is not
+        a native string.
+        """
+        self.assertEqual(nativeString(original), expected)
+        self.assertIsInstance(nativeString(original), str)
+
+
+    def test_nonASCIIBytesToString(self):
+        """
+        C{nativeString} raises a C{UnicodeError} if input bytes are not ASCII
+        decodable.
+        """
+        self.assertRaises(UnicodeError, nativeString, b"\xFF")
+
+
+    def test_nonASCIIUnicodeToString(self):
+        """
+        C{nativeString} raises a C{UnicodeError} if input Unicode is not ASCII
+        encodable.
+        """
+        self.assertRaises(UnicodeError, nativeString, u"\u1234")
+
+
+    def test_bytesToString(self):
+        """
+        C{nativeString} converts bytes to the native string format, assuming
+        an ASCII encoding if applicable.
+        """
+        self.assertNativeString(b"hello", "hello")
+
+
+    def test_unicodeToString(self):
+        """
+        C{nativeString} converts unicode to the native string format, assuming
+        an ASCII encoding if applicable.
+        """
+        self.assertNativeString(u"Good day", "Good day")
+
+
+    def test_stringToString(self):
+        """
+        C{nativeString} leaves native strings as native strings.
+        """
+        self.assertNativeString("Hello!", "Hello!")
+
+
+    def test_unexpectedType(self):
+        """
+        C{nativeString} raises a C{TypeError} if given an object that is not a
+        string of some sort.
+        """
+        self.assertRaises(TypeError, nativeString, 1)
+
+
+    def test_unicode(self):
+        """
+        C{compat.unicode} is C{str} on Python 3, C{unicode} on Python 2.
+        """
+        if _PY3:
+            expected = str
+        else:
+            expected = unicode
+        self.assertTrue(unicodeCompat is expected)
+
+
+    def test_nativeStringIO(self):
+        """
+        L{NativeStringIO} is a file-like object that stores native strings in
+        memory.
+        """
+        f = NativeStringIO()
+        f.write("hello")
+        f.write(" there")
+        self.assertEqual(f.getvalue(), "hello there")
+
+
+
+class NetworkStringTests(unittest.SynchronousTestCase):
+    """
+    Tests for L{networkString}.
+    """
+    def test_bytes(self):
+        """
+        L{networkString} returns a C{bytes} object passed to it unmodified.
+        """
+        self.assertEqual(b"foo", networkString(b"foo"))
+
+
+    def test_bytesOutOfRange(self):
+        """
+        L{networkString} raises C{UnicodeError} if passed a C{bytes} instance
+        containing bytes not used by ASCII.
+        """
+        self.assertRaises(
+            UnicodeError, networkString, u"\N{SNOWMAN}".encode('utf-8'))
+    if _PY3:
+        test_bytes.skip = test_bytesOutOfRange.skip = (
+            "Bytes behavior of networkString only provided on Python 2.")
+
+    def test_unicode(self):
+        """
+        L{networkString} returns a C{unicode} object passed to it encoded into a
+        C{bytes} instance.
+        """
+        self.assertEqual(b"foo", networkString(u"foo"))
+
+
+    def test_unicodeOutOfRange(self):
+        """
+        L{networkString} raises L{UnicodeError} if passed a C{unicode} instance
+        containing characters not encodable in ASCII.
+        """
+        self.assertRaises(
+            UnicodeError, networkString, u"\N{SNOWMAN}")
+    if not _PY3:
+        test_unicode.skip = test_unicodeOutOfRange.skip = (
+            "Unicode behavior of networkString only provided on Python 3.")
+
+
+    def test_nonString(self):
+        """
+        L{networkString} raises L{TypeError} if passed a non-string object or
+        the wrong type of string object.
+        """
+        self.assertRaises(TypeError, networkString, object())
+        if _PY3:
+            self.assertRaises(TypeError, networkString, b"bytes")
+        else:
+            self.assertRaises(TypeError, networkString, u"text")
+
+
+
+class ReraiseTests(unittest.SynchronousTestCase):
+    """
+    L{reraise} re-raises exceptions on both Python 2 and Python 3.
+    """
+
+    def test_reraiseWithNone(self):
+        """
+        Calling L{reraise} with an exception instance and a traceback of
+        C{None} re-raises it with a new traceback.
+        """
+        try:
+            1/0
+        except:
+            typ, value, tb = sys.exc_info()
+        try:
+            reraise(value, None)
+        except:
+            typ2, value2, tb2 = sys.exc_info()
+            self.assertEqual(typ2, ZeroDivisionError)
+            self.assertTrue(value is value2)
+            self.assertNotEqual(traceback.format_tb(tb)[-1],
+                                traceback.format_tb(tb2)[-1])
+        else:
+            self.fail("The exception was not raised.")
+
+
+    def test_reraiseWithTraceback(self):
+        """
+        Calling L{reraise} with an exception instance and a traceback
+        re-raises the exception with the given traceback.
+        """
+        try:
+            1/0
+        except:
+            typ, value, tb = sys.exc_info()
+        try:
+            reraise(value, tb)
+        except:
+            typ2, value2, tb2 = sys.exc_info()
+            self.assertEqual(typ2, ZeroDivisionError)
+            self.assertTrue(value is value2)
+            self.assertEqual(traceback.format_tb(tb)[-1],
+                             traceback.format_tb(tb2)[-1])
+        else:
+            self.fail("The exception was not raised.")
+
+
+
+class Python3BytesTests(unittest.SynchronousTestCase):
+    """
+    Tests for L{iterbytes}, L{intToBytes}, L{lazyByteSlice}.
+    """
+
+    def test_iteration(self):
+        """
+        When L{iterbytes} is called with a bytestring, the returned object
+        can be iterated over, resulting in the individual bytes of the
+        bytestring.
+        """
+        input = b"abcd"
+        result = list(iterbytes(input))
+        self.assertEqual(result, [b'a', b'b', b'c', b'd'])
+
+
+    def test_intToBytes(self):
+        """
+        When L{intToBytes} is called with an integer, the result is an
+        ASCII-encoded string representation of the number.
+        """
+        self.assertEqual(intToBytes(213), b"213")
+
+
+    def test_lazyByteSliceNoOffset(self):
+        """
+        L{lazyByteSlice} called with some bytes returns a semantically equal version
+        of these bytes.
+        """
+        data = b'123XYZ'
+        self.assertEqual(bytes(lazyByteSlice(data)), data)
+
+
+    def test_lazyByteSliceOffset(self):
+        """
+        L{lazyByteSlice} called with some bytes and an offset returns a semantically
+        equal version of these bytes starting at the given offset.
+        """
+        data = b'123XYZ'
+        self.assertEqual(bytes(lazyByteSlice(data, 2)), data[2:])
+
+
+    def test_lazyByteSliceOffsetAndLength(self):
+        """
+        L{lazyByteSlice} called with some bytes, an offset and a length returns a
+        semantically equal version of these bytes starting at the given
+        offset, up to the given length.
+        """
+        data = b'123XYZ'
+        self.assertEqual(bytes(lazyByteSlice(data, 2, 3)), data[2:5])

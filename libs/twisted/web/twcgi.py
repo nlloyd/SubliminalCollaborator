@@ -118,7 +118,7 @@ class CGIScript(resource.Resource):
             env[envname] = header
         # Propogate our environment
         for key, value in os.environ.items():
-            if not env.has_key(key):
+            if key not in env:
                 env[key] = value
         # And they're off!
         self.runProcess(env, request, qargs)
@@ -254,7 +254,7 @@ class CGIProcessProtocol(protocol.ProcessProtocol, pb.Viewable):
                 headerend, delimiter = headerEnds[0]
                 self.headertext = text[:headerend]
                 # This is a final version of the header text.
-                linebreak = delimiter[:len(delimiter)/2]
+                linebreak = delimiter[:len(delimiter)//2]
                 headers = self.headertext.split(linebreak)
                 for header in headers:
                     br = header.find(': ')

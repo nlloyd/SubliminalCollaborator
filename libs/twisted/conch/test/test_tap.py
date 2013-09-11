@@ -24,7 +24,6 @@ if Crypto and pyasn1 and unix:
     from twisted.conch import tap
     from twisted.conch.openssh_compat.factory import OpenSSHFactory
 
-from twisted.python.compat import set
 from twisted.application.internet import StreamServerEndpointService
 from twisted.cred import error
 from twisted.cred.credentials import IPluggableAuthenticationModules
@@ -106,6 +105,17 @@ class MakeServiceTest(TestCase):
         """
         self.options.parseOptions(['--auth', 'file:' + self.filename])
         self.assertEqual(len(self.options['credCheckers']), 1)
+
+
+    def test_multipleAuthAdded(self):
+        """
+        Multiple C{--auth} command-line options will add all checkers specified
+        to the list ofcheckers, and there should only be the specified auth
+        checkers (no default checkers).
+        """
+        self.options.parseOptions(['--auth', 'file:' + self.filename,
+                                   '--auth', 'memory:testuser:testpassword'])
+        self.assertEqual(len(self.options['credCheckers']), 2)
 
 
     def test_authFailure(self):

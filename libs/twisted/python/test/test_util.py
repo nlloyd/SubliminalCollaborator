@@ -6,23 +6,33 @@
 Tests for L{twisted.python.util}.
 """
 
+from __future__ import division, absolute_import
+
 import os.path, sys
-import shutil, errno
+import shutil, errno, warnings
 try:
     import pwd, grp
 except ImportError:
     pwd = grp = None
 
 from twisted.trial import unittest
+from twisted.trial.util import suppress as SUPPRESS
 
+from twisted.python.compat import _PY3
 from twisted.python import util
+from twisted.python.versions import Version
 from twisted.internet import reactor
 from twisted.internet.interfaces import IReactorProcess
 from twisted.internet.protocol import ProcessProtocol
 from twisted.internet.defer import Deferred
 from twisted.internet.error import ProcessDone
 
-from twisted.test.test_process import MockOS
+if _PY3:
+    MockOS = None
+    from twisted.python.deprecate import _fullyQualifiedName as fullyQualifiedName
+else:
+    from twisted.test.test_process import MockOS
+    from twisted.python.reflect import fullyQualifiedName
 
 
 
@@ -41,42 +51,7 @@ class UtilTestCase(unittest.TestCase):
         except ZeroDivisionError:
             pass
         else:
-            raise unittest.FailTest, "util.raises didn't raise when it should have"
-
-    def testUninterruptably(self):
-        def f(a, b):
-            self.calls += 1
-            exc = self.exceptions.pop()
-            if exc is not None:
-                raise exc(errno.EINTR, "Interrupted system call!")
-            return a + b
-
-        self.exceptions = [None]
-        self.calls = 0
-        self.assertEqual(util.untilConcludes(f, 1, 2), 3)
-        self.assertEqual(self.calls, 1)
-
-        self.exceptions = [None, OSError, IOError]
-        self.calls = 0
-        self.assertEqual(util.untilConcludes(f, 2, 3), 5)
-        self.assertEqual(self.calls, 3)
-
-    def testNameToLabel(self):
-        """
-        Test the various kinds of inputs L{nameToLabel} supports.
-        """
-        nameData = [
-            ('f', 'F'),
-            ('fo', 'Fo'),
-            ('foo', 'Foo'),
-            ('fooBar', 'Foo Bar'),
-            ('fooBarBaz', 'Foo Bar Baz'),
-            ]
-        for inp, out in nameData:
-            got = util.nameToLabel(inp)
-            self.assertEqual(
-                got, out,
-                "nameToLabel(%r) == %r != %r" % (inp, got, out))
+            raise unittest.FailTest("util.raises didn't raise when it should have")
 
 
     def test_uidFromNumericString(self):
@@ -117,6 +92,60 @@ class UtilTestCase(unittest.TestCase):
     if grp is None:
         test_gidFromGroupnameString.skip = (
             "Group Name/GID conversion requires the grp module.")
+
+
+
+class NameToLabelTests(unittest.TestCase):
+    """
+    Tests for L{nameToLabel}.
+    """
+
+    def test_nameToLabel(self):
+        """
+        Test the various kinds of inputs L{nameToLabel} supports.
+        """
+        nameData = [
+            ('f', 'F'),
+            ('fo', 'Fo'),
+            ('foo', 'Foo'),
+            ('fooBar', 'Foo Bar'),
+            ('fooBarBaz', 'Foo Bar Baz'),
+            ]
+        for inp, out in nameData:
+            got = util.nameToLabel(inp)
+            self.assertEqual(
+                got, out,
+                "nameToLabel(%r) == %r != %r" % (inp, got, out))
+
+
+
+class UntilConcludesTests(unittest.TestCase):
+    """
+    Tests for L{untilConcludes}, an C{EINTR} helper.
+    """
+    def test_uninterruptably(self):
+        """
+        L{untilConcludes} calls the function passed to it until the function
+        does not raise either L{OSError} or L{IOError} with C{errno} of
+        C{EINTR}.  It otherwise completes with the same result as the function
+        passed to it.
+        """
+        def f(a, b):
+            self.calls += 1
+            exc = self.exceptions.pop()
+            if exc is not None:
+                raise exc(errno.EINTR, "Interrupted system call!")
+            return a + b
+
+        self.exceptions = [None]
+        self.calls = 0
+        self.assertEqual(util.untilConcludes(f, 1, 2), 3)
+        self.assertEqual(self.calls, 1)
+
+        self.exceptions = [None, OSError, IOError]
+        self.calls = 0
+        self.assertEqual(util.untilConcludes(f, 2, 3), 5)
+        self.assertEqual(self.calls, 3)
 
 
 
@@ -212,7 +241,8 @@ class TestMergeFunctionMetadata(unittest.TestCase):
         def foo():
             return foo_object
 
-        def bar(x, y, (a, b), c=10, *d, **e):
+        def bar(x, y, ab, c=10, *d, **e):
+            (a, b) = ab
             return bar_object
 
         baz = util.mergeFunctionMetadata(foo, bar)
@@ -318,35 +348,72 @@ class OrderedDictTest(unittest.TestCase):
         d = util.OrderedDict(((1,1),(3,3),(2,2),(0,0)))
         self.assertEqual(repr(d), "{1: 1, 3: 3, 2: 2, 0: 0}")
 
+
+
 class InsensitiveDictTest(unittest.TestCase):
-    def testPreserve(self):
-        InsensitiveDict=util.InsensitiveDict
-        dct=InsensitiveDict({'Foo':'bar', 1:2, 'fnz':{1:2}}, preserve=1)
+    """
+    Tests for L{util.InsensitiveDict}.
+    """
+
+    def test_preserve(self):
+        """
+        L{util.InsensitiveDict} preserves the case of keys if constructed with
+        C{preserve=True}.
+        """
+        dct = util.InsensitiveDict({'Foo':'bar', 1:2, 'fnz':{1:2}}, preserve=1)
         self.assertEqual(dct['fnz'], {1:2})
         self.assertEqual(dct['foo'], 'bar')
         self.assertEqual(dct.copy(), dct)
         self.assertEqual(dct['foo'], dct.get('Foo'))
-        assert 1 in dct and 'foo' in dct
+        self.assertIn(1, dct)
+        self.assertIn('foo', dct)
+        # Make eval() work, urrrrgh:
+        InsensitiveDict = util.InsensitiveDict
         self.assertEqual(eval(repr(dct)), dct)
         keys=['Foo', 'fnz', 1]
         for x in keys:
-            assert x in dct.keys()
-            assert (x, dct[x]) in dct.items()
+            self.assertIn(x, dct.keys())
+            self.assertIn((x, dct[x]), dct.items())
         self.assertEqual(len(keys), len(dct))
         del dct[1]
         del dct['foo']
+        self.assertEqual(dct.keys(), ['fnz'])
 
-    def testNoPreserve(self):
-        InsensitiveDict=util.InsensitiveDict
-        dct=InsensitiveDict({'Foo':'bar', 1:2, 'fnz':{1:2}}, preserve=0)
+
+    def test_noPreserve(self):
+        """
+        L{util.InsensitiveDict} does not preserves the case of keys if
+        constructed with C{preserve=False}.
+        """
+        dct = util.InsensitiveDict({'Foo':'bar', 1:2, 'fnz':{1:2}}, preserve=0)
         keys=['foo', 'fnz', 1]
         for x in keys:
-            assert x in dct.keys()
-            assert (x, dct[x]) in dct.items()
+            self.assertIn(x, dct.keys())
+            self.assertIn((x, dct[x]), dct.items())
         self.assertEqual(len(keys), len(dct))
         del dct[1]
         del dct['foo']
+        self.assertEqual(dct.keys(), ['fnz'])
 
+
+    def test_unicode(self):
+        """
+        Unicode keys are case insensitive.
+        """
+        d = util.InsensitiveDict(preserve=False)
+        d[u"Foo"] = 1
+        self.assertEqual(d[u"FOO"], 1)
+        self.assertEqual(d.keys(), [u"foo"])
+
+
+    def test_bytes(self):
+        """
+        Bytes keys are case insensitive.
+        """
+        d = util.InsensitiveDict(preserve=False)
+        d[b"Foo"] = 1
+        self.assertEqual(d[b"FOO"], 1)
+        self.assertEqual(d.keys(), [b"foo"])
 
 
 
@@ -390,7 +457,8 @@ class GetPasswordTest(unittest.TestCase):
               'sys.stdout.flush()\n')],
             env={'PYTHONPATH': os.pathsep.join(sys.path)})
 
-        def processFinished((reason, output)):
+        def processFinished(result):
+            (reason, output) = result
             reason.trap(ProcessDone)
             self.assertIn((1, 'secret'), output)
 
@@ -777,10 +845,32 @@ class RunAsEffectiveUserTests(unittest.TestCase):
 
 
 
+def _getDeprecationSuppression(f):
+    """
+    Returns a tuple of arguments needed to suppress deprecation warnings from
+    a specified function.
+
+    @param f: function to suppress dperecation warnings for
+    @type f: L{callable}
+
+    @return: tuple to add to C{suppress} attribute
+    """
+    return SUPPRESS(
+        category=DeprecationWarning,
+        message='%s was deprecated' % (fullyQualifiedName(f),))
+
+
+
 class UnsignedIDTests(unittest.TestCase):
     """
     Tests for L{util.unsignedID} and L{util.setIDFunction}.
     """
+
+    suppress = [
+        _getDeprecationSuppression(util.unsignedID),
+        _getDeprecationSuppression(util.setIDFunction),
+        ]
+
     def setUp(self):
         """
         Save the value of L{util._idFunction} and arrange for it to be restored
@@ -797,6 +887,16 @@ class UnsignedIDTests(unittest.TestCase):
         previous = util.setIDFunction(value)
         result = util.setIDFunction(previous)
         self.assertIdentical(value, result)
+
+
+    def test_setIDFunctionDeprecated(self):
+        """
+        L{util.setIDFunction} is deprecated.
+        """
+        self.callDeprecated(
+            (Version("Twisted", 13, 0, 0)),
+            util.setIDFunction, UnsignedIDTests)
+    test_setIDFunctionDeprecated.suppress = []
 
 
     def test_unsignedID(self):
@@ -816,7 +916,17 @@ class UnsignedIDTests(unittest.TestCase):
         util.setIDFunction(fakeId)
 
         self.assertEqual(util.unsignedID(foo), 17)
-        self.assertEqual(util.unsignedID(bar), (sys.maxint + 1) * 2 - 73)
+        self.assertEqual(util.unsignedID(bar), (sys.maxsize + 1) * 2 - 73)
+
+
+    def test_unsignedIDDeprecated(self):
+        """
+        L{util.unsignedID} is deprecated, use the builtin C{id} instead.
+        """
+        self.callDeprecated(
+            (Version("Twisted", 13, 0, 0), "builtin id"),
+            util.unsignedID, UnsignedIDTests)
+    test_unsignedIDDeprecated.suppress = []
 
 
     def test_defaultIDFunction(self):
@@ -826,7 +936,7 @@ class UnsignedIDTests(unittest.TestCase):
         obj = object()
         idValue = id(obj)
         if idValue < 0:
-            idValue += (sys.maxint + 1) * 2
+            idValue += (sys.maxsize + 1) * 2
 
         self.assertEqual(util.unsignedID(obj), idValue)
 
@@ -890,3 +1000,169 @@ class InitGroupsTests(unittest.TestCase):
 
     if util._c_initgroups is None:
         test_initgroupsInC.skip = "C initgroups not available"
+
+
+class DeprecationTests(unittest.TestCase):
+    """
+    Tests for deprecations in C{twisted.python.util}.
+    """
+    def test_getPluginDirs(self):
+        """
+        L{util.getPluginDirs} is deprecated.
+        """
+        util.getPluginDirs()
+        warnings = self.flushWarnings(offendingFunctions=[
+            self.test_getPluginDirs])
+        self.assertEqual(
+            warnings[0]['message'],
+            "twisted.python.util.getPluginDirs is deprecated since Twisted "
+            "12.2.")
+        self.assertEqual(warnings[0]['category'], DeprecationWarning)
+        self.assertEqual(len(warnings), 1)
+
+
+    def test_addPluginDir(self):
+        """
+        L{util.addPluginDir} is deprecated.
+        """
+        util.addPluginDir()
+        warnings = self.flushWarnings(offendingFunctions=[
+            self.test_addPluginDir])
+        self.assertEqual(
+            warnings[0]['message'],
+            "twisted.python.util.addPluginDir is deprecated since Twisted "
+            "12.2.")
+        self.assertEqual(warnings[0]['category'], DeprecationWarning)
+        self.assertEqual(len(warnings), 1)
+    test_addPluginDir.suppress = [
+            SUPPRESS(category=DeprecationWarning,
+                     message="twisted.python.util.getPluginDirs is deprecated")
+            ]
+
+
+
+class SuppressedWarningsTests(unittest.TestCase):
+    """
+    Tests for L{util.runWithWarningsSuppressed}.
+    """
+    runWithWarningsSuppressed = staticmethod(util.runWithWarningsSuppressed)
+
+    def test_runWithWarningsSuppressedFiltered(self):
+        """
+        Warnings from the function called by C{runWithWarningsSuppressed} are
+        suppressed if they match the passed in filter.
+        """
+        filters = [(("ignore", ".*foo.*"), {}),
+                   (("ignore", ".*bar.*"), {})]
+        self.runWithWarningsSuppressed(filters, warnings.warn, "ignore foo")
+        self.runWithWarningsSuppressed(filters, warnings.warn, "ignore bar")
+        self.assertEqual([], self.flushWarnings())
+
+
+    def test_runWithWarningsSuppressedUnfiltered(self):
+        """
+        Warnings from the function called by C{runWithWarningsSuppressed} are
+        not suppressed if they do not match the passed in filter.
+        """
+        filters = [(("ignore", ".*foo.*"), {}),
+                   (("ignore", ".*bar.*"), {})]
+        self.runWithWarningsSuppressed(filters, warnings.warn, "don't ignore")
+        self.assertEqual(
+            ["don't ignore"], [w['message'] for w in self.flushWarnings()])
+
+
+    def test_passThrough(self):
+        """
+        C{runWithWarningsSuppressed} returns the result of the function it
+        called.
+        """
+        self.assertEqual(self.runWithWarningsSuppressed([], lambda: 4), 4)
+
+
+    def test_noSideEffects(self):
+        """
+        Once C{runWithWarningsSuppressed} has returned, it no longer
+        suppresses warnings.
+        """
+        filters = [(("ignore", ".*foo.*"), {}),
+                   (("ignore", ".*bar.*"), {})]
+        self.runWithWarningsSuppressed(filters, lambda: None)
+        warnings.warn("ignore foo")
+        self.assertEqual(
+            ["ignore foo"], [w['message'] for w in self.flushWarnings()])
+
+
+
+class FancyStrMixinTests(unittest.TestCase):
+    """
+    Tests for L{util.FancyStrMixin}.
+    """
+
+    def test_sequenceOfStrings(self):
+        """
+        If C{showAttributes} is set to a sequence of strings, C{__str__}
+        renders using those by looking them up as attributes on the object.
+        """
+        class Foo(util.FancyStrMixin):
+            showAttributes = ("first", "second")
+            first = 1
+            second = "hello"
+        self.assertEqual(str(Foo()), "<Foo first=1 second='hello'>")
+
+
+    def test_formatter(self):
+        """
+        If C{showAttributes} has an item that is a 2-tuple, C{__str__} renders
+        the first item in the tuple as a key and the result of calling the
+        second item with the value of the attribute named by the first item as
+        the value.
+        """
+        class Foo(util.FancyStrMixin):
+            showAttributes = (
+                "first",
+                ("second", lambda value: repr(value[::-1])))
+            first = "hello"
+            second = "world"
+        self.assertEqual("<Foo first='hello' second='dlrow'>", str(Foo()))
+
+
+    def test_override(self):
+        """
+        If C{showAttributes} has an item that is a 3-tuple, C{__str__} renders
+        the second item in the tuple as a key, and the contents of the
+        attribute named in the first item are rendered as the value. The value
+        is formatted using the third item in the tuple.
+        """
+        class Foo(util.FancyStrMixin):
+            showAttributes = ("first", ("second", "2nd", "%.1f"))
+            first = 1
+            second = 2.111
+        self.assertEqual(str(Foo()), "<Foo first=1 2nd=2.1>")
+
+
+    def test_fancybasename(self):
+        """
+        If C{fancybasename} is present, C{__str__} uses it instead of the class name.
+        """
+        class Foo(util.FancyStrMixin):
+            fancybasename = "Bar"
+        self.assertEqual(str(Foo()), "<Bar>")
+
+
+    def test_repr(self):
+        """
+        C{__repr__} outputs the same content as C{__str__}.
+        """
+        class Foo(util.FancyStrMixin):
+            showAttributes = ("first", "second")
+            first = 1
+            second = "hello"
+        obj = Foo()
+        self.assertEqual(str(obj), repr(obj))
+
+if _PY3:
+    del (SwitchUIDTest, SearchUpwardsTest, RunAsEffectiveUserTests,
+         OrderedDictTest, IntervalDifferentialTestCase, UtilTestCase,
+         TestMergeFunctionMetadata, DeprecationTests, InitGroupsTests,
+         GetPasswordTest,
+         )

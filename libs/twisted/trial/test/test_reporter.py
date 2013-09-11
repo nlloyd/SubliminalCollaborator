@@ -6,7 +6,7 @@
 """
 Tests for L{twisted.trial.reporter}.
 """
-
+from __future__ import division
 
 import errno, sys, os, re, StringIO
 from inspect import getmro
@@ -15,7 +15,7 @@ from twisted.internet.utils import suppressWarnings
 from twisted.python import log
 from twisted.python.failure import Failure
 from twisted.trial import itrial, unittest, runner, reporter, util
-from twisted.trial.reporter import UncleanWarningsReporterWrapper
+from twisted.trial.reporter import _ExitWrapper, UncleanWarningsReporterWrapper
 from twisted.trial.test import erroneous
 from twisted.trial.unittest import makeTodo, SkipTest, Todo
 from twisted.trial.test import sample
@@ -45,7 +45,7 @@ class BrokenStream(object):
         raise IOError(errno.EINTR, "Interrupted flush")
 
 
-class StringTest(unittest.TestCase):
+class StringTest(unittest.SynchronousTestCase):
     def stringComparison(self, expect, output):
         output = filter(None, output)
         self.failUnless(len(expect) <= len(output),
@@ -67,7 +67,7 @@ class StringTest(unittest.TestCase):
                                 % (exp,))
 
 
-class TestTestResult(unittest.TestCase):
+class TestTestResult(unittest.SynchronousTestCase):
     def setUp(self):
         self.result = reporter.TestResult()
 
@@ -118,21 +118,22 @@ class TestErrorReporting(StringTest):
     def test_formatErroredMethod(self):
         """
         A test method which runs and has an error recorded against it is
-        reported in the output stream with the I{ERROR} tag along with a summary
-        of what error was reported and the ID of the test.
+        reported in the output stream with the I{ERROR} tag along with a
+        summary of what error was reported and the ID of the test.
         """
-        suite = self.loader.loadClass(erroneous.TestFailureInSetUp)
+        cls = erroneous.SynchronousTestFailureInSetUp
+        suite = self.loader.loadClass(cls)
         output = self.getOutput(suite).splitlines()
         match = [
             self.doubleSeparator,
             '[ERROR]',
             'Traceback (most recent call last):',
             re.compile(r'^\s+File .*erroneous\.py., line \d+, in setUp$'),
-            re.compile(r'^\s+raise FoolishError, '
-                       r'.I am a broken setUp method.$'),
+            re.compile(r'^\s+raise FoolishError.'
+                       r'.I am a broken setUp method..$'),
             ('twisted.trial.test.erroneous.FoolishError: '
              'I am a broken setUp method'),
-            'twisted.trial.test.erroneous.TestFailureInSetUp.test_noop']
+            '%s.%s.test_noop' % (cls.__module__, cls.__name__)]
         self.stringComparison(match, output)
 
 
@@ -208,8 +209,7 @@ class TestErrorReporting(StringTest):
             re.compile('^\s+File .*erroneous\.py", line \d+, in go'),
             re.compile('^\s+raise RuntimeError\(self.hiddenExceptionMsg\)'),
             'exceptions.RuntimeError: something blew up',
-            'twisted.trial.test.erroneous.DelayedCall.testHiddenException',
-            ]
+            'twisted.trial.test.erroneous.DelayedCall.testHiddenException']
         self.stringComparison(match, output)
 
 
@@ -227,14 +227,23 @@ class TestUncleanWarningWrapperErrorReporting(TestErrorReporting):
 
 
 
-class TracebackHandling(unittest.TestCase):
+class TracebackHandling(unittest.SynchronousTestCase):
+
     def getErrorFrames(self, test):
+        """
+        Run the given C{test}, make sure it fails and return the trimmed
+        frames.
+
+        @param test: The test case to run.
+
+        @return: The C{list} of frames trimmed.
+        """
         stream = StringIO.StringIO()
         result = reporter.Reporter(stream)
         test.run(result)
         bads = result.failures + result.errors
-        assert len(bads) == 1
-        assert bads[0][0] == test
+        self.assertEqual(len(bads), 1)
+        self.assertEqual(bads[0][0], test)
         return result._trimFrames(bads[0][1].frames)
 
     def checkFrames(self, observedFrames, expectedFrames):
@@ -260,7 +269,11 @@ class TracebackHandling(unittest.TestCase):
                           ('subroutine', 'twisted/trial/test/erroneous')])
 
     def test_deferred(self):
-        test = erroneous.TestFailureInDeferredChain('test_fail')
+        """
+        C{_trimFrames} removes traces of C{_runCallbacks} when getting an error
+        in a callback returned by a C{TestCase} based test.
+        """
+        test = erroneous.TestAsynchronousFail('test_fail')
         frames = self.getErrorFrames(test)
         self.checkFrames(frames,
                          [('_later', 'twisted/trial/test/erroneous')])
@@ -272,6 +285,17 @@ class TracebackHandling(unittest.TestCase):
     def test_oneFrame(self):
         result = reporter.Reporter(None)
         self.assertEqual(['fake frame'], result._trimFrames(['fake frame']))
+
+    def test_exception(self):
+        """
+        C{_trimFrames} removes traces of C{runWithWarningsSuppressed} from
+        C{utils} when a synchronous exception happens in a C{TestCase}
+        based test.
+        """
+        test = erroneous.TestAsynchronousFail('test_exception')
+        frames = self.getErrorFrames(test)
+        self.checkFrames(frames,
+                         [('test_exception', 'twisted/trial/test/erroneous')])
 
 
 class FormatFailures(StringTest):
@@ -319,7 +343,7 @@ exceptions.TypeError: iterable argument required
         self.assertEqual(self.f.frames, frames)
 
 
-class PyunitTestNames(unittest.TestCase):
+class PyunitTestNames(unittest.SynchronousTestCase):
     def setUp(self):
         self.stream = StringIO.StringIO()
         self.test = sample.PyunitTest('test_foo')
@@ -390,7 +414,7 @@ class PyunitTestNames(unittest.TestCase):
 
 
 
-class TestDirtyReactor(unittest.TestCase):
+class TestDirtyReactor(unittest.SynchronousTestCase):
     """
     The trial script has an option to treat L{DirtyReactorAggregateError}s as
     warnings, as a migration tool for test authors. It causes a wrapper to be
@@ -461,7 +485,7 @@ class TestDirtyReactor(unittest.TestCase):
 
 
 
-class TrialTestNames(unittest.TestCase):
+class TrialTestNames(unittest.SynchronousTestCase):
 
     def setUp(self):
         self.stream = StringIO.StringIO()
@@ -492,7 +516,7 @@ class TrialTestNames(unittest.TestCase):
         self.assertEqual(output, "test_foo")
 
 
-class TestSkip(unittest.TestCase):
+class TestSkip(unittest.SynchronousTestCase):
     """
     Tests for L{reporter.Reporter}'s handling of skips.
     """
@@ -585,7 +609,7 @@ class UncleanWarningSkipTest(TestSkip):
 
 
 
-class TodoTest(unittest.TestCase):
+class TodoTest(unittest.SynchronousTestCase):
     """
     Tests for L{reporter.Reporter}'s handling of todos.
     """
@@ -735,7 +759,7 @@ class MockColorizer:
 
 
 
-class TestTreeReporter(unittest.TestCase):
+class TestTreeReporter(unittest.SynchronousTestCase):
     def setUp(self):
         self.test = sample.FooTest('test_foo')
         self.stream = StringIO.StringIO()
@@ -844,8 +868,8 @@ class TestTreeReporter(unittest.TestCase):
             extra = sample.FooTest('test_bar')
             self.result.addError(extra, sys.exc_info())
         self.result.done()
-	grouped = self.result._groupResults(
-	    self.result.errors, self.result._formatFailureTraceback)
+        grouped = self.result._groupResults(
+            self.result.errors, self.result._formatFailureTraceback)
         self.assertEqual(grouped[0][1], [self, self.test])
         self.assertEqual(grouped[1][1], [extra])
 
@@ -853,7 +877,8 @@ class TestTreeReporter(unittest.TestCase):
     def test_printResults(self):
         """
         L{Reporter._printResults} uses the results list and formatter callable
-        passed to it to produce groups of results to write to its output stream.
+        passed to it to produce groups of results to write to its output
+        stream.
         """
         def formatter(n):
             return str(n) + '\n'
@@ -883,7 +908,7 @@ class TestTreeReporter(unittest.TestCase):
 
 
 
-class TestReporterInterface(unittest.TestCase):
+class TestReporterInterface(unittest.SynchronousTestCase):
     """
     Tests for the bare interface of a trial reporter.
 
@@ -1150,7 +1175,7 @@ class TestReporter(TestReporterInterface):
 
 
 
-class TestSafeStream(unittest.TestCase):
+class TestSafeStream(unittest.SynchronousTestCase):
     def test_safe(self):
         """
         Test that L{reporter.SafeStream} successfully write to its original
@@ -1375,7 +1400,7 @@ class TestSubunitReporter(TestReporterInterface):
 
 
 
-class TestSubunitReporterNotInstalled(unittest.TestCase):
+class TestSubunitReporterNotInstalled(unittest.SynchronousTestCase):
     """
     Test behaviour when the subunit reporter is not installed.
     """
@@ -1429,7 +1454,7 @@ class LoggingReporter(reporter.Reporter):
 
 
 
-class TestAdaptedReporter(unittest.TestCase):
+class TestAdaptedReporter(unittest.SynchronousTestCase):
     """
     L{reporter._AdaptedReporter} is a reporter wrapper that wraps all of the
     tests it receives before passing them on to the original reporter.
@@ -1444,7 +1469,8 @@ class TestAdaptedReporter(unittest.TestCase):
 
 
     def assertWrapped(self, wrappedResult, test):
-        self.assertEqual(wrappedResult._originalReporter.test, self._testAdapter(test))
+        self.assertEqual(wrappedResult._originalReporter.test,
+                         self._testAdapter(test))
 
 
     def getFailure(self, exceptionInstance):
@@ -1485,7 +1511,8 @@ class TestAdaptedReporter(unittest.TestCase):
         """
         C{addSkip} wraps its test with the provided adapter.
         """
-        self.wrappedResult.addSkip(self, self.getFailure(SkipTest('no reason')))
+        self.wrappedResult.addSkip(
+            self, self.getFailure(SkipTest('no reason')))
         self.assertWrapped(self.wrappedResult, self)
 
 
@@ -1540,7 +1567,7 @@ class FakeStream(object):
 
 
 
-class AnsiColorizerTests(unittest.TestCase):
+class AnsiColorizerTests(unittest.SynchronousTestCase):
     """
     Tests for L{reporter._AnsiColorizer}.
     """
@@ -1647,3 +1674,48 @@ class AnsiColorizerTests(unittest.TestCase):
         sys.modules['curses'] = fakecurses()
         self.assertFalse(reporter._AnsiColorizer.supported(FakeStream()))
         self.assertEqual(sys.modules['curses'].setUp, 1)
+
+
+
+class ExitWrapperTests(unittest.SynchronousTestCase):
+    """
+    Tests for L{reporter._ExitWrapper}.
+    """
+
+    def setUp(self):
+        self.failure = Failure(Exception("I am a Failure"))
+        self.test = sample.FooTest('test_foo')
+        self.result = reporter.TestResult()
+        self.wrapped = _ExitWrapper(self.result)
+        self.assertFalse(self.wrapped.shouldStop)
+
+
+    def test_stopOnFailure(self):
+        """
+        L{reporter._ExitWrapper} causes a wrapped reporter to stop after its
+        first failure.
+        """
+        self.wrapped.addFailure(self.test, self.failure)
+        self.assertTrue(self.wrapped.shouldStop)
+        self.assertEqual(self.result.failures, [(self.test, self.failure)])
+
+
+    def test_stopOnError(self):
+        """
+        L{reporter._ExitWrapper} causes a wrapped reporter to stop after its
+        first error.
+        """
+        self.wrapped.addError(self.test, self.failure)
+        self.assertTrue(self.wrapped.shouldStop)
+        self.assertEqual(self.result.errors, [(self.test, self.failure)])
+
+
+    def test_doesNotStopOnUnexpectedSuccess(self):
+        """
+        L{reporter._ExitWrapper} does not cause a wrapped reporter to stop
+        after an unexpected success.
+        """
+        self.wrapped.addUnexpectedSuccess(self.test, self.failure)
+        self.assertFalse(self.wrapped.shouldStop)
+        self.assertEqual(
+            self.result.unexpectedSuccesses, [(self.test, self.failure)])

@@ -5,12 +5,13 @@
 Tests for L{twisted.python.threadpool}
 """
 
+from __future__ import division, absolute_import
+
 import pickle, time, weakref, gc, threading
 
+from twisted.python.compat import _PY3
 from twisted.trial import unittest
 from twisted.python import threadpool, threadable, failure, context
-from twisted.internet import reactor
-from twisted.internet.defer import Deferred
 
 #
 # See the end of this module for the remainder of the imports.
@@ -55,12 +56,26 @@ threadable.synchronize(Synchronization)
 
 
 
-class ThreadPoolTestCase(unittest.TestCase):
+class ThreadPoolTestCase(unittest.SynchronousTestCase):
     """
     Test threadpools.
     """
+
+    def getTimeout(self):
+        """
+        Return number of seconds to wait before giving up.
+        """
+        return 5 # Really should be order of magnitude less
+
+
     def _waitForLock(self, lock):
-        for i in xrange(1000000):
+        # We could just use range(), but then we use an extra 30MB of memory
+        # on Python 2:
+        if _PY3:
+            items = range(1000000)
+        else:
+            items = xrange(1000000)
+        for i in items:
             if lock.acquire(False):
                 break
             time.sleep(1e-5)
@@ -240,7 +255,7 @@ class ThreadPoolTestCase(unittest.TestCase):
         waiting.acquire()
         actor = Synchronization(N, waiting)
 
-        for i in xrange(N):
+        for i in range(N):
             method(tp, actor)
 
         self._waitForLock(waiting)
@@ -294,7 +309,7 @@ class ThreadPoolTestCase(unittest.TestCase):
             results.append(result)
 
         tp = threadpool.ThreadPool(0, 1)
-        tp.callInThreadWithCallback(onResult, lambda : "test")
+        tp.callInThreadWithCallback(onResult, lambda: "test")
         tp.start()
 
         try:
@@ -384,16 +399,14 @@ class ThreadPoolTestCase(unittest.TestCase):
         """
         threadIds = []
 
-        import thread
-
         event = threading.Event()
 
         def onResult(success, result):
-            threadIds.append(thread.get_ident())
+            threadIds.append(threading.currentThread().ident)
             event.set()
 
         def func():
-            threadIds.append(thread.get_ident())
+            threadIds.append(threading.currentThread().ident)
 
         tp = threadpool.ThreadPool(0, 1)
         tp.callInThreadWithCallback(onResult, func)
@@ -458,8 +471,88 @@ class ThreadPoolTestCase(unittest.TestCase):
             tp.stop()
 
 
+    def test_workerStateTransition(self):
+        """
+        As the worker receives and completes work, it transitions between
+        the working and waiting states.
+        """
+        pool = threadpool.ThreadPool(0, 1)
+        pool.start()
+        self.addCleanup(pool.stop)
 
-class RaceConditionTestCase(unittest.TestCase):
+        # sanity check
+        self.assertEqual(pool.workers, 0)
+        self.assertEqual(len(pool.waiters), 0)
+        self.assertEqual(len(pool.working), 0)
+
+        # fire up a worker and give it some 'work'
+        threadWorking = threading.Event()
+        threadFinish = threading.Event()
+
+        def _thread():
+            threadWorking.set()
+            threadFinish.wait()
+
+        pool.callInThread(_thread)
+        threadWorking.wait()
+        self.assertEqual(pool.workers, 1)
+        self.assertEqual(len(pool.waiters), 0)
+        self.assertEqual(len(pool.working), 1)
+
+        # finish work, and spin until state changes
+        threadFinish.set()
+        while not len(pool.waiters):
+            time.sleep(0.0005)
+
+        # make sure state changed correctly
+        self.assertEqual(len(pool.waiters), 1)
+        self.assertEqual(len(pool.working), 0)
+
+
+    def test_workerState(self):
+        """
+        Upon entering a _workerState block, the threads unique identifier is
+        added to a stateList and is removed upon exiting the block.
+        """
+        pool = threadpool.ThreadPool()
+        workerThread = object()
+        stateList = []
+        with pool._workerState(stateList, workerThread):
+            self.assertIn(workerThread, stateList)
+        self.assertNotIn(workerThread, stateList)
+
+
+    def test_workerStateExceptionHandling(self):
+        """
+        The _workerState block does not consume L{Exception}s or change the
+        L{Exception} that gets raised.
+        """
+        pool = threadpool.ThreadPool()
+        workerThread = object()
+        stateList = []
+        try:
+            with pool._workerState(stateList, workerThread):
+                self.assertIn(workerThread, stateList)
+                1 / 0
+        except ZeroDivisionError:
+            pass
+        except:
+            self.fail("_workerState shouldn't change raised exceptions")
+        else:
+            self.fail("_workerState shouldn't consume exceptions")
+        self.assertNotIn(workerThread, stateList)
+
+
+
+class RaceConditionTestCase(unittest.SynchronousTestCase):
+
+    def getTimeout(self):
+        """
+        Return number of seconds to wait before giving up.
+        """
+        return 5 # Really should be order of magnitude less
+
+
     def setUp(self):
         self.event = threading.Event()
         self.threadpool = threadpool.ThreadPool(0, 10)
@@ -505,22 +598,16 @@ class RaceConditionTestCase(unittest.TestCase):
         # Ensure no threads running
         self.assertEqual(self.threadpool.workers, 0)
 
-        loopDeferred = Deferred()
+        event = threading.Event()
+        event.clear()
 
         def onResult(success, counter):
-            reactor.callFromThread(submit, counter)
+            event.set()
 
-        def submit(counter):
-            if counter:
-                self.threadpool.callInThreadWithCallback(
-                    onResult, lambda: counter - 1)
-            else:
-                loopDeferred.callback(None)
+        for i in range(10):
+            self.threadpool.callInThreadWithCallback(
+                onResult, lambda: None)
+            event.wait()
+            event.clear()
 
-        def cbLoop(ignored):
-            # Ensure there is only one thread running.
-            self.assertEqual(self.threadpool.workers, 1)
-
-        loopDeferred.addCallback(cbLoop)
-        submit(10)
-        return loopDeferred
+        self.assertEqual(self.threadpool.workers, 1)

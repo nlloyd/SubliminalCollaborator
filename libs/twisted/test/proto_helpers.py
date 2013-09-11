@@ -6,20 +6,28 @@
 Assorted functionality which is commonly useful when writing unit tests.
 """
 
+from __future__ import division, absolute_import
+
 from socket import AF_INET, AF_INET6
-from StringIO import StringIO
+from io import BytesIO
 
-from zope.interface import implements
+from zope.interface import implementer, implementedBy
+from zope.interface.verify import verifyClass
 
+from twisted.python import failure
+from twisted.python.compat import unicode
 from twisted.internet.interfaces import (
     ITransport, IConsumer, IPushProducer, IConnector)
 from twisted.internet.interfaces import (
     IReactorTCP, IReactorSSL, IReactorUNIX, IReactorSocket)
 from twisted.internet.interfaces import IListeningPort
+from twisted.internet.abstract import isIPv6Address
+from twisted.internet.error import UnsupportedAddressFamily
 from twisted.protocols import basic
 from twisted.internet import protocol, error, address
 
-from twisted.internet.address import IPv4Address, UNIXAddress
+from twisted.internet.task import Clock
+from twisted.internet.address import IPv4Address, UNIXAddress, IPv6Address
 
 
 class AccumulatingProtocol(protocol.Protocol):
@@ -29,7 +37,7 @@ class AccumulatingProtocol(protocol.Protocol):
     disconnected.
 
     @ivar made: A flag indicating whether C{connectionMade} has been called.
-    @ivar data: A string giving all the data passed to C{dataReceived}.
+    @ivar data: Bytes giving all the data passed to C{dataReceived}.
     @ivar closed: A flag indicated whether C{connectionLost} has been called.
     @ivar closedReason: The value of the I{reason} parameter passed to
         C{connectionLost}.
@@ -41,7 +49,7 @@ class AccumulatingProtocol(protocol.Protocol):
 
     closedDeferred = None
 
-    data = ""
+    data = b""
 
     factory = None
 
@@ -74,11 +82,13 @@ class LineSendingProtocol(basic.LineReceiver):
 
     def connectionMade(self):
         if self.start:
-            map(self.sendLine, self.lines)
+            for line in self.lines:
+                self.sendLine(line)
 
     def lineReceived(self, line):
         if not self.start:
-            map(self.sendLine, self.lines)
+            for line in self.lines:
+                self.sendLine(line)
             self.lines = []
         self.response.append(line)
 
@@ -96,6 +106,8 @@ class FakeDatagramTransport:
         self.written.append((packet, addr))
 
 
+
+@implementer(ITransport, IConsumer, IPushProducer)
 class StringTransport:
     """
     A transport implementation which buffers data in memory and keeps track of
@@ -127,11 +139,10 @@ class StringTransport:
         as an L{IPushProducer}.  One of C{'producing'}, C{'paused'}, or
         C{'stopped'}.
 
-    @ivar io: A L{StringIO} which holds the data which has been written to this
+    @ivar io: A L{BytesIO} which holds the data which has been written to this
         transport since the last call to L{clear}.  Use L{value} instead of
         accessing this directly.
     """
-    implements(ITransport, IConsumer, IPushProducer)
 
     disconnecting = False
 
@@ -158,7 +169,7 @@ class StringTransport:
         This is not a transport method.  It is intended for tests.  Do not use
         it in implementation code.
         """
-        self.io = StringIO()
+        self.io = BytesIO()
 
 
     def value(self):
@@ -168,9 +179,9 @@ class StringTransport:
         This is not a transport method.  It is intended for tests.  Do not use
         it in implementation code.
 
-        @return: A C{str} giving all data written to this transport since the
+        @return: A C{bytes} giving all data written to this transport since the
             last call to L{clear}.
-        @rtype: C{str}
+        @rtype: C{bytes}
         """
         return self.io.getvalue()
 
@@ -183,7 +194,7 @@ class StringTransport:
 
 
     def writeSequence(self, data):
-        self.io.write(''.join(data))
+        self.io.write(b''.join(data))
 
 
     def loseConnection(self):
@@ -247,16 +258,21 @@ class StringTransport:
 
 
 class StringTransportWithDisconnection(StringTransport):
+    """
+    A L{StringTransport} which can be disconnected.
+    """
+
     def loseConnection(self):
         if self.connected:
             self.connected = False
-            self.protocol.connectionLost(error.ConnectionDone("Bye."))
+            self.protocol.connectionLost(
+                failure.Failure(error.ConnectionDone("Bye.")))
 
 
 
-class StringIOWithoutClosing(StringIO):
+class StringIOWithoutClosing(BytesIO):
     """
-    A StringIO that can't be closed.
+    A BytesIO that can't be closed.
     """
     def close(self):
         """
@@ -265,6 +281,7 @@ class StringIOWithoutClosing(StringIO):
 
 
 
+@implementer(IListeningPort)
 class _FakePort(object):
     """
     A fake L{IListeningPort} to be used in tests.
@@ -272,7 +289,6 @@ class _FakePort(object):
     @ivar _hostAddress: The L{IAddress} this L{IListeningPort} is pretending
         to be listening on.
     """
-    implements(IListeningPort)
 
     def __init__(self, hostAddress):
         """
@@ -302,6 +318,7 @@ class _FakePort(object):
 
 
 
+@implementer(IConnector)
 class _FakeConnector(object):
     """
     A fake L{IConnector} that allows us to inspect if it has been told to stop
@@ -312,8 +329,7 @@ class _FakeConnector(object):
 
     @ivar _address: An L{IAddress} provider that represents our destination.
     """
-    implements(IConnector)
-
+    _disconnected = False
     stoppedConnecting = False
 
     def __init__(self, address):
@@ -336,6 +352,7 @@ class _FakeConnector(object):
         """
         Implement L{IConnector.disconnect} as a no-op.
         """
+        self._disconnected = True
 
 
     def connect(self):
@@ -353,6 +370,7 @@ class _FakeConnector(object):
 
 
 
+@implementer(IReactorTCP, IReactorSSL, IReactorUNIX, IReactorSocket)
 class MemoryReactor(object):
     """
     A fake reactor to be used in tests.  This reactor doesn't actually do
@@ -385,8 +403,10 @@ class MemoryReactor(object):
 
     @ivar adoptedPorts: a list that keeps track of server listen attempts (ie,
         calls to C{adoptStreamPort}).
+
+    @ivar adoptedStreamConnections: a list that keeps track of stream-oriented
+        connections added using C{adoptStreamConnection}.
     """
-    implements(IReactorTCP, IReactorSSL, IReactorUNIX, IReactorSocket)
 
     def __init__(self):
         """
@@ -399,6 +419,8 @@ class MemoryReactor(object):
         self.unixClients = []
         self.unixServers = []
         self.adoptedPorts = []
+        self.adoptedStreamConnections = []
+        self.connectors = []
 
 
     def adoptStreamPort(self, fileno, addressFamily, factory):
@@ -417,13 +439,27 @@ class MemoryReactor(object):
         return _FakePort(addr)
 
 
+    def adoptStreamConnection(self, fileDescriptor, addressFamily, factory):
+        """
+        Record the given stream connection in C{adoptedStreamConnections}.
+
+        @see: L{twisted.internet.interfaces.IReactorSocket.adoptStreamConnection}
+        """
+        self.adoptedStreamConnections.append((
+                fileDescriptor, addressFamily, factory))
+
+
     def listenTCP(self, port, factory, backlog=50, interface=''):
         """
         Fake L{reactor.listenTCP}, that logs the call and returns an
         L{IListeningPort}.
         """
         self.tcpServers.append((port, factory, backlog, interface))
-        return _FakePort(IPv4Address('TCP', '0.0.0.0', port))
+        if isIPv6Address(interface):
+            address = IPv6Address('TCP', interface, port)
+        else:
+            address = IPv4Address('TCP', '0.0.0.0', port)
+        return _FakePort(address)
 
 
     def connectTCP(self, host, port, factory, timeout=30, bindAddress=None):
@@ -432,8 +468,12 @@ class MemoryReactor(object):
         L{IConnector}.
         """
         self.tcpClients.append((host, port, factory, timeout, bindAddress))
-        conn = _FakeConnector(IPv4Address('TCP', host, port))
+        if isIPv6Address(host):
+            conn = _FakeConnector(IPv6Address('TCP', host, port))
+        else:
+            conn = _FakeConnector(IPv4Address('TCP', host, port))
         factory.startedConnecting(conn)
+        self.connectors.append(conn)
         return conn
 
 
@@ -458,11 +498,12 @@ class MemoryReactor(object):
                                 timeout, bindAddress))
         conn = _FakeConnector(IPv4Address('TCP', host, port))
         factory.startedConnecting(conn)
+        self.connectors.append(conn)
         return conn
 
 
     def listenUNIX(self, address, factory,
-                   backlog=50, mode=0666, wantPID=0):
+                   backlog=50, mode=0o666, wantPID=0):
         """
         Fake L{reactor.listenUNIX}, that logs the call and returns an
         L{IListeningPort}.
@@ -479,10 +520,21 @@ class MemoryReactor(object):
         self.unixClients.append((address, factory, timeout, checkPID))
         conn = _FakeConnector(UNIXAddress(address))
         factory.startedConnecting(conn)
+        self.connectors.append(conn)
         return conn
+for iface in implementedBy(MemoryReactor):
+    verifyClass(iface, MemoryReactor)
 
 
 
+class MemoryReactorClock(MemoryReactor, Clock):
+    def __init__(self):
+        MemoryReactor.__init__(self)
+        Clock.__init__(self)
+
+
+
+@implementer(IReactorTCP, IReactorSSL, IReactorUNIX, IReactorSocket)
 class RaisingMemoryReactor(object):
     """
     A fake reactor to be used in tests.  It accepts TCP connection setup
@@ -491,7 +543,6 @@ class RaisingMemoryReactor(object):
     @ivar _listenException: An instance of an L{Exception}
     @ivar _connectException: An instance of an L{Exception}
     """
-    implements(IReactorTCP, IReactorSSL, IReactorUNIX, IReactorSocket)
 
     def __init__(self, listenException=None, connectException=None):
         """
@@ -544,7 +595,7 @@ class RaisingMemoryReactor(object):
 
 
     def listenUNIX(self, address, factory,
-                   backlog=50, mode=0666, wantPID=0):
+                   backlog=50, mode=0o666, wantPID=0):
         """
         Fake L{reactor.listenUNIX}, that raises L{self._listenException}.
         """

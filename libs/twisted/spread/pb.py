@@ -29,12 +29,12 @@ To get started, begin with L{PBClientFactory} and L{PBServerFactory}.
 
 import random
 import types
+from hashlib import md5
 
 from zope.interface import implements, Interface
 
 # Twisted Imports
 from twisted.python import log, failure, reflect
-from twisted.python.hashlib import md5
 from twisted.internet import defer, protocol
 from twisted.cred.portal import Portal
 from twisted.cred.credentials import IAnonymous, ICredentials
@@ -844,13 +844,13 @@ class Broker(banana.Banana):
         pbc = None
         pbe = None
         answerRequired = 1
-        if kw.has_key('pbcallback'):
+        if 'pbcallback' in kw:
             pbc = kw['pbcallback']
             del kw['pbcallback']
-        if kw.has_key('pberrback'):
+        if 'pberrback' in kw:
             pbe = kw['pberrback']
             del kw['pberrback']
-        if kw.has_key('pbanswer'):
+        if 'pbanswer' in kw:
             assert (not pbe) and (not pbc), "You can't specify a no-answer requirement."
             answerRequired = kw['pbanswer']
             del kw['pbanswer']

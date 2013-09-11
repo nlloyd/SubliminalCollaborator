@@ -10,6 +10,7 @@ from os import stat, close
 from tempfile import mktemp
 from socket import AF_INET, SOCK_STREAM, socket
 from pprint import pformat
+from hashlib import md5
 
 try:
     from socket import AF_UNIX
@@ -17,13 +18,11 @@ except ImportError:
     AF_UNIX = None
 
 from zope.interface import implements
-from zope.interface.verify import verifyObject
 
 from twisted.python.log import addObserver, removeObserver, err
 from twisted.python.failure import Failure
-from twisted.python.hashlib import md5
 from twisted.python.runtime import platform
-from twisted.internet.interfaces import IConnector, IFileDescriptorReceiver
+from twisted.internet.interfaces import IFileDescriptorReceiver, IReactorUNIX
 from twisted.internet.error import ConnectionClosed, FileDescriptorOverrun
 from twisted.internet.address import UNIXAddress
 from twisted.internet.endpoints import UNIXServerEndpoint, UNIXClientEndpoint
@@ -32,12 +31,12 @@ from twisted.internet.task import LoopingCall
 from twisted.internet import interfaces
 from twisted.internet.protocol import (
     ServerFactory, ClientFactory, DatagramProtocol)
-from twisted.internet.test.reactormixins import ReactorBuilder, EndpointCreator
 from twisted.internet.test.test_core import ObjectModelIntegrationMixin
 from twisted.internet.test.test_tcp import StreamTransportTestsMixin
-from twisted.internet.test.reactormixins import (
-    ConnectableProtocol, runProtocolsWithReactor)
-from twisted.internet.test.connectionmixins import ConnectionTestsMixin
+from twisted.internet.test.connectionmixins import (
+    EndpointCreator, ConnectableProtocol, runProtocolsWithReactor,
+    ConnectionTestsMixin, StreamClientTestsMixin)
+from twisted.internet.test.reactormixins import ReactorBuilder
 
 try:
     from twisted.python import sendmsg
@@ -52,9 +51,6 @@ class UNIXFamilyMixin:
     """
     Test-helper defining mixin for things related to AF_UNIX sockets.
     """
-    if AF_UNIX is None:
-        skip = "Platform does not support AF_UNIX sockets"
-
     def _modeTest(self, methodName, path, factory):
         """
         Assert that the mode of the created unix socket is set to the mode
@@ -82,6 +78,8 @@ class UNIXCreator(EndpointCreator):
     """
     Create UNIX socket end points.
     """
+    requiredInterfaces = (interfaces.IReactorUNIX,)
+
     def server(self, reactor):
         """
         Construct a UNIX server endpoint.
@@ -208,15 +206,9 @@ class UNIXTestsBuilder(UNIXFamilyMixin, ReactorBuilder, ConnectionTestsMixin):
     """
     Builder defining tests relating to L{IReactorUNIX}.
     """
-    endpoints = UNIXCreator()
+    requiredInterfaces = (IReactorUNIX,)
 
-    def test_interface(self):
-        """
-        L{IReactorUNIX.connectUNIX} returns an object providing L{IConnector}.
-        """
-        reactor = self.buildReactor()
-        connector = reactor.connectUNIX(self.mktemp(), ClientFactory())
-        self.assertTrue(verifyObject(IConnector, connector))
+    endpoints = UNIXCreator()
 
 
     def test_mode(self):
@@ -375,14 +367,15 @@ class UNIXTestsBuilder(UNIXFamilyMixin, ReactorBuilder, ConnectionTestsMixin):
         server = SendFileDescriptor(cargo.fileno(), None)
 
         client = ReceiveFileDescriptor()
-        d = self.assertFailure(
-            client.waitForDescriptor(), ConnectionClosed)
-        d.addErrback(
-            err, "Sending file descriptor encountered unexpected problem")
+        result = []
+        d = client.waitForDescriptor()
+        d.addBoth(result.append)
         d.addBoth(lambda ignored: server.transport.loseConnection())
 
         runProtocolsWithReactor(self, server, client, self.endpoints)
 
+        self.assertIsInstance(result[0], Failure)
+        result[0].trap(ConnectionClosed)
         self.assertIsInstance(server.reason.value, FileDescriptorOverrun)
     if sendmsgSkip is not None:
         test_fileDescriptorOverrun.skip = sendmsgSkip
@@ -491,6 +484,8 @@ class UNIXDatagramTestsBuilder(UNIXFamilyMixin, ReactorBuilder):
     """
     Builder defining tests relating to L{IReactorUNIXDatagram}.
     """
+    requiredInterfaces = (interfaces.IReactorUNIXDatagram,)
+
     # There's no corresponding test_connectMode because the mode parameter to
     # connectUNIXDatagram has been completely ignored since that API was first
     # introduced.
@@ -523,7 +518,7 @@ class UNIXPortTestsBuilder(ReactorBuilder, ObjectModelIntegrationMixin,
     """
     Tests for L{IReactorUNIX.listenUnix}
     """
-    requiredInterfaces = [interfaces.IReactorUNIX]
+    requiredInterfaces = (interfaces.IReactorUNIX,)
 
     def getListeningPort(self, reactor, factory):
         """
@@ -552,3 +547,54 @@ class UNIXPortTestsBuilder(ReactorBuilder, ObjectModelIntegrationMixin,
 globals().update(UNIXTestsBuilder.makeTestCaseClasses())
 globals().update(UNIXDatagramTestsBuilder.makeTestCaseClasses())
 globals().update(UNIXPortTestsBuilder.makeTestCaseClasses())
+
+
+
+class UnixClientTestsBuilder(ReactorBuilder, StreamClientTestsMixin):
+    """
+    Define tests for L{IReactorUNIX.connectUNIX}.
+    """
+    requiredInterfaces = (IReactorUNIX,)
+
+    _path = None
+
+    @property
+    def path(self):
+        """
+        Return a path usable by C{connectUNIX} and C{listenUNIX}.
+
+        @return: A path instance, built with C{_abstractPath}.
+        """
+        if self._path is None:
+            self._path = _abstractPath(self)
+        return self._path
+
+
+    def listen(self, reactor, factory):
+        """
+        Start an UNIX server with the given C{factory}.
+
+        @param reactor: The reactor to create the UNIX port in.
+
+        @param factory: The server factory.
+
+        @return: A UNIX port instance.
+        """
+        return reactor.listenUNIX(self.path, factory)
+
+
+    def connect(self, reactor, factory):
+        """
+        Start an UNIX client with the given C{factory}.
+
+        @param reactor: The reactor to create the connection in.
+
+        @param factory: The client factory.
+
+        @return: A UNIX connector instance.
+        """
+        return reactor.connectUNIX(self.path, factory)
+
+
+
+globals().update(UnixClientTestsBuilder.makeTestCaseClasses())

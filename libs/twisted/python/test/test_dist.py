@@ -7,14 +7,17 @@ Tests for parts of our release automation system.
 
 
 import os
+import sys
 
 from distutils.core import Distribution
 
 from twisted.trial.unittest import TestCase
 
 from twisted.python import dist
-from twisted.python.dist import get_setup_args, ConditionalExtension
+from twisted.python.dist import (get_setup_args, ConditionalExtension,
+    build_scripts_twisted)
 from twisted.python.filepath import FilePath
+
 
 
 class SetupTest(TestCase):
@@ -56,6 +59,107 @@ class SetupTest(TestCase):
 
 
 
+class GetExtensionsTest(TestCase):
+    """
+    Tests for L{dist.getExtensions}.
+    """
+
+    setupTemplate = (
+        "from twisted.python.dist import ConditionalExtension\n"
+        "extensions = [\n"
+        "    ConditionalExtension(\n"
+        "        '%s', ['twisted/some/thing.c'],\n"
+        "        condition=lambda builder: True)\n"
+        "    ]\n")
+
+    def setUp(self):
+        self.basedir = FilePath(self.mktemp()).child("twisted")
+        self.basedir.makedirs()
+        self.addCleanup(os.chdir, os.getcwd())
+        os.chdir(self.basedir.parent().path)
+
+
+    def writeSetup(self, name, *path):
+        """
+        Write out a C{setup.py} file to a location determined by
+        L{self.basedir} and L{path}. L{self.setupTemplate} is used to
+        generate its contents.
+        """
+        outdir = self.basedir.descendant(path)
+        outdir.makedirs()
+        setup = outdir.child("setup.py")
+        setup.setContent(self.setupTemplate % (name,))
+
+
+    def writeEmptySetup(self, *path):
+        """
+        Write out an empty C{setup.py} file to a location determined by
+        L{self.basedir} and L{path}.
+        """
+        outdir = self.basedir.descendant(path)
+        outdir.makedirs()
+        outdir.child("setup.py").setContent("")
+
+
+    def assertExtensions(self, expected):
+        """
+        Assert that the given names match the (sorted) names of discovered
+        extensions.
+        """
+        extensions = dist.getExtensions()
+        names = [extension.name for extension in extensions]
+        self.assertEqual(sorted(names), expected)
+
+
+    def test_getExtensions(self):
+        """
+        Files named I{setup.py} in I{twisted/topfiles} and I{twisted/*/topfiles}
+        are executed with L{execfile} in order to discover the extensions they
+        declare.
+        """
+        self.writeSetup("twisted.transmutate", "topfiles")
+        self.writeSetup("twisted.tele.port", "tele", "topfiles")
+        self.assertExtensions(["twisted.tele.port", "twisted.transmutate"])
+
+
+    def test_getExtensionsTooDeep(self):
+        """
+        Files named I{setup.py} in I{topfiles} directories are not considered if
+        they are too deep in the directory hierarchy.
+        """
+        self.writeSetup("twisted.trans.mog.rify", "trans", "mog", "topfiles")
+        self.assertExtensions([])
+
+
+    def test_getExtensionsNotTopfiles(self):
+        """
+        The folder in which I{setup.py} is discovered must be called I{topfiles}
+        otherwise it is ignored.
+        """
+        self.writeSetup("twisted.metamorphosis", "notfiles")
+        self.assertExtensions([])
+
+
+    def test_getExtensionsNotSupportedOnJava(self):
+        """
+        Extensions are not supported on Java-based platforms.
+        """
+        self.addCleanup(setattr, sys, "platform", sys.platform)
+        sys.platform = "java"
+        self.writeSetup("twisted.sorcery", "topfiles")
+        self.assertExtensions([])
+
+
+    def test_getExtensionsExtensionsLocalIsOptional(self):
+        """
+        It is acceptable for extensions to not define the C{extensions} local
+        variable.
+        """
+        self.writeEmptySetup("twisted.necromancy", "topfiles")
+        self.assertExtensions([])
+
+
+
 class GetVersionTest(TestCase):
     """
     Tests for L{dist.getVersion}.
@@ -91,6 +195,7 @@ version = versions.Version("twisted.blat", 9, 8, 10)
 """)
         f.close()
         self.assertEqual(dist.getVersion("blat", base=self.dirname), "9.8.10")
+
 
 
 class GetScriptsTest(TestCase):
@@ -193,6 +298,110 @@ class GetScriptsTest(TestCase):
 
 
 
+class DummyCommand:
+    """
+    A fake Command.
+    """
+    def __init__(self, **kwargs):
+        for kw, val in kwargs.items():
+            setattr(self, kw, val)
+
+    def ensure_finalized(self):
+        pass
+
+
+
+class BuildScriptsTest(TestCase):
+    """
+    Tests for L{dist.build_scripts_twisted}.
+    """
+
+    def setUp(self):
+        self.source = FilePath(self.mktemp())
+        self.target = FilePath(self.mktemp())
+        self.source.makedirs()
+        self.addCleanup(os.chdir, os.getcwd())
+        os.chdir(self.source.path)
+
+
+    def buildScripts(self):
+        """
+        Write 3 types of scripts and run the L{build_scripts_twisted}
+        command.
+        """
+        self.writeScript(self.source, "script1",
+                          ("#! /usr/bin/env python2.7\n"
+                           "# bogus script w/ Python sh-bang\n"
+                           "pass\n"))
+
+        self.writeScript(self.source, "script2.py",
+                        ("#!/usr/bin/python\n"
+                         "# bogus script w/ Python sh-bang\n"
+                         "pass\n"))
+
+        self.writeScript(self.source, "shell.sh",
+                        ("#!/bin/sh\n"
+                         "# bogus shell script w/ sh-bang\n"
+                         "exit 0\n"))
+
+        expected = ['script1', 'script2.py', 'shell.sh']
+        cmd = self.getBuildScriptsCmd(self.target,
+                                     [self.source.child(fn).path
+                                      for fn in expected])
+        cmd.finalize_options()
+        cmd.run()
+
+        return self.target.listdir()
+
+
+    def getBuildScriptsCmd(self, target, scripts):
+        """
+        Create a distutils L{Distribution} with a L{DummyCommand} and wrap it
+        in L{build_scripts_twisted}.
+
+        @type target: L{FilePath}
+        """
+        dist = Distribution()
+        dist.scripts = scripts
+        dist.command_obj["build"] = DummyCommand(
+            build_scripts = target.path,
+            force = 1,
+            executable = sys.executable
+        )
+        return build_scripts_twisted(dist)
+
+
+    def writeScript(self, dir, name, text):
+        """
+        Write the script to disk.
+        """
+        with open(dir.child(name).path, "w") as f:
+            f.write(text)
+
+
+    def test_notWindows(self):
+        """
+        L{build_scripts_twisted} does not rename scripts on non-Windows
+        platforms.
+        """
+        self.patch(os, "name", "twisted")
+        built = self.buildScripts()
+        for name in ['script1', 'script2.py', 'shell.sh']:
+            self.assertTrue(name in built)
+
+
+    def test_windows(self):
+        """
+        L{build_scripts_twisted} renames scripts so they end with '.py' on
+        the Windows platform.
+        """
+        self.patch(os, "name", "nt")
+        built = self.buildScripts()
+        for name in ['script1.py', 'script2.py', 'shell.sh.py']:
+            self.assertTrue(name in built)
+
+
+
 class FakeModule(object):
     """
     A fake module, suitable for dependency injection in testing.
@@ -205,6 +414,7 @@ class FakeModule(object):
         @type attrs: C{dict} of C{str} (Python names) to objects
         """
         self._attrs = attrs
+
 
     def __getattr__(self, name):
         """

@@ -28,7 +28,6 @@ from twisted.python.log import msg
 from twisted.internet import reactor, protocol, error, interfaces, defer
 from twisted.trial import unittest
 from twisted.python import util, runtime, procutils
-from twisted.python.compat import set
 
 
 
@@ -1255,7 +1254,7 @@ class MockOS(object):
     @ivar pipeCount: count the number of time that C{os.pipe} has been called.
     @type pipeCount: C{int}
 
-    @ivar raiseWaitPid: if set, subsequent calls to waitpid will raise an
+    @ivar raiseWaitPid: if set, subsequent calls to waitpid will raise
         the error specified.
     @type raiseWaitPid: C{None} or a class
 
@@ -1276,6 +1275,10 @@ class MockOS(object):
 
     @ivar path: the path returned by C{os.path.expanduser}.
     @type path: C{str}
+
+    @ivar raiseKill: if set, subsequent call to kill will raise the error
+        specified.
+    @type raiseKill: C{None} or an exception instance.
     """
     exited = False
     raiseExec = False
@@ -1287,6 +1290,7 @@ class MockOS(object):
     euid = 0
     egid = 0
     path = None
+    raiseKill = None
 
     def __init__(self):
         """
@@ -1535,11 +1539,22 @@ class MockOS(object):
         """
         return 0, 0, 1, 2
 
+
     def listdir(self, path):
         """
         Override C{os.listdir}, returning fake contents of '/dev/fd'
         """
         return "-1", "-2"
+
+
+    def kill(self, pid, signalID):
+        """
+        Override C{os.kill}: save the action and raise C{self.raiseKill} if
+        specified.
+        """
+        self.actions.append(('kill', pid, signalID))
+        if self.raiseKill is not None:
+            raise self.raiseKill
 
 
 
@@ -1836,17 +1851,18 @@ class MockProcessTestCase(unittest.TestCase):
                                  usePTY=False, uid=8080)
         except SystemError:
             self.assert_(self.mockos.exited)
-            self.assertEqual(self.mockos.actions,
-                [('setuid', 0), ('setgid', 0), ('fork', False),
-                  ('switchuid', 8080, 1234), 'exec', 'exit'])
+            self.assertEqual(
+                self.mockos.actions,
+                [('fork', False), ('setuid', 0), ('setgid', 0),
+                 ('switchuid', 8080, 1234), 'exec', 'exit'])
         else:
             self.fail("Should not be here")
 
 
     def test_mockSetUidInParent(self):
         """
-        Try creating a process with setting its uid, in the parent path: it
-        should switch to root before fork, then restore initial uid/gids.
+        When spawning a child process with a UID different from the UID of the
+        current process, the current process does not have its UID changed.
         """
         self.mockos.child = False
         cmd = '/mock/ouch'
@@ -1855,9 +1871,7 @@ class MockProcessTestCase(unittest.TestCase):
         p = TrivialProcessProtocol(d)
         reactor.spawnProcess(p, cmd, ['ouch'], env=None,
                              usePTY=False, uid=8080)
-        self.assertEqual(self.mockos.actions,
-            [('setuid', 0), ('setgid', 0), ('fork', False),
-             ('setregid', 1235, 1234), ('setreuid', 1237, 1236), 'waitpid'])
+        self.assertEqual(self.mockos.actions, [('fork', False), 'waitpid'])
 
 
     def test_mockPTYSetUid(self):
@@ -1874,18 +1888,20 @@ class MockProcessTestCase(unittest.TestCase):
             reactor.spawnProcess(p, cmd, ['ouch'], env=None,
                                  usePTY=True, uid=8081)
         except SystemError:
-            self.assert_(self.mockos.exited)
-            self.assertEqual(self.mockos.actions,
-                [('setuid', 0), ('setgid', 0), ('fork', False),
-                  ('switchuid', 8081, 1234), 'exec', 'exit'])
+            self.assertTrue(self.mockos.exited)
+            self.assertEqual(
+                self.mockos.actions,
+                [('fork', False), ('setuid', 0), ('setgid', 0),
+                 ('switchuid', 8081, 1234), 'exec', 'exit'])
         else:
             self.fail("Should not be here")
 
 
     def test_mockPTYSetUidInParent(self):
         """
-        Try creating a PTY process with setting its uid, in the parent path: it
-        should switch to root before fork, then restore initial uid/gids.
+        When spawning a child process with PTY and a UID different from the UID
+        of the current process, the current process does not have its UID
+        changed.
         """
         self.mockos.child = False
         cmd = '/mock/ouch'
@@ -1899,9 +1915,7 @@ class MockProcessTestCase(unittest.TestCase):
                                  usePTY=True, uid=8080)
         finally:
             process.PTYProcess = oldPTYProcess
-        self.assertEqual(self.mockos.actions,
-            [('setuid', 0), ('setgid', 0), ('fork', False),
-             ('setregid', 1235, 1234), ('setreuid', 1237, 1236), 'waitpid'])
+        self.assertEqual(self.mockos.actions, [('fork', False), 'waitpid'])
 
 
     def test_mockWithWaitError(self):
@@ -1964,18 +1978,67 @@ class MockProcessTestCase(unittest.TestCase):
         self.assertEqual(set(self.mockos.closed), set([-4, -3, -2, -1]))
 
 
-    def test_mockErrorInForkRestoreUID(self):
+    def test_kill(self):
         """
-        If C{os.fork} raises an exception and a UID change has been made, the
-        previous UID and GID are restored.
+        L{process.Process.signalProcess} calls C{os.kill} translating the given
+        signal string to the PID.
         """
-        self.mockos.raiseFork = OSError(errno.EAGAIN, None)
-        protocol = TrivialProcessProtocol(None)
-        self.assertRaises(OSError, reactor.spawnProcess, protocol, None,
-                          uid=8080)
+        self.mockos.child = False
+        self.mockos.waitChild = (0, 0)
+        cmd = '/mock/ouch'
+        p = TrivialProcessProtocol(None)
+        proc = reactor.spawnProcess(p, cmd, ['ouch'], env=None, usePTY=False)
+        proc.signalProcess("KILL")
         self.assertEqual(self.mockos.actions,
-            [('setuid', 0), ('setgid', 0), ("fork", False),
-             ('setregid', 1235, 1234), ('setreuid', 1237, 1236)])
+            [('fork', False), 'waitpid', ('kill', 21, signal.SIGKILL)])
+
+
+    def test_killExited(self):
+        """
+        L{process.Process.signalProcess} raises L{error.ProcessExitedAlready}
+        if the process has exited.
+        """
+        self.mockos.child = False
+        cmd = '/mock/ouch'
+        p = TrivialProcessProtocol(None)
+        proc = reactor.spawnProcess(p, cmd, ['ouch'], env=None, usePTY=False)
+        # We didn't specify a waitpid value, so the waitpid call in
+        # registerReapProcessHandler has already reaped the process
+        self.assertRaises(error.ProcessExitedAlready,
+                          proc.signalProcess, "KILL")
+
+
+    def test_killExitedButNotDetected(self):
+        """
+        L{process.Process.signalProcess} raises L{error.ProcessExitedAlready}
+        if the process has exited but that twisted hasn't seen it (for example,
+        if the process has been waited outside of twisted): C{os.kill} then
+        raise C{OSError} with C{errno.ESRCH} as errno.
+        """
+        self.mockos.child = False
+        self.mockos.waitChild = (0, 0)
+        cmd = '/mock/ouch'
+        p = TrivialProcessProtocol(None)
+        proc = reactor.spawnProcess(p, cmd, ['ouch'], env=None, usePTY=False)
+        self.mockos.raiseKill = OSError(errno.ESRCH, "Not found")
+        self.assertRaises(error.ProcessExitedAlready,
+                          proc.signalProcess, "KILL")
+
+
+    def test_killErrorInKill(self):
+        """
+        L{process.Process.signalProcess} doesn't mask C{OSError} exceptions if
+        the errno is different from C{errno.ESRCH}.
+        """
+        self.mockos.child = False
+        self.mockos.waitChild = (0, 0)
+        cmd = '/mock/ouch'
+        p = TrivialProcessProtocol(None)
+        proc = reactor.spawnProcess(p, cmd, ['ouch'], env=None, usePTY=False)
+        self.mockos.raiseKill = OSError(errno.EINVAL, "Invalid signal")
+        err = self.assertRaises(OSError,
+                                proc.signalProcess, "KILL")
+        self.assertEquals(err.errno, errno.EINVAL)
 
 
 
@@ -1995,7 +2058,7 @@ class PosixProcessTestCase(unittest.TestCase, PosixProcessBase):
         p = Accumulator()
         d = p.endedDeferred = defer.Deferred()
         reactor.spawnProcess(p, cmd,
-                             [cmd, "-c", 
+                             [cmd, "-c",
                               "import sys; sys.stderr.write('%s')" % (value,)],
                              env=None, path="/tmp",
                              usePTY=self.usePTY)
@@ -2401,7 +2464,7 @@ class ClosingPipes(unittest.TestCase):
                 'import sys, os, time\n'
                 # Give the system a bit of time to notice the closed
                 # descriptor.  Another option would be to poll() for HUP
-                # instead of relying on an os.write to fail with SIGPIPE. 
+                # instead of relying on an os.write to fail with SIGPIPE.
                 # However, that wouldn't work on OS X (or Windows?).
                 'for i in range(1000):\n'
                 '    os.write(%d, "foo\\n")\n'

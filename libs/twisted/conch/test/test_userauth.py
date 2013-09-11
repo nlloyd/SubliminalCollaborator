@@ -22,7 +22,7 @@ from twisted.protocols import loopback
 from twisted.trial import unittest
 
 try:
-    import Crypto.Cipher.DES3, Crypto.Cipher.XOR
+    import Crypto.Cipher.DES3
     import pyasn1
 except ImportError:
     keys = None
@@ -37,7 +37,7 @@ except ImportError:
     class userauth:
         class SSHUserAuthClient:
             """
-            A stub class so that leter class definitions won't die.
+            A stub class so that later class definitions won't die.
             """
 else:
     from twisted.conch.ssh.common import NS
@@ -1060,3 +1060,18 @@ class LoopbackTestCase(unittest.TestCase):
         def check(ignored):
             self.assertEqual(server.transport.service.name, 'TestService')
         return d.addCallback(check)
+
+
+
+class ModuleInitializationTestCase(unittest.TestCase):
+    if keys is None:
+        skip = "cannot run w/o PyCrypto or PyASN1"
+
+
+    def test_messages(self):
+        # Several message types have value 60, check that MSG_USERAUTH_PK_OK
+        # is always the one which is mapped.
+        self.assertEqual(userauth.SSHUserAuthServer.protocolMessages[60],
+                         'MSG_USERAUTH_PK_OK')
+        self.assertEqual(userauth.SSHUserAuthClient.protocolMessages[60],
+                         'MSG_USERAUTH_PK_OK')

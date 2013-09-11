@@ -14,19 +14,22 @@ Maintainer: Paul Swartz
 import struct
 import zlib
 import array
+from hashlib import md5, sha1
+import string
+import hmac
 
 # external library imports
 from Crypto import Util
-from Crypto.Cipher import XOR
 
 # twisted imports
 from twisted.internet import protocol, defer
+
 from twisted.conch import error
 from twisted.python import log, randbytes
-from twisted.python.hashlib import md5, sha1
+
 
 # sibling imports
-from twisted.conch.ssh import keys
+from twisted.conch.ssh import address, keys
 from twisted.conch.ssh.common import NS, getNS, MP, getMP, _MPpow, ffs
 
 
@@ -63,6 +66,26 @@ def _generateX(random, bits):
         x = _getRandomNumber(random, bits)
         if 2 <= x <= (2 ** bits) - 2:
             return x
+
+
+class _MACParams(tuple):
+    """
+    L{_MACParams} represents the parameters necessary to compute SSH MAC
+    (Message Authenticate Codes).
+
+    L{_MACParams} is a L{tuple} subclass to maintain compatibility with older
+    versions of the code.  The elements of a L{_MACParams} are::
+
+        0. The digest object used for the MAC
+        1. The inner pad ("ipad") string
+        2. The outer pad ("opad") string
+        3. The size of the digest produced by the digest object
+
+    L{_MACParams} is also an object lesson in why tuples are a bad type for
+    public APIs.
+
+    @ivar key: The HMAC key which will be used.
+    """
 
 
 
@@ -166,19 +189,19 @@ class SSHTransportBase(protocol.Protocol):
         the whole packet is available.
 
     @ivar _keyExchangeState: The current protocol state with respect to key
-        exchange.  This is either C{_KEY_EXCHANGE_NONE} if no key exchange is in
-        progress (and returns to this value after any key exchange completes),
-        C{_KEY_EXCHANGE_REQUESTED} if this side of the connection initiated a
-        key exchange, and C{_KEY_EXCHANGE_PROGRESSING} if the other side of the
-        connection initiated a key exchange.  C{_KEY_EXCHANGE_NONE} is the
-        initial value (however SSH connections begin with key exchange, so it
-        will quickly change to another state).
+        exchange.  This is either C{_KEY_EXCHANGE_NONE} if no key exchange is
+        in progress (and returns to this value after any key exchange
+        completqes), C{_KEY_EXCHANGE_REQUESTED} if this side of the connection
+        initiated a key exchange, and C{_KEY_EXCHANGE_PROGRESSING} if the other
+        side of the connection initiated a key exchange.  C{_KEY_EXCHANGE_NONE}
+        is the initial value (however SSH connections begin with key exchange,
+        so it will quickly change to another state).
 
     @ivar _blockedByKeyExchange: Whenever C{_keyExchangeState} is not
         C{_KEY_EXCHANGE_NONE}, this is a C{list} of pending messages which were
-        passed to L{sendPacket} but could not be sent because it is not legal to
-        send them while a key exchange is in progress.  When the key exchange
-        completes, another attempt is made to send these messages.
+        passed to L{sendPacket} but could not be sent because it is not legal
+        to send them while a key exchange is in progress.  When the key
+        exchange completes, another attempt is made to send these messages.
     """
 
 
@@ -282,8 +305,8 @@ class SSHTransportBase(protocol.Protocol):
 
     def _allowedKeyExchangeMessageType(self, messageType):
         """
-        Determine if the given message type may be sent while key exchange is in
-        progress.
+        Determine if the given message type may be sent while key exchange is
+        in progress.
 
         @param messageType: The type of message
         @type messageType: C{int}
@@ -305,9 +328,9 @@ class SSHTransportBase(protocol.Protocol):
 
     def sendPacket(self, messageType, payload):
         """
-        Sends a packet.  If it's been set up, compress the data, encrypt it, and
-        authenticate it before sending.  If key exchange is in progress and the
-        message is not part of key exchange, queue it to be sent later.
+        Sends a packet.  If it's been set up, compress the data, encrypt it,
+        and authenticate it before sending.  If key exchange is in progress and
+        the message is not part of key exchange, queue it to be sent later.
 
         @param messageType: The type of the packet; generally one of the
                             MSG_* values.
@@ -462,6 +485,28 @@ class SSHTransportBase(protocol.Protocol):
             log.msg("couldn't handle %s" % messageNum)
             log.msg(repr(payload))
             self.sendUnimplemented()
+
+    def getPeer(self):
+        """
+        Returns an L{SSHTransportAddress} corresponding to the other (peer)
+        side of this transport.
+
+        @return: L{SSHTransportAddress} for the peer
+        @rtype: L{SSHTransportAddress}
+        @since: 12.1
+        """
+        return address.SSHTransportAddress(self.transport.getPeer())
+
+    def getHost(self):
+        """
+        Returns an L{SSHTransportAddress} corresponding to the this side of
+        transport.
+
+        @return: L{SSHTransportAddress} for the peer
+        @rtype: L{SSHTransportAddress}
+        @since: 12.1
+        """
+        return address.SSHTransportAddress(self.transport.getHost())
 
 
     # Client-initiated rekeying looks like this:
@@ -862,10 +907,10 @@ class SSHServerTransport(SSHTransportBase):
         Called to handle the beginning of a diffie-hellman-group1-sha1 key
         exchange.
 
-        Unlike other message types, this is not dispatched automatically.  It is
-        called from C{ssh_KEX_DH_GEX_REQUEST_OLD} because an extra check is
-        required to determine if this is really a KEXDH_INIT message or if it is
-        a KEX_DH_GEX_REQUEST_OLD message.
+        Unlike other message types, this is not dispatched automatically.  It
+        is called from C{ssh_KEX_DH_GEX_REQUEST_OLD} because an extra check is
+        required to determine if this is really a KEXDH_INIT message or if it
+        is a KEX_DH_GEX_REQUEST_OLD message.
 
         The KEXDH_INIT (for diffie-hellman-group1-sha1 exchanges) payload::
 
@@ -1085,10 +1130,11 @@ class SSHClientTransport(SSHTransportBase):
         """
         Called to handle a reply to a diffie-hellman-group1-sha1 key exchange
         message (KEXDH_INIT).
-
-        Like the handler for I{KEXDH_INIT}, this message type has an overlapping
-        value.  This method is called from C{ssh_KEX_DH_GEX_GROUP} if that
-        method detects a diffie-hellman-group1-sha1 key exchange is in progress.
+        
+        Like the handler for I{KEXDH_INIT}, this message type has an
+        overlapping value.  This method is called from C{ssh_KEX_DH_GEX_GROUP}
+        if that method detects a diffie-hellman-group1-sha1 key exchange is in
+        progress.
 
         Payload::
 
@@ -1254,11 +1300,14 @@ class SSHClientTransport(SSHTransportBase):
 
         Start the service we requested.
         """
-        name = getNS(packet)[0]
-        if name != self.instance.name:
-            self.sendDisconnect(
-                DISCONNECT_PROTOCOL_ERROR,
-                "received accept for service we did not request")
+        if packet == '':
+            log.msg('got SERVICE_ACCEPT without payload')
+        else:
+            name = getNS(packet)[0]
+            if name != self.instance.name:
+                self.sendDisconnect(
+                    DISCONNECT_PROTOCOL_ERROR,
+                    "received accept for service we did not request")
         self.setService(self.instance)
 
 
@@ -1332,7 +1381,6 @@ class SSHCiphers:
         <digest size>) representing the outgoing MAC.
     @ivar inMAc: see outMAC, but for the incoming MAC.
     """
-
 
     cipherMap = {
         '3des-cbc':('DES3', 24, 0),
@@ -1425,10 +1473,16 @@ class SSHCiphers:
         if not mod:
             return (None, '', '', 0)
         ds = mod().digest_size
-        key = key[:ds] + '\x00' * (64 - ds)
-        i = XOR.new('\x36').encrypt(key)
-        o = XOR.new('\x5c').encrypt(key)
-        return mod, i, o, ds
+
+        # Truncation here appears to contravene RFC 2104, section 2.  However,
+        # implementing the hashing behavior prescribed by the RFC breaks
+        # interoperability with OpenSSH (at least version 5.5p1).
+        key = key[:ds] + ('\x00' * (64 - ds))
+        i = string.translate(key, hmac.trans_36)
+        o = string.translate(key, hmac.trans_5C)
+        result = _MACParams((mod,  i, o, ds))
+        result.key = key
+        return result
 
 
     def encrypt(self, blocks):
@@ -1464,10 +1518,7 @@ class SSHCiphers:
         if not self.outMAC[0]:
             return ''
         data = struct.pack('>L', seqid) + data
-        mod, i, o, ds = self.outMAC
-        inner = mod(i + data)
-        outer = mod(o + inner.digest())
-        return outer.digest()
+        return hmac.HMAC(self.outMAC.key, data, self.outMAC[0]).digest()
 
 
     def verify(self, seqid, data, mac):
@@ -1486,11 +1537,8 @@ class SSHCiphers:
         if not self.inMAC[0]:
             return mac == ''
         data = struct.pack('>L', seqid) + data
-        mod, i, o, ds = self.inMAC
-        inner = mod(i + data)
-        outer = mod(o + inner.digest())
-        return mac == outer.digest()
-
+        outer = hmac.HMAC(self.inMAC.key, data, self.inMAC[0]).digest()
+        return mac == outer
 
 
 class _Counter:

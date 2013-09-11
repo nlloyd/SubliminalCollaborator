@@ -10,9 +10,25 @@ features.
 
 This is mainly for use of internal Twisted code. We encourage you to use
 the latest version of Python directly from your code, if possible.
+
+@var unicode: The type of Unicode strings, C{unicode} on Python 2 and C{str}
+    on Python 3.
+
+@var NativeStringIO: An in-memory file-like object that operates on the native
+    string type (bytes in Python 2, unicode in Python 3).
 """
 
+from __future__ import division
+
 import sys, string, socket, struct
+
+
+if sys.version_info < (3, 0):
+    _PY3 = False
+else:
+    _PY3 = True
+
+
 
 def inet_pton(af, addr):
     if af == socket.AF_INET:
@@ -105,73 +121,303 @@ except (AttributeError, NameError, socket.error):
     socket.inet_pton = inet_pton
     socket.inet_ntop = inet_ntop
 
+
 adict = dict
 
-# OpenSSL/__init__.py imports OpenSSL.tsafe.  OpenSSL/tsafe.py imports
-# threading.  threading imports thread.  All to make this stupid threadsafe
-# version of its Connection class.  We don't even care about threadsafe
-# Connections.  In the interest of not screwing over some crazy person
-# calling into OpenSSL from another thread and trying to use Twisted's SSL
-# support, we don't totally destroy OpenSSL.tsafe, but we will replace it
-# with our own version which imports threading as late as possible.
-
-class tsafe(object):
-    class Connection:
-        """
-        OpenSSL.tsafe.Connection, defined in such a way as to not blow.
-        """
-        __module__ = 'OpenSSL.tsafe'
-
-        def __init__(self, *args):
-            from OpenSSL import SSL as _ssl
-            self._ssl_conn = apply(_ssl.Connection, args)
-            from threading import _RLock
-            self._lock = _RLock()
-
-        for f in ('get_context', 'pending', 'send', 'write', 'recv',
-                  'read', 'renegotiate', 'bind', 'listen', 'connect',
-                  'accept', 'setblocking', 'fileno', 'shutdown',
-                  'close', 'get_cipher_list', 'getpeername',
-                  'getsockname', 'getsockopt', 'setsockopt',
-                  'makefile', 'get_app_data', 'set_app_data',
-                  'state_string', 'sock_shutdown',
-                  'get_peer_certificate', 'want_read', 'want_write',
-                  'set_connect_state', 'set_accept_state',
-                  'connect_ex', 'sendall'):
-
-            exec """def %s(self, *args):
-                self._lock.acquire()
-                try:
-                    return apply(self._ssl_conn.%s, args)
-                finally:
-                    self._lock.release()\n""" % (f, f)
-sys.modules['OpenSSL.tsafe'] = tsafe
-
-import operator
-try:
-    operator.attrgetter
-except AttributeError:
-    class attrgetter(object):
-        def __init__(self, name):
-            self.name = name
-        def __call__(self, obj):
-            return getattr(obj, self.name)
-    operator.attrgetter = attrgetter
 
 
-try:
-    set = set
-except NameError:
-    from sets import Set as set
+if _PY3:
+    # These are actually useless in Python 2 as well, but we need to go
+    # through deprecation process there (ticket #5895):
+    del adict, inet_pton, inet_ntop
 
 
-try:
-    frozenset = frozenset
-except NameError:
-    from sets import ImmutableSet as frozenset
+set = set
+frozenset = frozenset
 
 
 try:
     from functools import reduce
 except ImportError:
     reduce = reduce
+
+
+
+def execfile(filename, globals, locals=None):
+    """
+    Execute a Python script in the given namespaces.
+
+    Similar to the execfile builtin, but a namespace is mandatory, partly
+    because that's a sensible thing to require, and because otherwise we'd
+    have to do some frame hacking.
+
+    This is a compatibility implementation for Python 3 porting, to avoid the
+    use of the deprecated builtin C{execfile} function.
+    """
+    if locals is None:
+        locals = globals
+    fin = open(filename, "rbU")
+    try:
+        source = fin.read()
+    finally:
+        fin.close()
+    code = compile(source, filename, "exec")
+    exec(code, globals, locals)
+
+
+try:
+    cmp = cmp
+except NameError:
+    def cmp(a, b):
+        """
+        Compare two objects.
+
+        Returns a negative number if C{a < b}, zero if they are equal, and a
+        positive number if C{a > b}.
+        """
+        if a < b:
+            return -1
+        elif a == b:
+            return 0
+        else:
+            return 1
+
+
+
+def comparable(klass):
+    """
+    Class decorator that ensures support for the special C{__cmp__} method.
+
+    On Python 2 this does nothing.
+
+    On Python 3, C{__eq__}, C{__lt__}, etc. methods are added to the class,
+    relying on C{__cmp__} to implement their comparisons.
+    """
+    # On Python 2, __cmp__ will just work, so no need to add extra methods:
+    if not _PY3:
+        return klass
+
+    def __eq__(self, other):
+        c = self.__cmp__(other)
+        if c is NotImplemented:
+            return c
+        return c == 0
+
+
+    def __ne__(self, other):
+        c = self.__cmp__(other)
+        if c is NotImplemented:
+            return c
+        return c != 0
+
+
+    def __lt__(self, other):
+        c = self.__cmp__(other)
+        if c is NotImplemented:
+            return c
+        return c < 0
+
+
+    def __le__(self, other):
+        c = self.__cmp__(other)
+        if c is NotImplemented:
+            return c
+        return c <= 0
+
+
+    def __gt__(self, other):
+        c = self.__cmp__(other)
+        if c is NotImplemented:
+            return c
+        return c > 0
+
+
+    def __ge__(self, other):
+        c = self.__cmp__(other)
+        if c is NotImplemented:
+            return c
+        return c >= 0
+
+    klass.__lt__ = __lt__
+    klass.__gt__ = __gt__
+    klass.__le__ = __le__
+    klass.__ge__ = __ge__
+    klass.__eq__ = __eq__
+    klass.__ne__ = __ne__
+    return klass
+
+
+
+if _PY3:
+    unicode = str
+else:
+    unicode = unicode
+
+
+
+def nativeString(s):
+    """
+    Convert C{bytes} or C{unicode} to the native C{str} type, using ASCII
+    encoding if conversion is necessary.
+
+    @raise UnicodeError: The input string is not ASCII encodable/decodable.
+    @raise TypeError: The input is neither C{bytes} nor C{unicode}.
+    """
+    if not isinstance(s, (bytes, unicode)):
+        raise TypeError("%r is neither bytes nor unicode" % s)
+    if _PY3:
+        if isinstance(s, bytes):
+            return s.decode("ascii")
+        else:
+            # Ensure we're limited to ASCII subset:
+            s.encode("ascii")
+    else:
+        if isinstance(s, unicode):
+            return s.encode("ascii")
+        else:
+            # Ensure we're limited to ASCII subset:
+            s.decode("ascii")
+    return s
+
+
+
+if _PY3:
+    def reraise(exception, traceback):
+        raise exception.with_traceback(traceback)
+else:
+    exec("""def reraise(exception, traceback):
+        raise exception.__class__, exception, traceback""")
+
+reraise.__doc__ = """
+Re-raise an exception, with an optional traceback, in a way that is compatible
+with both Python 2 and Python 3.
+
+Note that on Python 3, re-raised exceptions will be mutated, with their
+C{__traceback__} attribute being set.
+
+@param exception: The exception instance.
+@param traceback: The traceback to use, or C{None} indicating a new traceback.
+"""
+
+
+
+if _PY3:
+    from io import StringIO as NativeStringIO
+else:
+    from io import BytesIO as NativeStringIO
+
+
+
+# Functions for dealing with Python 3's bytes type, which is somewhat
+# different than Python 2's:
+if _PY3:
+    def iterbytes(originalBytes):
+        for i in range(len(originalBytes)):
+            yield originalBytes[i:i+1]
+
+
+    def intToBytes(i):
+        return ("%d" % i).encode("ascii")
+
+
+    # Ideally we would use memoryview, but it has a number of differences from
+    # the Python 2 buffer() that make that impractical
+    # (http://bugs.python.org/issue15945, incompatiblity with pyOpenSSL due to
+    # PyArg_ParseTuple differences.)
+    def lazyByteSlice(object, offset=0, size=None):
+        """
+        Return a copy of the given bytes-like object.
+
+        If an offset is given, the copy starts at that offset. If a size is
+        given, the copy will only be of that length.
+
+        @param object: C{bytes} to be copied.
+
+        @param offset: C{int}, starting index of copy.
+
+        @param size: Optional, if an C{int} is given limit the length of copy
+            to this size.
+        """
+        if size is None:
+            return object[offset:]
+        else:
+            return object[offset:(offset + size)]
+
+
+    def networkString(s):
+        if not isinstance(s, unicode):
+            raise TypeError("Can only convert text to bytes on Python 3")
+        return s.encode('ascii')
+else:
+    def iterbytes(originalBytes):
+        return originalBytes
+
+
+    def intToBytes(i):
+        return b"%d" % i
+
+
+    lazyByteSlice = buffer
+
+    def networkString(s):
+        if not isinstance(s, str):
+            raise TypeError("Can only pass-through bytes on Python 2")
+        # Ensure we're limited to ASCII subset:
+        s.decode('ascii')
+        return s
+
+iterbytes.__doc__ = """
+Return an iterable wrapper for a C{bytes} object that provides the behavior of
+iterating over C{bytes} on Python 2.
+
+In particular, the results of iteration are the individual bytes (rather than
+integers as on Python 3).
+
+@param originalBytes: A C{bytes} object that will be wrapped.
+"""
+
+intToBytes.__doc__ = """
+Convert the given integer into C{bytes}, as ASCII-encoded Arab numeral.
+
+In other words, this is equivalent to calling C{bytes} in Python 2 on an
+integer.
+
+@param i: The C{int} to convert to C{bytes}.
+@rtype: C{bytes}
+"""
+
+networkString.__doc__ = """
+Convert the native string type to C{bytes} if it is not already C{bytes} using
+ASCII encoding if conversion is necessary.
+
+This is useful for sending text-like bytes that are constructed using string
+interpolation.  For example, this is safe on Python 2 and Python 3:
+
+    networkString("Hello %d" % (n,))
+
+@param s: A native string to convert to bytes if necessary.
+@type s: C{str}
+
+@raise UnicodeError: The input string is not ASCII encodable/decodable.
+@raise TypeError: The input is neither C{bytes} nor C{unicode}.
+
+@rtype: C{bytes}
+"""
+
+
+__all__ = [
+    "reraise",
+    "execfile",
+    "frozenset",
+    "reduce",
+    "set",
+    "cmp",
+    "comparable",
+    "nativeString",
+    "NativeStringIO",
+    "networkString",
+    "unicode",
+    "iterbytes",
+    "intToBytes",
+    "lazyByteSlice",
+    ]

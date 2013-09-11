@@ -5,6 +5,8 @@
 Tests for ssh/transport.py and the classes therein.
 """
 
+import struct
+
 try:
     import pyasn1
 except ImportError:
@@ -33,18 +35,17 @@ else:
         class SSHFactory:
             pass
 
+from hashlib import md5, sha1
+
 from twisted.trial import unittest
 from twisted.internet import defer
 from twisted.protocols import loopback
 from twisted.python import randbytes
-from twisted.python.reflect import qual
-from twisted.python.hashlib import md5, sha1
-from twisted.conch.ssh import service, common
+from twisted.python.reflect import qual, getClass
+from twisted.conch.ssh import address, service, common
 from twisted.test import proto_helpers
 
 from twisted.conch.error import ConchError
-
-
 
 class MockTransportBase(transport.SSHTransportBase):
     """
@@ -76,7 +77,8 @@ class MockTransportBase(transport.SSHTransportBase):
         @type remoteVersion: C{str}
         """
         self.gotUnsupportedVersion = remoteVersion
-        return transport.SSHTransportBase._unsupportedVersionReceived(self, remoteVersion)
+        return transport.SSHTransportBase._unsupportedVersionReceived(
+            self, remoteVersion)
 
 
     def receiveError(self, reasonCode, description):
@@ -315,19 +317,14 @@ class MockOldFactoryPrivateKeys(MockFactory):
         return keys
 
 
-
 class TransportTestCase(unittest.TestCase):
     """
     Base class for transport test cases.
     """
     klass = None
 
-    if Crypto is None:
-        skip = "cannot run w/o PyCrypto"
-
-    if pyasn1 is None:
-        skip = "Cannot run without PyASN1"
-
+    if dependencySkip:
+        skip = dependencySkip
 
     def setUp(self):
         self.transport = proto_helpers.StringTransport()
@@ -359,9 +356,10 @@ class TransportTestCase(unittest.TestCase):
         proto._keySetup("foo", "bar")
         # SSHTransportBase can't handle MSG_NEWKEYS, or it would be the right
         # thing to deliver next.  _newKeys won't work either, because
-        # sendKexInit (probably) hasn't been called.  sendKexInit is responsible
-        # for setting up certain state _newKeys relies on.  So, just change the
-        # key exchange state to what it would be when key exchange is finished.
+        # sendKexInit (probably) hasn't been called.  sendKexInit is
+        # responsible for setting up certain state _newKeys relies on.  So,
+        # just change the key exchange state to what it would be when key
+        # exchange is finished.
         proto._keyExchangeState = proto._KEY_EXCHANGE_NONE
 
 
@@ -573,7 +571,7 @@ class BaseSSHTransportTestCase(TransportTestCase):
         proto.sendKexInit = lambda: None
         proto.makeConnection(self.transport)
         self.transport.clear()
-        proto.currentEncryptions = testCipher = MockCipher()
+        proto.currentEncryptions = MockCipher()
         proto.outgoingCompression = MockCompression()
         proto.incomingCompression = proto.outgoingCompression
         proto.sendPacket(ord('A'), 'BCDEFG')
@@ -674,8 +672,8 @@ class BaseSSHTransportTestCase(TransportTestCase):
 
         RFC 4253, section 7.1.
         """
-        # sendKexInit is called by connectionMade, which is called in setUp.  So
-        # we're in the state already.
+        # sendKexInit is called by connectionMade, which is called in setUp.
+        # So we're in the state already.
         disallowedMessageTypes = [
             transport.MSG_SERVICE_REQUEST,
             transport.MSG_KEXINIT,
@@ -684,8 +682,8 @@ class BaseSSHTransportTestCase(TransportTestCase):
         # Drop all the bytes sent by setUp, they're not relevant to this test.
         self.transport.clear()
 
-        # Get rid of the sendPacket monkey patch, we are testing the behavior of
-        # sendPacket.
+        # Get rid of the sendPacket monkey patch, we are testing the behavior
+        # of sendPacket.
         del self.proto.sendPacket
 
         for messageType in disallowedMessageTypes:
@@ -1152,6 +1150,24 @@ class ServerAndClientSSHTransportBaseCase:
         def blankMACs(proto2):
             proto2.supportedMACs = []
         self.connectModifiedProtocol(blankMACs)
+
+    def test_getPeer(self):
+        """
+        Test that the transport's L{getPeer} method returns an
+        L{SSHTransportAddress} with the L{IAddress} of the peer.
+        """
+        self.assertEqual(self.proto.getPeer(),
+                         address.SSHTransportAddress(
+                self.proto.transport.getPeer()))
+
+    def test_getHost(self):
+        """
+        Test that the transport's L{getHost} method returns an
+        L{SSHTransportAddress} with the L{IAddress} of the host.
+        """
+        self.assertEqual(self.proto.getHost(),
+                         address.SSHTransportAddress(
+                self.proto.transport.getHost()))
 
 
 
@@ -1795,17 +1811,83 @@ class ClientSSHTransportTestCase(ServerAndClientSSHTransportBaseCase,
         self.checkDisconnected()
 
 
+    def test_noPayloadSERVICE_ACCEPT(self):
+        """
+        Some commercial SSH servers don't send a payload with the
+        SERVICE_ACCEPT message.  Conch pretends that it got the correct
+        name of the service.
+        """
+        self.proto.instance = MockService()
+        self.proto.ssh_SERVICE_ACCEPT('') # no payload
+        self.assertTrue(self.proto.instance.started)
+        self.assertEquals(len(self.packets), 0) # not disconnected
+
+
+
+class GetMACTestCase(unittest.TestCase):
+    """
+    Tests for L{SSHCiphers._getMAC}.
+    """
+    if dependencySkip:
+        skip = dependencySkip
+
+    def setUp(self):
+        self.ciphers = transport.SSHCiphers(b'A', b'B', b'C', b'D')
+
+        # MD5 digest is 16 bytes.  Put some non-zero bytes into that part of
+        # the key.  Maybe varying the bytes a little bit means a bug in the
+        # implementation is more likely to be caught by the assertions below.
+        # The remaining 48 bytes of NULs are to pad the key out to 64 bytes.
+        # It doesn't seem to matter that SHA1 produces a larger digest.  The
+        # material seems always to need to be truncated at 16 bytes.
+        self.key = '\x55\xaa' * 8 + '\x00' * 48
+
+        self.ipad = b''.join(chr(ord(b) ^ 0x36) for b in self.key)
+        self.opad = b''.join(chr(ord(b) ^ 0x5c) for b in self.key)
+
+
+    def test_hmacsha1(self):
+        """
+        When L{SSHCiphers._getMAC} is called with the C{b"hmac-sha1"} MAC
+        algorithm name it returns a tuple of (sha1 digest object, inner pad,
+        outer pad, sha1 digest size) with a C{key} attribute set to the value
+        of the key supplied.
+        """
+        params = self.ciphers._getMAC(b"hmac-sha1", self.key)
+        self.assertEqual(
+            (sha1, self.ipad, self.opad, sha1().digest_size, self.key),
+            params + (params.key,))
+
+
+    def test_md5sha1(self):
+        """
+        When L{SSHCiphers._getMAC} is called with the C{b"hmac-md5"} MAC
+        algorithm name it returns a tuple of (md5 digest object, inner pad,
+        outer pad, md5 digest size) with a C{key} attribute set to the value of
+        the key supplied.
+        """
+        params = self.ciphers._getMAC(b"hmac-md5", self.key)
+        self.assertEqual(
+            (md5, self.ipad, self.opad, md5().digest_size, self.key),
+            params + (params.key,))
+
+
+    def test_none(self):
+        """
+        When L{SSHCiphers._getMAC} is called with the C{b"none"} MAC algorithm
+        name it returns a tuple of (None, "", "", 0)
+        """
+        params = self.ciphers._getMAC(b"none", self.key)
+        self.assertEqual((None, b"", b"", 0), params)
+
+
 
 class SSHCiphersTestCase(unittest.TestCase):
     """
     Tests for the SSHCiphers helper class.
     """
-    if Crypto is None:
-        skip = "cannot run w/o PyCrypto"
-
-    if pyasn1 is None:
-        skip = "Cannot run without PyASN1"
-
+    if dependencySkip:
+        skip = dependencySkip
 
     def test_init(self):
         """
@@ -1829,26 +1911,7 @@ class SSHCiphersTestCase(unittest.TestCase):
             if cipName == 'none':
                 self.assertIsInstance(cip, transport._DummyCipher)
             else:
-                self.assertTrue(str(cip).startswith('<' + modName))
-
-
-    def test_getMAC(self):
-        """
-        Test that the _getMAC method returns the correct MAC.
-        """
-        ciphers = transport.SSHCiphers('A', 'B', 'C', 'D')
-        key = '\x00' * 64
-        for macName, mac in ciphers.macMap.items():
-            mod = ciphers._getMAC(macName, key)
-            if macName == 'none':
-                self.assertIdentical(mac, None)
-            else:
-                self.assertEqual(mod[0], mac)
-                self.assertEqual(mod[1],
-                                  Crypto.Cipher.XOR.new('\x36').encrypt(key))
-                self.assertEqual(mod[2],
-                                  Crypto.Cipher.XOR.new('\x5c').encrypt(key))
-                self.assertEqual(mod[3], len(mod[0]().digest()))
+                self.assertTrue(getClass(cip).__name__.startswith(modName))
 
 
     def test_setKeysCiphers(self):
@@ -1904,17 +1967,38 @@ class SSHCiphersTestCase(unittest.TestCase):
             self.assertTrue(inMac.verify(seqid, data, mac))
 
 
+    def test_makeMAC(self):
+        """
+        L{SSHCiphers.makeMAC} computes the HMAC of an outgoing SSH message with
+        a particular sequence id and content data.
+        """
+        # Use the test vectors given in the appendix of RFC 2104.
+        vectors = [
+            (b"\x0b" * 16, b"Hi There",
+             b"9294727a3638bb1c13f48ef8158bfc9d"),
+            (b"Jefe", b"what do ya want for nothing?",
+             b"750c783e6ab0b503eaa86e310a5db738"),
+            (b"\xAA" * 16, b"\xDD" * 50,
+             b"56be34521d144c88dbb8c733f0e8b3f6"),
+            ]
+
+        for key, data, mac in vectors:
+            outMAC = transport.SSHCiphers('none', 'none', 'hmac-md5', 'none')
+            outMAC.outMAC = outMAC._getMAC("hmac-md5", key)
+            (seqid,) = struct.unpack('>L', data[:4])
+            shortened = data[4:]
+            self.assertEqual(
+                mac, outMAC.makeMAC(seqid, shortened).encode("hex"),
+                "Failed HMAC test vector; key=%r data=%r" % (key, data))
+
+
 
 class CounterTestCase(unittest.TestCase):
     """
     Tests for the _Counter helper class.
     """
-    if Crypto is None:
-        skip = "cannot run w/o PyCrypto"
-
-    if pyasn1 is None:
-        skip = "Cannot run without PyASN1"
-
+    if dependencySkip:
+        skip = dependencySkip
 
     def test_init(self):
         """
@@ -1942,12 +2026,8 @@ class TransportLoopbackTestCase(unittest.TestCase):
     """
     Test the server transport and client transport against each other,
     """
-    if Crypto is None:
-        skip = "cannot run w/o PyCrypto"
-
-    if pyasn1 is None:
-        skip = "Cannot run without PyASN1"
-
+    if dependencySkip:
+        skip = dependencySkip
 
     def _runClientServer(self, mod):
         """
@@ -2058,7 +2138,8 @@ class RandomNumberTestCase(unittest.TestCase):
     Tests for the random number generator L{_getRandomNumber} and private
     key generator L{_generateX}.
     """
-    skip = dependencySkip
+    if dependencySkip:
+        skip = dependencySkip
 
     def test_usesSuppliedRandomFunction(self):
         """
@@ -2123,13 +2204,8 @@ class OldFactoryTestCase(unittest.TestCase):
     by the C{SSHServerTransport}, so we warn the user if they create an old
     factory.
     """
-
-    if Crypto is None:
-        skip = "cannot run w/o PyCrypto"
-
-    if pyasn1 is None:
-        skip = "Cannot run without PyASN1"
-
+    if dependencySkip:
+        skip = dependencySkip
 
     def test_getPublicKeysWarning(self):
         """

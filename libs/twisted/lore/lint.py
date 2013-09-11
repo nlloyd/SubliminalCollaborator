@@ -6,15 +6,24 @@ Checker for common errors in Lore documents.
 """
 
 from xml.dom import minidom as dom
-import parser, urlparse, os.path
+import parser
+import urlparse
+import os.path
 
 from twisted.lore import tree, process
 from twisted.web import domhelpers
 from twisted.python import reflect
+from twisted.python.versions import Version
+from twisted.python.deprecate import deprecatedModuleAttribute
 
 
-# parser.suite in Python 2.3 raises SyntaxError, <2.3 raises parser.ParserError
-parserErrors = (SyntaxError, parser.ParserError)
+parserErrors = (SyntaxError,)
+deprecatedModuleAttribute(
+    Version("Twisted", 13, 1, 0),
+    "parserErrors is deprecated",
+    __name__,
+    "parserErrors")
+
 
 class TagChecker:
 
@@ -131,11 +140,11 @@ class DefaultTagChecker(TagChecker):
                     text = '\n'.join(lines) + '\n'
                     try:
                         parser.suite(text)
-                    except parserErrors, e:
+                    except SyntaxError:
                         # Pretend the "..." idiom is syntactically valid
                         text = text.replace("...","'...'")
                         parser.suite(text)
-                except parserErrors, e:
+                except SyntaxError as e:
                     self._reportError(filename, node,
                                       'invalid python code:' + str(e))
 
@@ -196,7 +205,7 @@ allowed = {'code': classes.has_key, 'span': span.has_key, 'div': div.has_key,
            'ol': lambda x: x=='toc', 'li': lambda x: x=='ignoretoc'}
 
 def getDefaultChecker():
-    return DefaultTagChecker(tags.has_key, allowed)
+    return DefaultTagChecker(tags.__contains__, allowed)
 
 def doFile(file, checker):
     doc = tree.parseFileAndReport(file)

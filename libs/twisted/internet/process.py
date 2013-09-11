@@ -337,7 +337,13 @@ class _BaseProcess(BaseProcess, object):
             signalID = getattr(signal, 'SIG%s' % (signalID,))
         if self.pid is None:
             raise ProcessExitedAlready()
-        os.kill(self.pid, signalID)
+        try:
+            os.kill(self.pid, signalID)
+        except OSError, e:
+            if e.errno == errno.ESRCH:
+                raise ProcessExitedAlready()
+            else:
+                raise
 
 
     def _resetSignalDisposition(self):
@@ -370,29 +376,12 @@ class _BaseProcess(BaseProcess, object):
         @type environment: C{dict}.
         @param kwargs: keyword arguments to L{_setupChild} method.
         """
-        settingUID = (uid is not None) or (gid is not None)
-        if settingUID:
-            curegid = os.getegid()
-            currgid = os.getgid()
-            cureuid = os.geteuid()
-            curruid = os.getuid()
-            if uid is None:
-                uid = cureuid
-            if gid is None:
-                gid = curegid
-            # prepare to change UID in subprocess
-            os.setuid(0)
-            os.setgid(0)
-
         collectorEnabled = gc.isenabled()
         gc.disable()
         try:
             self.pid = os.fork()
         except:
             # Still in the parent process
-            if settingUID:
-                os.setregid(currgid, curegid)
-                os.setreuid(curruid, cureuid)
             if collectorEnabled:
                 gc.enable()
             raise
@@ -410,8 +399,8 @@ class _BaseProcess(BaseProcess, object):
                     # Stop debugging. If I am, I don't care anymore.
                     sys.settrace(None)
                     self._setupChild(**kwargs)
-                    self._execChild(path, settingUID, uid, gid,
-                                    executable, args, environment)
+                    self._execChild(
+                        path, uid, gid, executable, args, environment)
                 except:
                     # If there are errors, bail and try to write something
                     # descriptive to stderr.
@@ -434,12 +423,10 @@ class _BaseProcess(BaseProcess, object):
                 os._exit(1)
 
         # we are now in parent process
-        if settingUID:
-            os.setregid(currgid, curegid)
-            os.setreuid(curruid, cureuid)
         if collectorEnabled:
             gc.enable()
         self.status = -1 # this records the exit status of the child
+
 
     def _setupChild(self, *args, **kwargs):
         """
@@ -447,17 +434,24 @@ class _BaseProcess(BaseProcess, object):
         """
         raise NotImplementedError()
 
-    def _execChild(self, path, settingUID, uid, gid,
-                   executable, args, environment):
+
+    def _execChild(self, path, uid, gid, executable, args, environment):
         """
         The exec() which is done in the forked child.
         """
         if path:
             os.chdir(path)
-        # set the UID before I actually exec the process
-        if settingUID:
+        if uid is not None or gid is not None:
+            if uid is None:
+                uid = os.geteuid()
+            if gid is None:
+                gid = os.getegid()
+            # set the UID before I actually exec the process
+            os.setuid(0)
+            os.setgid(0)
             switchUID(uid, gid)
         os.execvpe(executable, args, environment)
+
 
     def __repr__(self):
         """
@@ -977,27 +971,37 @@ class PTYProcess(abstract.FileDescriptor, _BaseProcess):
             log.err()
         registerReapProcessHandler(self.pid, self)
 
+
     def _setupChild(self, masterfd, slavefd):
         """
-        Setup child process after fork() but before exec().
+        Set up child process after C{fork()} but before C{exec()}.
+
+        This involves:
+
+            - closing C{masterfd}, since it is not used in the subprocess
+
+            - creating a new session with C{os.setsid}
+
+            - changing the controlling terminal of the process (and the new
+              session) to point at C{slavefd}
+
+            - duplicating C{slavefd} to standard input, output, and error
+
+            - closing all other open file descriptors (according to
+              L{_listOpenFDs})
+
+            - re-setting all signal handlers to C{SIG_DFL}
+
+        @param masterfd: The master end of a PTY file descriptors opened with
+            C{openpty}.
+        @type masterfd: L{int}
+
+        @param slavefd: The slave end of a PTY opened with C{openpty}.
+        @type slavefd: L{int}
         """
         os.close(masterfd)
-        if hasattr(termios, 'TIOCNOTTY'):
-            try:
-                fd = os.open("/dev/tty", os.O_RDWR | os.O_NOCTTY)
-            except OSError:
-                pass
-            else:
-                try:
-                    fcntl.ioctl(fd, termios.TIOCNOTTY, '')
-                except:
-                    pass
-                os.close(fd)
-
         os.setsid()
-
-        if hasattr(termios, 'TIOCSCTTY'):
-            fcntl.ioctl(slavefd, termios.TIOCSCTTY, '')
+        fcntl.ioctl(slavefd, termios.TIOCSCTTY, '')
 
         for fd in range(3):
             if fd != slavefd:
