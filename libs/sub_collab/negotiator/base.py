@@ -19,7 +19,7 @@
 #   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #   THE SOFTWARE.
-from zope.interface import Interface
+from zope.interface import Interface, implements
 
 class Negotiator(Interface):
     """
@@ -28,17 +28,13 @@ class Negotiator(Interface):
     in order to establish a direct peer-to-peer session with another user.
     """
 
-    def connect(host, port, username, password, **kwargs):
+    def connect():
         """
         Initiate the connection process to an instant messaging server,
         if not already connected.
 
-        @param host: ip address or domain name of the host server
-        @param port: C{int} port number of the host
-        @param username: C{str} IM account username
-        @param password: C{str} IM account password
-        @param kwargs: optional parameters, may be required 
-                     for some implementations
+        The constructor is expected to recieve configuration data in the
+        form of a dict.
         """
 
     def isConnected():
@@ -91,3 +87,32 @@ class Negotiator(Interface):
         Callback method for incoming requests to start a peer-to-peer session.
         The username, host, and port of the requesting peer is provided as input.
         """
+
+
+class BaseNegotiator(object)
+    """
+    Base implementation of the Negotiator interface.
+
+    Negotiators are both protocols and factories for themselves.
+    Not sure if this is the best way to do things but for now it
+    will do.
+
+    This only provides a constructor to recieve config C{dict}.
+    """
+    implements(Negotiator)
+
+
+    def __ init__(self, config):
+        self.config = config
+
+
+    def getConfig(self):
+        return self.config
+
+
+    # def connect(self):
+    #     pass
+
+
+    # def isConnected(self):
+    #     pass

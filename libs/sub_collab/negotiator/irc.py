@@ -20,7 +20,7 @@
 #   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #   THE SOFTWARE.
 from zope.interface import implements
-from sub_collab.negotiator import interface
+from sub_collab.negotiator import base
 from sub_collab.peer import base
 from sub_collab import status_bar
 from twisted.words.protocols import irc
@@ -37,15 +37,16 @@ stdoutHandler.setFormatter(logging.Formatter(fmt='[SubliminalCollaborator|IRC(%(
 logger.addHandler(stdoutHandler)
 logger.setLevel(logging.INFO)
 
-class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
+class IRCNegotiator(base.BaseNegotiator, protocol.ClientFactory, irc.IRCClient):
     """
     IRC client implementation of the Negotiator interface.
+    Extends C{sub_collab.base.BaseNegotiator}
 
     Negotiators are both protocols and factories for themselves.
     Not sure if this is the best way to do things but for now it
     will do.
     """
-    implements(interface.Negotiator)
+    # implements(interface.Negotiator)
 
     #*** irc.IRCClient properties ***#
     versionName = 'SubliminalCollaborator'
@@ -57,11 +58,20 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
     onNegotiateCallback = None
     rejectedOrFailedCallback = None
 
-    def __init__(self):
+    def __init__(self, config):
+        assert config.has_key('host'), 'IRCNegotiator missing host'
+        assert config.has_key('port'), 'IRCNegotiator missing port'
+        assert config.has_key('username'), 'IRCNegotiator missing username'
+        assert config.has_key('channel'), 'IRCNegotiator missing channel to connect to'
+        self.BaseNegotiator.__init__(config)
         self.clientConnection = None
-        self.host = None
-        self.port = None
-        self.password = None
+        self.host = self.config['host'].encode()
+        self.port = int(self.config['port'])
+        self.nickname = self.config['username'].encode()
+        if self.config.has_key('password'):
+            self.password = self.config['password'].encode()
+        # @todo ssl client key
+        self.channel = self.config['channel'].encode()
         self.peerUsers = None
         self.unverifiedUsers = None
         self.connectionFailed = False
@@ -69,15 +79,9 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
 
     #*** Negotiator method implementations ***#
 
-    def connect(self, host, port, username, password, **kwargs):
+    def connect(self):
         """
         Connect to an instant messaging server.
-
-        @param host: ip address or domain name of the host server
-        @param port: C{int} port number of the host
-        @param username: C{str} IM account username
-        @param password: C{str} IM account password
-        @param kwargs: {'channel': 'channelNameStringWoutPrefix'}
 
         @return: True on success
         """
@@ -89,14 +93,6 @@ class IRCNegotiator(protocol.ClientFactory, irc.IRCClient):
         # start a fresh connection
         if self.clientConnection:
             self.clientConnection.disconnect()
-
-        # irc.IRCClient member setting
-        self.nickname = username.encode()
-
-        self.host = host.encode()
-        self.port = port
-        self.password = password.encode()
-        self.channel = kwargs['channel'].encode()
 
         status_bar.status_message('connecting to %s' % self.str())
         self.clientConnection = reactor.connectTCP(self.host, self.port, self)
