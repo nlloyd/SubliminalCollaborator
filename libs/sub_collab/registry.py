@@ -38,9 +38,9 @@ class Registry:
 
 
     def __init__(self):
-        # config dictionary, key is protocol:host:username, values are configured negotiator instances
+        # negotiator map, key is protocol:host:username, values are configured negotiator instances
         self.negotiators = {}
-        # sessions by chatClient
+        # sessions by negotiator key
         self.sessions = {}
         # sessions by view id
         self.sessionsByViewId = {}
@@ -97,7 +97,7 @@ class Registry:
         # if updated config, disconnect old negotiator and create new
         if updated:
             self.removeNegotiator(negotiatorKey)
-        self.negotiators[negotiatorKey] = self.negotiatorConstructorMap[protocol](config)
+        self.negotiators[negotiatorKey] = self.negotiatorConstructorMap[protocol](negotiatorKey, config)
 
         # report errors, if any
         if len(errorMsgs) > 1:
@@ -108,7 +108,6 @@ class Registry:
     def hasNegotiator(self, protocol, config):
         negotiatorKey = self.buildNegotiatorKey(protocol, config)
         return self.hasNegotiator(negotiatorKey)
-
 
 
     def hasNegotiator(self, negotiatorKey):
@@ -131,7 +130,11 @@ class Registry:
 
 
     def listNegotiators(self):
-        return self.negotiators.iteritems();
+        return self.negotiators.values();
+
+
+    def listNegoriatorEntries(self):
+        return self.negotiators.items()
 
 
     def getNegotiator(self, protocol, config):

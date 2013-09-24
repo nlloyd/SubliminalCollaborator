@@ -94,7 +94,7 @@ import threading, logging, time, shutil, fileinput, re, functools
 #*** globals for preferences and session variables ***#
 # config dictionary, key is protocol:host:username, value is config dict
 # chatClientConfig = {}
-connectAllOnStartup = False
+CONNECT_ALL_ON_STARTUP = False
 # # key is same as config dictionary, values are live negotiator instances
 # negotiatorInstances = {}
 # # sessions by chatClient
@@ -142,6 +142,7 @@ globalActiveView = None
 
 
 def loadConfig():
+    global CONNECT_ALL_ON_STARTUP
     acctConfig = sublime.load_settings('Accounts.sublime-settings')
     accts = acctConfig.get('subliminal_collaborator')
     logger.info('loading configuration from Accounts.sublime-settings')
@@ -150,63 +151,54 @@ def loadConfig():
         return
     acctConfig.clear_on_change('subliminal_collaborator')
     acctConfig.add_on_change('subliminal_collaborator', loadConfig)
-    loadedClients = {}
+    loadedNegotiators = {}
     for protocol, acctDetails in accts.items():
         if protocol == 'connect_all_on_startup':
-            connectAllOnStartup = acctDetails
+            CONNECT_ALL_ON_STARTUP = acctDetails
             continue
         for acctDetail in acctDetails:
-            # # if not acctDetail.has_key('host'):
-            # #     configErrorList.append('A %s protocol configuration is missing a host entry' % protocol)
-            # # if not acctDetail.has_key('port'):
-            # #     configErrorList.append('A %s protocol configuration is missing a port entry' % protocol)
-            # # if not acctDetail.has_key('username'):
-            # #     configErrorList.append('A %s protocol configuration is missing a username entry' % protocol)
-            # # if not acctDetail.has_key('password'):
-            # #     configErrorList.append('A %s protocol configuration is missing a password entry' % protocol)
-            client = registry.addOrUpdateClientConfig(protocol, acctDetail)
-            loadedClients[client[0]] = client[1]
+            negotiator = registry.addOrUpdateNegotiator(protocol, acctDetail)
+            loadedNegotiators[negotiator[0]] = negotiator[1]
     # search for any configurations in the registry NOT found in the latest config file data
-    for registeredClient in registry.listClientConfigKeys():
-        if not loadedClients.has_key(registeredClient):
-            registry.removeClientConfig(registeredClient)
-            # if negotiatorInstances.has_key(registeredClient):
-            #     logger.info('Cleaning up old chat client with unused configuration: %s' % registeredClient)
-            #     oldNegotiator = negotiatorInstances.pop(registeredClient)
-            #     oldNegotiator.disconnect()
+    for existingNegotiator in registry.listNegotiatorKeys():
+        if not loadedNegotiators.has_key(existingNegotiator):
+            registry.removeNegotiator(existingNegotiator)
 
 
-# def connectAllChat():
-#     logger.info('Connecting to all configured chat servers')
-#     chatClientKeys = chatClientConfig.keys()
-#     for connectedClient in negotiatorInstances.keys():
-#         chatClientKeys.remove(connectedClient)
-#     for client in chatClientKeys:
-#         logger.info('Connecting to chat %s' % client)
-#         negotiatorInstances[client] = negotiatorFactoryMap[client.split('|', 1)[0]]()
-#         negotiatorInstances[client].connect(**chatClientConfig[client])
-#         status_bar.status_message('connected clients: %d' % len(negotiatorInstances))
+def connectAllChat():
+    logger.info('Connecting to all configured chat servers')
+    for key, negotiator in registry.listNegotiatorEntries():
+        logger.info('Connecting to chat %s' % key)
+        if not negotiator.isConnected():
+            negotiator.connect()
+
 
 loadConfig()
 
-# if connectAllOnStartup:
-    # connectAllChat()
+if CONNECT_ALL_ON_STARTUP:
+    connectAllChat()
 
 
-# class OpenSublimeSettingsCommand(sublime_plugin.WindowCommand):
+# ===== OpenSublimeSettingsCommand ===== #
 
-#     def run(self):
-#         accts_file = os.path.join(os.path.join(sublime.packages_path(), 'User', 'Accounts.sublime-settings'))
-#         if os.path.exists(accts_file):
-#             if os.path.getsize(accts_file) == 0:
-#                 os.remove(accts_file)
-#                 shutil.copy(os.path.join(os.path.dirname(__file__), 'Accounts.sublime-settings'), os.path.join(sublime.packages_path(), 'User'))
-#         else:
-#             shutil.copy(os.path.join(os.path.dirname(__file__), 'Accounts.sublime-settings'), os.path.join(sublime.packages_path(), 'User'))
-#         view = self.window.open_file(os.path.join(sublime.packages_path(), 'User', 'Accounts.sublime-settings'))
 
-#     def is_enabled(self):
-#         return self.window.active_view() != None
+class OpenSublimeSettingsCommand(sublime_plugin.WindowCommand):
+
+    def run(self):
+        accts_file = os.path.join(os.path.join(sublime.packages_path(), 'User', 'Accounts.sublime-settings'))
+        if os.path.exists(accts_file):
+            if os.path.getsize(accts_file) == 0:
+                os.remove(accts_file)
+                shutil.copy(os.path.join(os.path.dirname(__file__), 'Accounts.sublime-settings'), os.path.join(sublime.packages_path(), 'User'))
+        else:
+            shutil.copy(os.path.join(os.path.dirname(__file__), 'Accounts.sublime-settings'), os.path.join(sublime.packages_path(), 'User'))
+        view = self.window.open_file(os.path.join(sublime.packages_path(), 'User', 'Accounts.sublime-settings'))
+
+    def is_enabled(self):
+        return self.window.active_view() != None
+
+
+# ===== InstallMenuProxyCommand ===== #
 
 
 class InstallMenuProxyCommand(sublime_plugin.WindowCommand):
@@ -248,6 +240,9 @@ class InstallMenuProxyCommand(sublime_plugin.WindowCommand):
         os.rename(os.path.join(sublime.packages_path(), 'Default','Main.sublime-menu.tmp'), os.path.join(sublime.packages_path(), 'Default','Main.sublime-menu'))
 
 
+# ===== UninstallMenuProxyCommand ===== #
+
+
 class UninstallMenuProxyCommand(sublime_plugin.WindowCommand):
 
     def run(self):
@@ -264,6 +259,15 @@ class UninstallMenuProxyCommand(sublime_plugin.WindowCommand):
     def is_enabled(self):
         return os.path.exists(os.path.expanduser(os.path.join('~', '.subliminal_collaborator', 'Main.sublime-menu.backup')))
 
+
+# ===== CollaborateCommand ===== #
+
+
+class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.EventListener):
+
+    def __init__(self):
+        sublime_plugin.ApplicationCommand.__init__(self)
+        sublime_plugin.EventListener.__init__(self)
 
 # class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.EventListener):
 #     chatClientKeys = []

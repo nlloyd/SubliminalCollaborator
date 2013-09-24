@@ -50,7 +50,7 @@ class IRCNegotiator(base.BaseNegotiator, protocol.ClientFactory, irc.IRCClient):
 
     #*** irc.IRCClient properties ***#
     versionName = 'SubliminalCollaborator'
-    versionNum = 'alpha'
+    versionNum = '0.2.0'
     versionEnv = "Sublime Text 2"
     #******#
 
@@ -63,7 +63,7 @@ class IRCNegotiator(base.BaseNegotiator, protocol.ClientFactory, irc.IRCClient):
         assert config.has_key('port'), 'IRCNegotiator missing port'
         assert config.has_key('username'), 'IRCNegotiator missing username'
         assert config.has_key('channel'), 'IRCNegotiator missing channel to connect to'
-        self.BaseNegotiator.__init__(config)
+        base.BaseNegotiator.__init__(self, config)
         self.clientConnection = None
         self.host = self.config['host'].encode()
         self.port = int(self.config['port'])

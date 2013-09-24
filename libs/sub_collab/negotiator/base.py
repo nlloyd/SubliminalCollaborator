@@ -89,6 +89,28 @@ class Negotiator(Interface):
         """
 
 
+class NegotiatorListener(Interface):
+    """
+    Interface for a listener to C{Negotiator} events.
+
+    Meant to be implemented by UI handler in order to display to the user alerts or
+    requests for input triggered by incoming or outgoing peer-to-peer session
+    negotiations.
+    """
+
+    def acceptedSession(session):
+        """
+        """
+
+    def retrySession():
+        """
+        """
+
+    def rejectedSession(session):
+        """
+        """
+
+
 class BaseNegotiator(object)
     """
     Base implementation of the Negotiator interface.
@@ -97,13 +119,18 @@ class BaseNegotiator(object)
     Not sure if this is the best way to do things but for now it
     will do.
 
-    This only provides a constructor to recieve config C{dict}.
+    This only provides a constructor to recieve an arbitrary id and a config C{dict}.
     """
     implements(Negotiator)
 
 
-    def __ init__(self, config):
+    def __ init__(self, id, config):
+        self.id = id
         self.config = config
+
+
+    def getId(self):
+        return self.id
 
 
     def getConfig(self):
