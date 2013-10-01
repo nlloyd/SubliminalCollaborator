@@ -89,26 +89,36 @@ class Negotiator(Interface):
         """
 
 
-class NegotiatorListener(Interface):
+class Observer(Interface):
     """
-    Interface for a listener to C{Negotiator} events.
-
-    Meant to be implemented by UI handler in order to display to the user alerts or
-    requests for input triggered by incoming or outgoing peer-to-peer session
-    negotiations.
+    Basic listener interface.
     """
 
-    def acceptedSession(session):
+    def update(event, producer, data=None):
         """
-        """
-
-    def retrySession():
-        """
+        Single method stub to recieve names events from a producer with an 
+        optional payload of data.
         """
 
-    def rejectedSession(session):
-        """
-        """
+
+class Observable(object):
+    """
+    Basic event producer sub-class.  Implementers publish events to registered C{Observer} instances.
+    """
+
+    def __init__(self):
+        self.observers = set()
+
+
+    def addObserver(self, observer):
+        if Observer.providedBy(observer):
+            self.observers.add(observer)
+
+    def removeObserver(self, observer):
+        pass
+
+    def notify(event, producer, data=None):
+        pass
 
 
 class BaseNegotiator(object)
