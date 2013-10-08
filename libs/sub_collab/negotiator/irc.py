@@ -37,7 +37,8 @@ stdoutHandler.setFormatter(logging.Formatter(fmt='[SubliminalCollaborator|IRC(%(
 logger.addHandler(stdoutHandler)
 logger.setLevel(logging.INFO)
 
-class IRCNegotiator(base.BaseNegotiator, protocol.ClientFactory, irc.IRCClient):
+
+class IRCNegotiator(base.BaseNegotiator, base.Observable, protocol.ClientFactory, base.PatchedIRCClient):
     """
     IRC client implementation of the Negotiator interface.
     Extends C{sub_collab.base.BaseNegotiator}
@@ -46,7 +47,6 @@ class IRCNegotiator(base.BaseNegotiator, protocol.ClientFactory, irc.IRCClient):
     Not sure if this is the best way to do things but for now it
     will do.
     """
-    # implements(interface.Negotiator)
 
     #*** irc.IRCClient properties ***#
     versionName = 'SubliminalCollaborator'
@@ -85,8 +85,6 @@ class IRCNegotiator(base.BaseNegotiator, protocol.ClientFactory, irc.IRCClient):
 
         @return: True on success
         """
-        assert kwargs.has_key('channel')
-
         if self.isConnected():
             return
 
@@ -106,12 +104,13 @@ class IRCNegotiator(base.BaseNegotiator, protocol.ClientFactory, irc.IRCClient):
         """
         # fully connected for us means we have registered and joined a channel
         # also that means we have a list of peer users (even if it is an empty list)
-        if self.clientConnection and self._registered and self.peerUsers:
-            return True
-        elif self.clientConnection and (not self._registered or not self.peerUsers):
-            return None
+        connected = None
+        if self.clientConnection:
+            if self._registered and self.peerUsers:
+                connected = True
         else:
-            return False
+            connected = False
+        return connected
             
 
     def disconnect(self):
@@ -120,10 +119,14 @@ class IRCNegotiator(base.BaseNegotiator, protocol.ClientFactory, irc.IRCClient):
         """
         if self.clientConnection:
             if self.clientConnection.state == 'disconnected':
-                return
-            reactor.callFromThread(self.clientConnection.disconnect)
-            logger.info('Disconnected from %s' % self.host)
-            status_bar.status_message('disconnected from %s' % self.str())
+                self.clientConnection = None
+                self._registered = False
+                self.peerUsers = None
+            else:
+                reactor.callFromThread(self.clientConnection.disconnect)
+                logger.info('Disconnected from %s' % self.host)
+                status_bar.status_message('disconnected from %s' % self.str())
+            self.clientConnection = None
         self._registered = False
         self.peerUsers = None
         self.unverifiedUsers = None
@@ -186,6 +189,7 @@ class IRCNegotiator(base.BaseNegotiator, protocol.ClientFactory, irc.IRCClient):
         logger.debug('Negotiating collab session with %s with ip address %s on port %d' % (username, ipaddress, port))
         reactor.callFromThread(self.ctcpMakeQuery, username, [('DCC CHAT', 'collaborate %s %d' % (ipaddress, port))])
         self.negotiateCallback(session)
+        
 
     def onNegotiateSession(self, accepted, username, host, port):
         """
