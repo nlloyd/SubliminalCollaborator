@@ -96,7 +96,7 @@ class Observer(Interface):
 
     def update(event, producer, data=None):
         """
-        Single method stub to recieve names events from a producer with an 
+        Single method stub to recieve named events from a producer with an 
         optional payload of data.
         """
 
@@ -115,10 +115,18 @@ class Observable(object):
             self.observers.add(observer)
 
     def removeObserver(self, observer):
-        pass
+        self.observers.discard(observer)
 
     def notify(event, producer, data=None):
-        pass
+        for observer in self.observers:
+            self.observer.update(event, producer, data)
+
+
+INCOMING_REQUEST_EVENT      = 'incoming-request-event'
+OUTGOING_REQUEST_EVENT      = 'outgoing-request-event'
+SESSION_ACCEPTED_EVENT      = 'accept-session-event'
+SESSION_REJECTED_EVENT      = 'reject-session-event'
+SESSION_RETRY_EVENT         = 'retry-session-event'
 
 
 class BaseNegotiator(object)
@@ -143,13 +151,110 @@ class BaseNegotiator(object)
         return self.id
 
 
+    def str(self):
+        return self.id
+
+
     def getConfig(self):
         return self.config
 
 
-    # def connect(self):
-    #     pass
+# ******* patch twisted.words.protocols.irc.IRCClient adding names support until ticket 3275 is addressed ******* #
+
+from twisted.words.protocols import irc
+from twisted.internet import reactor, protocol, error, defer
+
+class PatchedServerSupportedFeatures(irc.ServerSupportedFeatures):
+
+    def __init__(self):
+        irc.ServerSupportedFeatures.__init__(self):
+        self._features['PREFIX'] = self._parsePrefixParam('(qaovh)~&@+%')
 
 
-    # def isConnected(self):
-    #     pass
+class PatchedIRCClient(irc.IRCClient):
+
+    # cache of nickname prefixes from ServerSupportedFeatures,
+    # extracted by irc_RPL_NAMREPLY
+    _nickprefixes = None
+
+    def __init__(self):
+        irc.IRCClient.__init__(self)
+
+    def names(self, *channels):
+        """
+        Tells the server to give a list of users in the specified channels.
+
+        Multiple channels can be specified at one time, `channelNames` will be
+        called multiple times, once for each channel.
+
+        @type channels: C{str}
+        @param channels: The name of the channel or or channels to request
+            the username lists for from the server.
+        """
+        # dump all names of all visible channels
+        if not channels:
+            self.sendLine("NAMES")
+        else:
+            # some servers do not support multiple channel names at once
+            for channel in channels:
+                self.sendLine("NAMES %s" % (channel,))
+
+
+    def irc_RPL_NAMREPLY(self, prefix, params):
+        """
+        Handles the raw NAMREPLY that is returned as answer to
+        the NAMES command. Accumulates users until ENDOFNAMES.
+
+        @type prefix: C{str}
+        @param prefix: irc command prefix, irrelevant to this method
+        @type params: C{Array}
+        @param params: parameters for the RPL_NAMREPLY message
+            the third entry is the channel name and the fourth
+            is a space-delimited list of member usernames.
+        """
+        # cache nickname prefixes if not already parsed from ServerSupportedFeatures instance
+        if not self._nickprefixes:
+            self._nickprefixes = ''
+            prefixes = self.supported.getFeature('PREFIX', {})
+            for prefixTuple in prefixes.itervalues():
+                self._nickprefixes = self._nickprefixes + prefixTuple[0]
+        channel = params[2]
+        prefixedUsers = params[3].split()
+        users = []
+        for prefixedUser in prefixedUsers:
+            users.append(prefixedUser.lstrip(self._nickprefixes))
+        self._namreply.setdefault(channel, []).extend(users)
+
+
+    def irc_RPL_ENDOFNAMES(self, prefix, params):
+        """
+        Handles the end of the NAMREPLY. This is called when all
+        NAMREPLYs have finished. It gathers one, or all depending
+        on the NAMES request, channel names lists gathered from
+        RPL_NAMREPLY responses.
+
+        @type prefix: C{str}
+        @param prefix: irc command prefix, irrelevant to this method
+        @type params: C{Array}
+        @param params: parameters for the RPL_ENDOFNAMES message
+            the second entry will be the channel for which all
+            member usernames have already been sent to the client.
+        """
+        channel = params[1]
+        if channel not in self._namreply:
+            for channel, users in self._namreply.iteritems():
+                self.channelNames(channel, users)
+            self._namreply = {}
+        else:
+            users = self._namreply.pop(channel, [])
+            self.channelNames(channel, users)
+
+    ### Protocol methods
+
+    def connectionMade(self):
+        self.supported = PatchedServerSupportedFeatures()
+        # container for NAMES replies
+        self._namreply = {}
+        self._queue = []
+        if self.performLogin:
+            self.register(self.nickname)

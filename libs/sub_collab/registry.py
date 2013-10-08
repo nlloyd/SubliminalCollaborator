@@ -40,8 +40,8 @@ class Registry:
     def __init__(self):
         # negotiator map, key is protocol:host:username, values are configured negotiator instances
         self.negotiators = {}
-        # sessions by negotiator key
-        self.sessions = {}
+        # nested session map: negotiator key -> peer username -> set(session)
+        self.sessionsByUserByNegotiator = {}
         # sessions by view id
         self.sessionsByViewId = {}
         self.sessionsLock = threading.Lock()
@@ -144,6 +144,31 @@ class Registry:
 
     def getNegotiator(self, negotiatorKey):
         return self.negotiators[negotiatorKey]
+
+
+    def registerSessionByNegotiatorAndPeer(self, negotiatorKey, peerUser, session):
+        if self.sessionsByUserByNegotiator.has_key(negotiatorKey):
+            if self.sessionsByUserByNegotiator[negotiatorKey].has_key[peerUser]:
+                session = self.sessionsByUserByNegotiator[negotiatorKey][peerUser]
+                if session.view:
+                    logger.warn('already collaborating on %s with %s' % (session.view.file_name(), peerUser))
+                else:
+                    logger.debug('attempt to register already existing session with %s but without a set view' % peerUser)
+            else:
+                self.sessionsByUserByNegotiator[negotiatorKey][peerUser] = set([session])
+        else:
+            self.sessionsByUserByNegotiator[negotiatorKey][peerUser].add(session)
+
+
+    def registerSessionByViewId(self, view, session):
+        if self.sessionsByViewId.has_key(view.id()):
+            logger.warn('already sharing view %s with %s' % (view.file_name(), session.str()))
+        else:
+            self.sessionsByViewId[view.id()] = session
+
+
+    def hasSession(self, negotiatorKey, peerUser):
+        return self.sessionsByUserByNegotiator.has_key(negotiatorKey) and self.sessionsByUserByNegotiator[negotiatorKey].has_key(peerUser)
 
 
 ##################################################
