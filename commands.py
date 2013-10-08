@@ -87,8 +87,9 @@ import sublime_plugin
 from sub_collab.negotiator import irc
 from sub_collab.peer import interface as pi
 from sub_collab import registry, status_bar
-from sub_collab.peer import base
+from sub_collab.peer import base, INCOMING_REQUEST_EVENT
 from twisted.internet import reactor
+from zope.interface import implements
 import threading, logging, time, shutil, fileinput, re, functools
 
 #*** globals for preferences and session variables ***#
@@ -265,100 +266,85 @@ class UninstallMenuProxyCommand(sublime_plugin.WindowCommand):
 
 class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.EventListener):
 
+    implements(base.Observer)
+
     def __init__(self):
         sublime_plugin.ApplicationCommand.__init__(self)
         sublime_plugin.EventListener.__init__(self)
+        status_bar.status_message('ready')
 
-# class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.EventListener):
-#     chatClientKeys = []
-#     sessionKeys = []
-#     userList = []
-#     selectedNegotiator = None
 
-#     def __init__(self):
-#         sublime_plugin.ApplicationCommand.__init__(self)
-#         irc.IRCNegotiator.negotiateCallback = self.openSession
-#         irc.IRCNegotiator.onNegotiateCallback = self.acceptSessionRequest
-#         irc.IRCNegotiator.rejectedOrFailedCallback = self.killHostedSession
-#         base.BasePeer.peerConnectedCallback = self.shareView
-#         base.BasePeer.peerRecvdViewCallback = self.addSharedView
-#         base.BasePeer.acceptSwapRole = self.acceptSwapRole
-#         status_bar.status_message('ready')
+    def run(self, task):
+        method = getattr(self, task, None)
+        try:
+            if method is not None:
+                # logger.debug('running collaborate task %s' % task)
+                method()
+            else:
+                logger.error('unknown plugin task %s' % task)
 
-#     def run(self, task):
-#         method = getattr(self, task, None)
-#         try:
-#             if method is not None:
-#                 # logger.debug('running collaborate task %s' % task)
-#                 method()
-#             else:
-#                 logger.error('unknown plugin task %s' % task)
+        except:
+            logger.error(sys.exc_info())
 
-#         except:
-#             logger.error(sys.exc_info())
 
-#     def startSession(self):
-#         self.chatClientKeys = chatClientConfig.keys()
-#         sublime.active_window().show_quick_panel(self.chatClientKeys, self.selectUser)
+    def update(self, event, producer, data=None):
+        pass
 
-#     def selectUser(self, clientIdx):
-#         if clientIdx < 0:
-#             return
-#         targetClient = self.chatClientKeys[clientIdx]
-#         logger.debug('select user from client %s' % targetClient)
-#         self.selectedNegotiator = None
-#         if negotiatorInstances.has_key(targetClient):
-#             logger.debug('Found negotiator for %s, using it' % targetClient)
-#             self.selectedNegotiator = negotiatorInstances[targetClient]
-#         else:
-#             logger.debug('No negotiator for %s, creating one' % targetClient)
-#             self.selectedNegotiator = negotiatorFactoryMap[targetClient.split('|', 1)[0]]()
-#             negotiatorInstances[targetClient] = self.selectedNegotiator
-#             self.selectedNegotiator.connect(**chatClientConfig[targetClient])
-#         # use our negotiator to connect to the chat server and wait to grab the userlist
-#         self.retryCounter = 0
-#         self.connectToUser()
 
-#     def connectToUser(self, userIdx=None):
-#         if userIdx == None:
-#             if not self.selectedNegotiator.isConnected():
-#                 if self.retryCounter >= 30:
-#                     logger.warn('Failed to connect client %s' % self.selectedNegotiator.str())
-#                 else:
-#                     # increment retry count... 
-#                     self.retryCounter = self.retryCounter + 1
-#                     logger.debug('Not connected yet to client %s, recheck counter: %d' % (self.selectedNegotiator.str(), self.retryCounter))
-#                     sublime.set_timeout(self.connectToUser, 1000)
-#             else:
-#                 # we are connected, retrieve and show current user list from target chat client negotiator
-#                 self.userList = self.selectedNegotiator.listUsers()
-#                 sublime.active_window().show_quick_panel(self.userList, self.connectToUser)
-#         elif userIdx > -1:
-#             if sessions.has_key(self.selectedNegotiator.str()) and sessions[self.selectedNegotiator.str()].has_key(self.userList[userIdx]):
-#                 logger.debug('Already collaborating with this user!')
-#                 # TODO status bar: already have a session for this user!
-#                 return
-#             else:
-#                 # have a specified user, lets open a collaboration session!
-#                 logger.debug('Opening collaboration session with user %s on client %s' % (self.userList[userIdx], self.selectedNegotiator.str()))
-#                 session = self.selectedNegotiator.negotiateSession(self.userList[userIdx])
+    def openSession(self):
+        """
+        Start the chain of events to open a new session with a peer.
+        Stores the list of negotiator keys for selection reference in case the configuration
+        changes mid-selection.
+        """
+        self.negotiatorKeys = registry.listNegotiatorKeys()
+        sublime.active_window().show_quick_panel(self.negotiatorKeys, self.chooseNegotiator)
 
-#     def openSession(self, session):
-#         protocolSessions = None
-#         # if we dont have a selected negotiator then the session was not initiated by us, so
-#         # search for the negotiator that knows about the initiating peer
-#         if self.selectedNegotiator == None:
-#             for negotiatorInstance in negotiatorInstances.values():
-#                 if session.sharingWithUser in negotiatorInstance.listUsers():
-#                     self.selectedNegotiator = negotiatorInstance
-#                     break
-#         if sessions.has_key(self.selectedNegotiator.str()):
-#             protocolSessions = sessions[self.selectedNegotiator.str()]
-#         else:
-#             protocolSessions = {}
-#         protocolSessions[session.str()] = session
-#         sessions[self.selectedNegotiator.str()] = protocolSessions
-#         self.newSession = session
+
+    def chooseNegotiator(self, negotiatorKeyIdx=None):
+        """
+        View callback to select a negotiator client in order to choose a user.
+        Returns if negotiatorKeyIdx is not provided.
+        Default value of None for negotiatorKeyIdx provided to avoid exceptions.
+        """
+        if not negotiatorKeyIdx or (negotiatorKeyIdx < 0):
+            # if negotiatorKeyIdx < 0 then someone changed their mind, cleanup
+            if self.negotiatorKeys:
+                del self.negotiatorKeys
+            return
+        chosenNegotiatorKey = self.negotiatorKeys[negotiatorKeyIdx]
+        del self.negotiatorKeys
+        if registry.hasNegotiator(chosenNegotiatorKey):
+            logger.debug('selecting peer from ' + chosenNegotiatorKey)
+            self.choosePeer(negotiator=registry.getNegotiator(chosenNegotiatorKey))
+        else:
+            err_msg = 'No negotiator found named ' + chosenNegotiatorKey
+            logger.error(err_msg)
+            sublime.error_message(err_msg)
+
+
+    def choosePeer(self, peerIdx=None, negotiator=None):
+        """
+        View callback to select a peer connected through a given chat negotiator.
+        """
+        if negotiator and not peerIdx:
+            self.chosenNegotiator = negotiator
+            self.peerList = self.chosenNegotiator.listUsers()
+        if peerIdx and (peerIdx < 0):
+            # if peerIdx < 0 then someone changed their mind, cleanup
+            if self.chosenNegotiator:
+                del self.chosenNegotiator
+            if self.peerList:
+                del self.peerList
+            return
+        chosenPeer = self.peerList[peerIdx]
+        chosenNegotiator = self.chosenNegotiator
+        del self.peerList
+        del self.chosenNegotiator
+        logger.debug('request to open session with %s through %s' % (chosenPeer, chosenNegotiator.getId()))
+        session = chosenNegotiator.negotiateSession(chosenPeer)
+        registry.registerSessionByNegotiatorAndPeer(chosenNegotiator.getId(), chosenPeer, session)
+
 
 #     def shareView(self, idx=None):
 #         if idx == None:
