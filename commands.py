@@ -86,8 +86,8 @@ else:
 import sublime_plugin
 from sub_collab.negotiator import irc
 from sub_collab.peer import interface as pi
-from sub_collab import registry, status_bar
-from sub_collab.peer import base, INCOMING_REQUEST_EVENT
+from sub_collab import common, event, registry, status_bar
+from sub_collab.peer import base
 from twisted.internet import reactor
 from zope.interface import implements
 import threading, logging, time, shutil, fileinput, re, functools
@@ -266,7 +266,7 @@ class UninstallMenuProxyCommand(sublime_plugin.WindowCommand):
 
 class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.EventListener):
 
-    implements(base.Observer)
+    implements(common.Observer)
 
     def __init__(self):
         sublime_plugin.ApplicationCommand.__init__(self)
@@ -288,7 +288,11 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
 
 
     def update(self, event, producer, data=None):
-        pass
+        if event == event.INCOMING_SESSION_REQUEST:
+            username = data[0]
+            acceptRequest = sublime.ok_cancel_dialog(username + ' wants to collaborate with you!')
+            if acceptRequest == True:
+                producer.acceptSessionRequest(data[0], data[1], data[2])
 
 
     def openSession(self):
@@ -329,6 +333,7 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
         """
         if negotiator and not peerIdx:
             self.chosenNegotiator = negotiator
+            self.chooseNegotiator.addObserver(self)
             self.peerList = self.chosenNegotiator.listUsers()
         if peerIdx and (peerIdx < 0):
             # if peerIdx < 0 then someone changed their mind, cleanup
@@ -342,8 +347,8 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
         del self.peerList
         del self.chosenNegotiator
         logger.debug('request to open session with %s through %s' % (chosenPeer, chosenNegotiator.getId()))
-        session = chosenNegotiator.negotiateSession(chosenPeer)
-        registry.registerSessionByNegotiatorAndPeer(chosenNegotiator.getId(), chosenPeer, session)
+        # session = chosenNegotiator.negotiateSession(chosenPeer)
+        # registry.registerSessionByNegotiatorAndPeer(chosenNegotiator.getId(), chosenPeer, session)
 
 
 #     def shareView(self, idx=None):

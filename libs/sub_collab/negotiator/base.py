@@ -21,6 +21,7 @@
 #   THE SOFTWARE.
 from zope.interface import Interface, implements
 
+
 class Negotiator(Interface):
     """
     Representation of a peer-to-peer session negotiator.
@@ -70,6 +71,8 @@ class Negotiator(Interface):
 
     def negotiateSession(username, view):
         """
+        *Requester calling reciever*
+
         Negotiate through the instant messaging layer a direct peer-to-peer connection
         with the user that has the given username.  Note the username in question must
         represent another SubliminalCollaborator Negotiator instance used by another
@@ -79,54 +82,22 @@ class Negotiator(Interface):
         by listUsers(), the expectation is that successful execution of this function
         will result in the given username being added to the list of known users.
 
-        @return: C{peer.Peer} already connected to another C{peer.Peer}
+        @return: C{peer.Peer} with or without a connection to another C{peer.Peer}
         """
 
-    def onNegotiateSession(username, host, port, accepted):
+    def acceptSessionRequest(username, host, port):
         """
-        Callback method for incoming requests to start a peer-to-peer session.
-        The username, host, and port of the requesting peer is provided as input.
-        """
+        *Reciever responding to requester*
 
-
-class Observer(Interface):
-    """
-    Basic listener interface.
-    """
-
-    def update(event, producer, data=None):
-        """
-        Single method stub to recieve named events from a producer with an 
-        optional payload of data.
+        Accept a session request made by the given peer on the given host and port.
         """
 
+    def rejectSessionRequest(username):
+        """
+        *Reciever responding to requester*
 
-class Observable(object):
-    """
-    Basic event producer sub-class.  Implementers publish events to registered C{Observer} instances.
-    """
-
-    def __init__(self):
-        self.observers = set()
-
-
-    def addObserver(self, observer):
-        if Observer.providedBy(observer):
-            self.observers.add(observer)
-
-    def removeObserver(self, observer):
-        self.observers.discard(observer)
-
-    def notify(event, producer, data=None):
-        for observer in self.observers:
-            self.observer.update(event, producer, data)
-
-
-INCOMING_REQUEST_EVENT      = 'incoming-request-event'
-OUTGOING_REQUEST_EVENT      = 'outgoing-request-event'
-SESSION_ACCEPTED_EVENT      = 'accept-session-event'
-SESSION_REJECTED_EVENT      = 'reject-session-event'
-SESSION_RETRY_EVENT         = 'retry-session-event'
+        Reject a session request made by the given peer.
+        """
 
 
 class BaseNegotiator(object)
@@ -248,6 +219,26 @@ class PatchedIRCClient(irc.IRCClient):
         else:
             users = self._namreply.pop(channel, [])
             self.channelNames(channel, users)
+
+
+    def dcc_CHAT(self, user, channel, data):
+        data = shlex.split(data)
+        if len(data) < 3:
+            raise IRCBadMessage("malformed DCC CHAT request: %r" % (data,))
+
+        (protocol, address, port) = data[:3]
+
+        address = dccParseAddress(address)
+        try:
+            port = int(port)
+        except ValueError:
+            raise IRCBadMessage("Indecipherable port %r" % (port,))
+
+        self.dccDoChat(user, channel, protocol, address, port, data)
+
+
+    def dccDoChat(self, user, channel, protocol, address, port, data):
+        pass
 
     ### Protocol methods
 

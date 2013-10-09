@@ -89,7 +89,7 @@ class ViewMonitorThread(threading.Thread):
         self.shutdown = True
 
 # build off of the Int32StringReceiver to leverage its unprocessed buffer handling
-class BasePeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.ServerFactory):
+class BasicPeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.ServerFactory):
     """
     One side of a peer-to-peer collaboration connection.
     This is a direct connection with another peer endpoint for sending

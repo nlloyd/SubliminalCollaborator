@@ -21,24 +21,15 @@
 #   THE SOFTWARE.
 from zope.interface import implements
 from sub_collab.negotiator import base
-from sub_collab.peer import base
-from sub_collab import status_bar
+from sub_collab.peer import basic
+from sub_collab import common, event, status_bar
 from twisted.words.protocols import irc
 from twisted.internet import reactor, protocol, error, defer
 import logging, sys, socket, functools
 import sublime
 
-logger = logging.getLogger(__name__)
-logger.propagate = False
-# purge previous handlers set... for plugin reloading
-del logger.handlers[:]
-stdoutHandler = logging.StreamHandler(sys.stdout)
-stdoutHandler.setFormatter(logging.Formatter(fmt='[SubliminalCollaborator|IRC(%(levelname)s): %(message)s]'))
-logger.addHandler(stdoutHandler)
-logger.setLevel(logging.INFO)
 
-
-class IRCNegotiator(base.BaseNegotiator, base.Observable, protocol.ClientFactory, base.PatchedIRCClient):
+class IRCNegotiator(base.BaseNegotiator, common.Observable, protocol.ClientFactory, base.PatchedIRCClient):
     """
     IRC client implementation of the Negotiator interface.
     Extends C{sub_collab.base.BaseNegotiator}
@@ -47,6 +38,8 @@ class IRCNegotiator(base.BaseNegotiator, base.Observable, protocol.ClientFactory
     Not sure if this is the best way to do things but for now it
     will do.
     """
+
+    logger = logging.getLogger('IRCNegotiator')
 
     #*** irc.IRCClient properties ***#
     versionName = 'SubliminalCollaborator'
@@ -161,7 +154,7 @@ class IRCNegotiator(base.BaseNegotiator, base.Observable, protocol.ClientFactory
         return self.nickname
 
 
-    def negotiateSession(self, username, tryNext=False):
+    def negotiateSession(self, username):
         """
         Negotiate through the instant messaging layer a direct peer-to-peer connection
         with the user that has the given username.  Note the username in question must
@@ -174,31 +167,33 @@ class IRCNegotiator(base.BaseNegotiator, base.Observable, protocol.ClientFactory
         """
         if (not username in self.peerUsers) and (not username in self.unverifiedUsers):
             self.addUserToLists(username)
-        if not tryNext:
-            self.hostAddressToTryQueue = socket.gethostbyname_ex(socket.gethostname())[2]
-        if len(self.hostAddressToTryQueue) == 0:
-            status_bar.status_message('failed to share with %s' % username)
-            logger.warn('Unable to connect to peer %s, all host addresses tried and failed!' % username)
-            # TODO error reporting in UI
-            self.msg(username, 'NO-GOOD-HOST-IP')
-            return
+        self.hostAddressToTryQueue = socket.gethostbyname_ex(socket.gethostname())[2]
         ipaddress = self.hostAddressToTryQueue.pop()
-        session = base.BasePeer(username)
-        port = session.hostConnect()
+        session = basic.BasicPeer(username)
+        port =session.hostConnect()
+        logger.debug('attempting to start session with %s at %s:%d' % (username, ipaddress, port))
         status_bar.status_message('trying to share with %s@%s' % (username, ipaddress))
-        logger.debug('Negotiating collab session with %s with ip address %s on port %d' % (username, ipaddress, port))
-        reactor.callFromThread(self.ctcpMakeQuery, username, [('DCC CHAT', 'collaborate %s %d' % (ipaddress, port))])
-        self.negotiateCallback(session)
-        
+        self.ctcpMakeQuery(username, [('DCC CHAT', 'collaborate %s %d' % (ipaddress, port))])
+        # self.notify()
+        # reactor.callFromThread(self.ctcpMakeQuery, username, [('DCC CHAT', 'collaborate %s %d' % (ipaddress, port))])
+        # if not tryNext:
+        #     self.hostAddressToTryQueue = socket.gethostbyname_ex(socket.gethostname())[2]
+        # if len(self.hostAddressToTryQueue) == 0:
+        #     status_bar.status_message('failed to share with %s' % username)
+        #     logger.warn('Unable to connect to peer %s, all host addresses tried and failed!' % username)
+        #     # TODO error reporting in UI
+        #     self.msg(username, 'NO-GOOD-HOST-IP')
+        #     return
+        # ipaddress = self.hostAddressToTryQueue.pop()
+        # session = base.BasePeer(username)
+        # port = session.hostConnect()
+        # status_bar.status_message('trying to share with %s@%s' % (username, ipaddress))
+        # logger.debug('Negotiating collab session with %s with ip address %s on port %d' % (username, ipaddress, port))
+        # reactor.callFromThread(self.ctcpMakeQuery, username, [('DCC CHAT', 'collaborate %s %d' % (ipaddress, port))])
+        # self.negotiateCallback(session)
 
-    def onNegotiateSession(self, accepted, username, host, port):
-        """
-        Callback method for incoming requests to start a peer-to-peer session.
-        The username, host, and port of the requesting peer is provided as input.
 
-        The value for 'accepted' is provided via a roundabout sequence of callback methods
-        which poll for user input.
-        """
+    def acceptSessionRequest(self, username, host, port):
         logger.debug('onNegotiateCallback(accepted=%s, username=%s, host=%s, port=%d)' % (accepted, username, host, port))
         if (not self.onNegotiateCallback == None) and (accepted == None) and (self.retryNegotiate == False):
             # we need user input on whether to accept, so we use chained callbacks to get that input
@@ -229,6 +224,7 @@ class IRCNegotiator(base.BaseNegotiator, base.Observable, protocol.ClientFactory
     def buildProtocol(self, addr):
         return self
 
+
     def clientConnectionLost(self, connector, reason):
         if error.ConnectionDone == reason.type:
             self.disconnect()
@@ -243,17 +239,23 @@ class IRCNegotiator(base.BaseNegotiator, base.Observable, protocol.ClientFactory
         self.connectionFailed = True
         self.disconnect()
 
+
+
     #*** irc.IRCClient method implementations ***#
 
     def connectionMade(self):
-        reactor.callFromThread(irc.IRCClient.connectionMade, self)
-        logger.info('Connected to %s' % self.host)
+        irc.IRCClient.connectionMade(self)
+        # reactor.callFromThread(irc.IRCClient.connectionMade, self)
+        logger.info('Connected to ' + self.host)
+
 
     def signedOn(self):
         # join the channel after we have connected
         # part of the Negotiator connection process
-        status_bar.status_message('connected to %s' % self.str())
+        status_bar.status_message('connected to ' + self.str())
+        logger.info('Joining channel ' + self.channel)
         self.join(self.channel)
+
 
     def channelNames(self, channel, names):
         assert self.channel == channel.lstrip(irc.CHANNEL_PREFIXES)
@@ -264,27 +266,38 @@ class IRCNegotiator(base.BaseNegotiator, base.Observable, protocol.ClientFactory
         for name in names:
             self.addUserToLists(name)
 
+
     def userJoined(self, user, channel):
         assert self.channel == channel.lstrip(irc.CHANNEL_PREFIXES)
         self.addUserToLists(user)
+
 
     def userLeft(self, user, channel):
         assert self.channel == channel.lstrip(irc.CHANNEL_PREFIXES)
         self.dropUserFromLists(user)
 
+
     def userQuit(self, user, quitMessage):
         self.dropUserFromLists(user)
+
 
     def userKicked(self, kickee, channel, kicker, message):
         assert self.channel == channel.lstrip(irc.CHANNEL_PREFIXES)
         self.dropUserFromLists(user)
+
 
     def userRenamed(self, oldname, newname):
         assert self.channel == channel.lstrip(irc.CHANNEL_PREFIXES)
         self.dropUserFromLists(oldname)
         self.addUserToLists(newname)
 
+
     def privmsg(self, user, channel, message):
+        """
+        Handles incoming private messages from a given user on a given channel.
+        This is used by the peer attempting to establish a session to recieve
+        information from the peer recieving the session request.
+        """
         username = user.lstrip(irc.NICK_PREFIXES)
         if '!' in username:
             username = username.split('!', 1)[0]
@@ -307,6 +320,7 @@ class IRCNegotiator(base.BaseNegotiator, base.Observable, protocol.ClientFactory
             if not self.rejectedOrFailedCallback == None:
                 self.rejectedOrFailedCallback(self.str(), username)
 
+
     def ctcpReply_VERSION(self, user, channel, data):
         username = user.lstrip(irc.NICK_PREFIXES)
         if '!' in username:
@@ -319,13 +333,21 @@ class IRCNegotiator(base.BaseNegotiator, base.Observable, protocol.ClientFactory
             # other client type, forget this user entirely
             self.unverifiedUsers.remove(username)
 
+
     def dccDoChat(self, user, channel, protocol, address, port, data):
+        """
+        Handler method for incoming DCC CHAT requests.
+        If the specified protocol is 'collaborate' then the sending user
+        is a peer wanting to establish a collaboration session at the given
+        address and port.  This triggers a notification event to all observers, 
+        basically requesting user input before proceeding to establish a session.
+        """
         username = user.lstrip(irc.NICK_PREFIXES)
         if '!' in username:
             username = username.split('!', 1)[0]
         logger.debug('Received dcc chat from %s, protocol %s, address %s, port %d' % (username, protocol, address, port))
         if protocol == 'collaborate':
-            self.onNegotiateSession(None, username, address, port)
+            self.notify(event.INCOMING_SESSION_REQUEST, self, (username, address, port))
 
     #*** helper functions ***#
 
@@ -336,14 +358,18 @@ class IRCNegotiator(base.BaseNegotiator, base.Observable, protocol.ClientFactory
         if username in self.unverifiedUsers:
             self.unverifiedUsers.remove(username)
 
+
     def addUserToLists(self, user):
         username = user.lstrip(irc.NICK_PREFIXES)
         self.unverifiedUsers.append(username)
-        reactor.callFromThread(self.ctcpMakeQuery, user, [('VERSION', None)])
+        self.ctcpMakeQuery(user, [('VERSION', None)])
+        # reactor.callFromThread(self.ctcpMakeQuery, user, [('VERSION', None)])
+
 
     def sendPeerFailedToConnect(self, username):
         self.retryNegotiate = True
         self.msg(username, 'TRY-NEXT-HOST-IP')
+
 
     def str(self):
         return 'irc|%s@%s:%d' % (self.nickname, self.host, self.port)
