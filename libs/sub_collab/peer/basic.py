@@ -190,10 +190,12 @@ class BasicPeer(base.BasePeer, basic.Int32StringReceiver, protocol.ClientFactory
             self.sendMessage(base.DISCONNECT)
         if self.peerType == base.SERVER:
             logger.debug('Closing server-side connection')
-            reactor.callFromThread(self.connection.stopListening)
+            self.connection.stopListening()
+            # reactor.callFromThread(self.connection.stopListening)
         elif self.peerType == base.CLIENT:
             logger.debug('Closing client-side connection')
-            reactor.callFromThread(self.connection.disconnect)
+            self.connection.disconnect()
+            # reactor.callFromThread(self.connection.disconnect)
 
 
     def onDisconnect(self):

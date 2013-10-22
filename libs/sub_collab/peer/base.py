@@ -23,6 +23,7 @@ from zope.interface import Interface
 
 
 #################################################################################
+# - magicNumber: 9, http://futurama.wikia.com/wiki/Number_9_man
 MAGIC_NUMBER = 9
 
 CLIENT = 'client'
