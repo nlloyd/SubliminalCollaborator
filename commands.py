@@ -290,9 +290,12 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
     def update(self, event, producer, data=None):
         if event == event.INCOMING_SESSION_REQUEST:
             username = data[0]
+            # someone wants to collaborate with you! do you want to accept?
             acceptRequest = sublime.ok_cancel_dialog(username + ' wants to collaborate with you!')
             if acceptRequest == True:
                 producer.acceptSessionRequest(data[0], data[1], data[2])
+            else:
+                producer.rejectSessionRequest(data[0])
 
 
     def openSession(self):
@@ -347,7 +350,7 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
         del self.peerList
         del self.chosenNegotiator
         logger.debug('request to open session with %s through %s' % (chosenPeer, chosenNegotiator.getId()))
-        # session = chosenNegotiator.negotiateSession(chosenPeer)
+        chosenNegotiator.negotiateSession(chosenPeer)
         # registry.registerSessionByNegotiatorAndPeer(chosenNegotiator.getId(), chosenPeer, session)
 
 

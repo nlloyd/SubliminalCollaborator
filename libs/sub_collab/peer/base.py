@@ -135,7 +135,7 @@ for k, v in symbolic_to_numeric.items():
 
 #################################################################################
 
-class Peer(Interface):
+class IPeer(Interface):
     """
     One side of a peer-to-peer collaboration connection.
     This is a direct connection with another peer endpoint for sending
@@ -264,3 +264,30 @@ class Peer(Interface):
         @param editType: C{str} edit type (see above)
         @param content: C{Array} contents of the edit (None if delete editType)
         """
+
+
+class BasePeer(object)
+    """
+    Base implementation of IPeer interface that provides a constructor
+    for all subclasses to use requiring a c{str} for the peer username and
+    a reference to the C{INegotiator} implementation that created the session.
+    """
+    implements(IPeer)
+
+
+    def __ init__(self, username, parentNegotiator):
+        self.sharingWithUser = username
+        # just keep the id, otherwise reconfig with active sessions could result in memory leak
+        self.parentNegotiatorKey = parentNegotiator.getId()
+
+
+    def getParentNegotiatorKey(self):
+        return self.parentNegotiatorKey
+
+
+    def sharingWithUser():
+        return self.sharingWithUser
+
+
+    def str(self):
+        return self.sharingWithUser

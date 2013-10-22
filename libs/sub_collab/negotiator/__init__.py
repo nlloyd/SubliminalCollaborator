@@ -1,1 +1,1 @@
-__all__ = ['interface', 'irc']
+__all__ = ['base', 'irc']

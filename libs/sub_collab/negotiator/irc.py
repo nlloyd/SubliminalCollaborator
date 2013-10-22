@@ -68,7 +68,9 @@ class IRCNegotiator(base.BaseNegotiator, common.Observable, protocol.ClientFacto
         self.peerUsers = None
         self.unverifiedUsers = None
         self.connectionFailed = False
-        self.retryNegotiate = False
+        # holder for the session currently being negotiated
+        # this limits session handling to one at a time, which makes sense right now
+        self.pendingSession = None
 
     #*** Negotiator method implementations ***#
 
@@ -116,7 +118,8 @@ class IRCNegotiator(base.BaseNegotiator, common.Observable, protocol.ClientFacto
                 self._registered = False
                 self.peerUsers = None
             else:
-                reactor.callFromThread(self.clientConnection.disconnect)
+                self.clientConnection.disconnect()
+                # reactor.callFromThread(self.clientConnection.disconnect)
                 logger.info('Disconnected from %s' % self.host)
                 status_bar.status_message('disconnected from %s' % self.str())
             self.clientConnection = None
@@ -167,57 +170,36 @@ class IRCNegotiator(base.BaseNegotiator, common.Observable, protocol.ClientFacto
         """
         if (not username in self.peerUsers) and (not username in self.unverifiedUsers):
             self.addUserToLists(username)
-        self.hostAddressToTryQueue = socket.gethostbyname_ex(socket.gethostname())[2]
+        if self.hostAddressToTryQueue == None or len(self.hostAddressToTryQueue):
+            self.hostAddressToTryQueue = socket.gethostbyname_ex(socket.gethostname())[2]
         ipaddress = self.hostAddressToTryQueue.pop()
-        session = basic.BasicPeer(username)
-        port =session.hostConnect()
+        session = basic.BasicPeer(username, self)
+        port = session.hostConnect()
         logger.debug('attempting to start session with %s at %s:%d' % (username, ipaddress, port))
         status_bar.status_message('trying to share with %s@%s' % (username, ipaddress))
-        self.ctcpMakeQuery(username, [('DCC CHAT', 'collaborate %s %d' % (ipaddress, port))])
-        # self.notify()
-        # reactor.callFromThread(self.ctcpMakeQuery, username, [('DCC CHAT', 'collaborate %s %d' % (ipaddress, port))])
-        # if not tryNext:
-        #     self.hostAddressToTryQueue = socket.gethostbyname_ex(socket.gethostname())[2]
-        # if len(self.hostAddressToTryQueue) == 0:
-        #     status_bar.status_message('failed to share with %s' % username)
-        #     logger.warn('Unable to connect to peer %s, all host addresses tried and failed!' % username)
-        #     # TODO error reporting in UI
-        #     self.msg(username, 'NO-GOOD-HOST-IP')
-        #     return
-        # ipaddress = self.hostAddressToTryQueue.pop()
-        # session = base.BasePeer(username)
-        # port = session.hostConnect()
-        # status_bar.status_message('trying to share with %s@%s' % (username, ipaddress))
-        # logger.debug('Negotiating collab session with %s with ip address %s on port %d' % (username, ipaddress, port))
-        # reactor.callFromThread(self.ctcpMakeQuery, username, [('DCC CHAT', 'collaborate %s %d' % (ipaddress, port))])
-        # self.negotiateCallback(session)
+        self.pendingSession = session
+        registry.registerSession(session)
+        self.ctcpMakeQuery(username, [('DCC CHAT', '%s %s %d' % (base.DCC_PROTOCOL_COLLABORATE, ipaddress, port))])
 
 
     def acceptSessionRequest(self, username, host, port):
-        logger.debug('onNegotiateCallback(accepted=%s, username=%s, host=%s, port=%d)' % (accepted, username, host, port))
-        if (not self.onNegotiateCallback == None) and (accepted == None) and (self.retryNegotiate == False):
-            # we need user input on whether to accept, so we use chained callbacks to get that input
-            # and end up back here with what we need
-            deferredTrueNegotiate = defer.Deferred()
-            sessionParams = {
-                'username': username,
-                'host': host,
-                'port': port
-            }
-            deferredTrueNegotiate.addCallback(self.onNegotiateSession, **sessionParams)
-            self.onNegotiateCallback(deferredTrueNegotiate, username)
-        if (accepted == True) or ((accepted == None) and self.retryNegotiate):
-            # we havent rejected OR we are trying with a new IP address
-            status_bar.status_message('trying to share with %s' % username)
-            logger.info('Establishing session with %s at %s:%d' % (username, host, port))
-            logger.debug('accepted: %s, retryNegotiate: %s' % (accepted, self.retryNegotiate))
-            session = base.BasePeer(username, self.sendPeerFailedToConnect)
-            session.clientConnect(host, port)
-            self.negotiateCallback(session)
-        elif accepted == False:
-            status_bar.status_message('share with %s rejected!' % username)
-            logger.info('Rejected session with %s at %s:%d' % (username, host, port))
-            self.msg(username, 'REJECTED')
+        logger.debug('accepted session request from %s at %s:%d)' % (username, host, port))
+        status_bar.status_message('accepted session request from %s, trying to connect to %s:%d' % (username, host, port))
+        logger.info('Establishing session with %s at %s:%d' % (username, host, port))
+        session = basic.BasicPeer(username, self)
+        session.clientConnect(host, port)
+        registry.registerSession(session)
+
+
+    def rejectSessionRequest(self, username):
+        logger.debug('rejected session request from %s' % username)
+        self.msg(username, base.SESSION_REJECTED)
+
+
+    def retrySessionRequest(self, username):
+        logger.debug('request to retry from %s' % username)
+        self.msg(username, base.SESSION_RETRY)
+
 
     #*** protocol.ClientFactory method implementations ***#
 
@@ -233,12 +215,12 @@ class IRCNegotiator(base.BaseNegotiator, common.Observable, protocol.ClientFacto
             logger.error('Connection lost: %s - %s' % (reason.type, reason.value))
             status_bar.status_message('connection lost to %s' % self.str())
 
+
     def clientConnectionFailed(self, connector, reason):
         logger.error('Connection failed: %s - %s' % (reason.type, reason.value))
         status_bar.status_message('connection failed to %s' % self.str())
         self.connectionFailed = True
         self.disconnect()
-
 
 
     #*** irc.IRCClient method implementations ***#
@@ -302,23 +284,23 @@ class IRCNegotiator(base.BaseNegotiator, common.Observable, protocol.ClientFacto
         if '!' in username:
             username = username.split('!', 1)[0]
         logger.debug('Received %s from %s' % (message, username))
-        if message == 'TRY-NEXT-HOST-IP':
-            if not self.rejectedOrFailedCallback == None:
-                # kill previous session through a callback
-                self.rejectedOrFailedCallback(self.str(), username)
-            self.negotiateSession(username, True)
-        elif message == 'NO-GOOD-HOST-IP':
+        if message == base.SESSION_RETRY:
+            registry.removeSession(self.pendingSession)
+            self.pendingSession.disconnect();
+            self.pendingSession = None
+            self.negotiateSession(username)
+        elif message == base.SESSION_FAILED:
             # client recvd from server... report error and cleanup any half-made sessions
             logger.warn('All connections to all possible host ip addresses failed.')
-            self.retryNegotiate = False
-            if not self.rejectedOrFailedCallback == None:
-                self.rejectedOrFailedCallback(self.str(), username)
-        elif message == 'REJECTED':
+            registry.removeSession(self.pendingSession)
+            self.pendingSession.disconnect();
+            self.pendingSession = None
+        elif message == base.SESSION_REJECTED:
             # server recvd from client... report rejected and cleanup any half-made sessions
             logger.info('Request to share with user %s was rejected.' % username)
-            self.retryNegotiate = False
-            if not self.rejectedOrFailedCallback == None:
-                self.rejectedOrFailedCallback(self.str(), username)
+            registry.removeSession(self.pendingSession)
+            self.pendingSession.disconnect();
+            self.pendingSession = None
 
 
     def ctcpReply_VERSION(self, user, channel, data):
@@ -346,7 +328,7 @@ class IRCNegotiator(base.BaseNegotiator, common.Observable, protocol.ClientFacto
         if '!' in username:
             username = username.split('!', 1)[0]
         logger.debug('Received dcc chat from %s, protocol %s, address %s, port %d' % (username, protocol, address, port))
-        if protocol == 'collaborate':
+        if protocol == base.DCC_PROTOCOL_COLLABORATE or protocol == base.DCC_PROTOCOL_RETRY:
             self.notify(event.INCOMING_SESSION_REQUEST, self, (username, address, port))
 
     #*** helper functions ***#
@@ -364,11 +346,6 @@ class IRCNegotiator(base.BaseNegotiator, common.Observable, protocol.ClientFacto
         self.unverifiedUsers.append(username)
         self.ctcpMakeQuery(user, [('VERSION', None)])
         # reactor.callFromThread(self.ctcpMakeQuery, user, [('VERSION', None)])
-
-
-    def sendPeerFailedToConnect(self, username):
-        self.retryNegotiate = True
-        self.msg(username, 'TRY-NEXT-HOST-IP')
 
 
     def str(self):

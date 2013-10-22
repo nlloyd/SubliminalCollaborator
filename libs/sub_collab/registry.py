@@ -68,13 +68,13 @@ class Registry:
                  None if nothing happened (not new but no changes requiring update).
         """
         errorMsgs = ['The following configuration errors were found:\n']
-        if not config.has_key('username'):
+        if not 'username' in config:
             errorMsgs.append('  A configuration for protocol %s is missing a username!' % protocol)
             self.logger.warning(errorMsgs[-1])
-        elif not config.has_key('host'):
+        elif not 'host' in config:
             errorMsgs.append('  A configuration for protocol %s is missing a host!' % protocol)
             self.logger.warning(errorMsgs[-1])
-        elif not config.has_key('port'):
+        elif not 'port' in config:
             errorMsgs.append('  A configuration for protocol %s is missing a port!' % protocol)
             self.logger.warning(errorMsgs[-1])
         
@@ -146,9 +146,11 @@ class Registry:
         return self.negotiators[negotiatorKey]
 
 
-    def registerSessionByNegotiatorAndPeer(self, negotiatorKey, peerUser, session):
-        if self.sessionsByUserByNegotiator.has_key(negotiatorKey):
-            if self.sessionsByUserByNegotiator[negotiatorKey].has_key[peerUser]:
+    def registerSession(self, session):
+        negotiatorKey = session.getParentNegotiatorKey()
+        peerUser = session.sharingWithUser()
+        if negotiatorKey in self.sessionsByUserByNegotiator:
+            if peerUser in self.sessionsByUserByNegotiator[negotiatorKey]:
                 session = self.sessionsByUserByNegotiator[negotiatorKey][peerUser]
                 if session.view:
                     logger.warn('already collaborating on %s with %s' % (session.view.file_name(), peerUser))
@@ -161,14 +163,37 @@ class Registry:
 
 
     def registerSessionByViewId(self, view, session):
-        if self.sessionsByViewId.has_key(view.id()):
+        if view.id() in self.sessionsByViewId:
             logger.warn('already sharing view %s with %s' % (view.file_name(), session.str()))
         else:
             self.sessionsByViewId[view.id()] = session
 
 
     def hasSession(self, negotiatorKey, peerUser):
-        return self.sessionsByUserByNegotiator.has_key(negotiatorKey) and self.sessionsByUserByNegotiator[negotiatorKey].has_key(peerUser)
+        return negotiatorKey in self.sessionsByUserByNegotiator and peerUser in self.sessionsByUserByNegotiator[negotiatorKey]
+
+
+    def getSessionsByNegotiatorAndPeer(self, negotiatorKey, peerUser):
+        sessions = None
+        if negotiatorKey in self.sessionsByUserByNegotiator:
+            sessions = self.sessionsByUserByNegotiator[negotiatorKey].get(peerUser)
+        return sessions
+
+
+    def removeSession(self, session):
+        """
+        Remove a session from both session registries.
+        """
+        negotiatorKey = session.getParentNegotiatorKey()
+        peerUser = session.sharingWithUser()
+        if negotiatorKey in self.sessionsByUserByNegotiator:
+            sessionsByUser = self.sessionsByUserByNegotiator[negotiatorKey]
+            if peerUser in sessionsByUser:
+                sessionsByUser.discard(session)
+        if session in self.sessionsByViewId.values():
+            for viewId, registeredSession in self.sessionsByViewId.items():
+                if session == registeredSession:
+                    self.sessionsByViewId.pop(viewId, None)
 
 
 ##################################################

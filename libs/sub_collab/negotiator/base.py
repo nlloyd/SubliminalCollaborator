@@ -21,8 +21,15 @@
 #   THE SOFTWARE.
 from zope.interface import Interface, implements
 
+SESSION_RETRY       = 'TRY-NEXT-HOST-IP'
+SESSION_REJECTED    = 'REJECTED'
+SESSION_FAILED      = 'NO-GOOD-HOST-IP'
 
-class Negotiator(Interface):
+DCC_PROTOCOL_COLLABORATE    = 'collaborate'
+DCC_PROTOCOL_RETRY          = 'retry-collaborate'
+
+
+class INegotiator(Interface):
     """
     Representation of a peer-to-peer session negotiator.
     Provides methods to communicate through an instant messaging layer
@@ -99,6 +106,13 @@ class Negotiator(Interface):
         Reject a session request made by the given peer.
         """
 
+    def retrySessionRequest(username):
+        """
+        *Reciever responding to requester*
+
+        A session failed to be established, inform the initial requester to try again.
+        """
+
 
 class BaseNegotiator(object)
     """
@@ -110,7 +124,7 @@ class BaseNegotiator(object)
 
     This only provides a constructor to recieve an arbitrary id and a config C{dict}.
     """
-    implements(Negotiator)
+    implements(INegotiator)
 
 
     def __ init__(self, id, config):

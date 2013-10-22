@@ -20,21 +20,12 @@
 #   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #   THE SOFTWARE.
 from zope.interface import implements
-from sub_collab.peer import interface
+from sub_collab.peer import base
 from twisted.internet import reactor, protocol, error, interfaces
 from twisted.protocols import basic
-from sub_collab import status_bar
+from sub_collab import registry, status_bar
 import sublime
 import logging, threading, sys, socket, struct, os, re, time, functools
-
-logger = logging.getLogger(__name__)
-logger.propagate = False
-# purge previous handlers set... for plugin reloading
-del logger.handlers[:]
-stdoutHandler = logging.StreamHandler(sys.stdout)
-stdoutHandler.setFormatter(logging.Formatter(fmt='[SubliminalCollaborator|Peer(%(levelname)s): %(message)s]'))
-logger.addHandler(stdoutHandler)
-logger.setLevel(logging.INFO)
 
 
 # in bytes
@@ -44,11 +35,16 @@ REGION_PATTERN = re.compile('(\d+), (\d+)')
 
 
 class ViewMonitorThread(threading.Thread):
+
+    logger = logging.getLogger('ViewMonitor')
+
+
     def __init__(self, peer):
         threading.Thread.__init__(self)
         self.peer = peer
         self.lastViewCenterLine = None
         self.shutdown = False
+
 
     def grabAndSendViewPosition(self):
         """
@@ -66,15 +62,17 @@ class ViewMonitorThread(threading.Thread):
             self.lastViewCenterLine = viewCenterRegion
             self.peer.sendViewPositionUpdate(viewCenterRegion)
 
+
     def sendViewSize(self):
-        self.peer.sendMessage(interface.VIEW_SYNC, payload=str(self.peer.view.size()))
+        self.peer.sendMessage(base.VIEW_SYNC, payload=str(self.peer.view.size()))
+
 
     def run(self):
         logger.info('Monitoring view')
         count = 0
         # we must be the host and connected
-        while (self.peer.role == interface.HOST_ROLE) \
-                and (self.peer.state == interface.STATE_CONNECTED) \
+        while (self.peer.role == base.HOST_ROLE) \
+                and (self.peer.state == base.STATE_CONNECTED) \
                 and (not self.shutdown):
             if not self.peer.view == None:
                 sublime.set_timeout(self.grabAndSendViewPosition, 0)
@@ -88,14 +86,16 @@ class ViewMonitorThread(threading.Thread):
     def destroy(self):
         self.shutdown = True
 
+
+
 # build off of the Int32StringReceiver to leverage its unprocessed buffer handling
-class BasicPeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.ServerFactory):
+class BasicPeer(base.BasePeer, basic.Int32StringReceiver, protocol.ClientFactory, protocol.ServerFactory):
     """
     One side of a peer-to-peer collaboration connection.
     This is a direct connection with another peer endpoint for sending
     view data and events.
     """
-    implements(interface.Peer)
+    logger = logging.getLogger('BasicPeer')
 
     # Message header structure in struct format:
     # '!HBB'
@@ -115,8 +115,9 @@ class BasicPeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serv
     # callback for the client-peer
     peerRecvdViewCallback = None
 
-    def __init__(self, username, failedToInitConnectCallback=None):
-        self.sharingWithUser = username
+
+    def __ init__(self, username, parentNegotiator):
+        base.BasePeer.__init__(self, username, parentNegotiator)
         # connection can be an IListeningPort or IConnector
         self.connection = None
         self.host = None
@@ -128,7 +129,6 @@ class BasicPeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serv
         # STATE_CONNECTING, STATE_CONNECTED, STATE_DISCONNECTED
         self.state = None
         self.view = None
-        self.failedToInitConnectCallback = failedToInitConnectCallback
         # queue of 2 or 3 part tuples
         self.toDoToViewQueue = []
         self.toDoToViewQueueLock = threading.Lock()
@@ -140,6 +140,7 @@ class BasicPeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serv
         # relates to a selection update issue around the cut command
         self.isProxyEventPublishing = False
 
+
     def hostConnect(self, port = 0, ipaddress=''):
         """
         Initiate a peer-to-peer session as the host by listening on the
@@ -149,13 +150,14 @@ class BasicPeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serv
 
         @return: the connected port number
         """
-        self.peerType = interface.SERVER
-        self.role = interface.HOST_ROLE
-        self.state = interface.STATE_CONNECTING
+        self.peerType = base.SERVER
+        self.role = base.HOST_ROLE
+        self.state = base.STATE_CONNECTING
         self.connection = reactor.listenTCP(port, self, backlog=1, interface=ipaddress)
         self.port = self.connection.getHost().port
         logger.info('Listening for peers at %s:%d' % (ipaddress, self.port))
         return self.port
+
 
     def clientConnect(self, host, port):
         """
@@ -168,42 +170,45 @@ class BasicPeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serv
         logger.info('Connecting to peer at %s:%d' % (host, port))
         self.host = host
         self.port = port
-        self.peerType = interface.CLIENT
-        self.role = interface.PARTNER_ROLE
-        self.state = interface.STATE_CONNECTING
-        self.connection = reactor.connectTCP(self.host, self.port, self, timeout=1)
+        self.peerType = base.CLIENT
+        self.role = base.PARTNER_ROLE
+        self.state = base.STATE_CONNECTING
+        self.connection = reactor.connectTCP(self.host, self.port, self, timeout=5)
+
 
     def disconnect(self):
         """
         Disconnect from the peer-to-peer session.
         """
         self.stopCollab()
-        if self.state == interface.STATE_DISCONNECTED:
+        if self.state == base.STATE_DISCONNECTED:
             # already disconnected!
             return
         earlierState = self.state
-        self.state = interface.STATE_DISCONNECTING
+        self.state = base.STATE_DISCONNECTING
         if self.transport != None:
-            self.sendMessage(interface.DISCONNECT)
-        if self.peerType == interface.SERVER:
+            self.sendMessage(base.DISCONNECT)
+        if self.peerType == base.SERVER:
             logger.debug('Closing server-side connection')
             reactor.callFromThread(self.connection.stopListening)
-        elif self.peerType == interface.CLIENT:
+        elif self.peerType == base.CLIENT:
             logger.debug('Closing client-side connection')
             reactor.callFromThread(self.connection.disconnect)
+
 
     def onDisconnect(self):
         """
         Callback method if we are disconnected.
         """
-        if self.peerType == interface.CLIENT:
+        if self.peerType == base.CLIENT:
             logger.debug('Disconnecting from peer at %s:%d' % (self.host, self.port))
         else:
             logger.debug('Disconnecting from peer at %d' % self.port)
         self.disconnect()
-        self.state = interface.STATE_DISCONNECTED
+        self.state = base.STATE_DISCONNECTED
         logger.info('Disconnected from peer %s' % self.sharingWithUser)
         status_bar.status_message('Stopped sharing with %s' % self.sharingWithUser)
+
 
     def startCollab(self, view):
         """
@@ -220,26 +225,27 @@ class BasicPeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serv
         begin = 0
         end = MAX_CHUNK_SIZE
         # now we make sure we are connected... better way to do this?
-        while not self.state == interface.STATE_CONNECTED:
+        while not self.state == base.STATE_CONNECTED:
             time.sleep(1.0)
-            if (self.state == interface.STATE_DISCONNECTING) or (self.state == interface.STATE_DISCONNECTED):
+            if (self.state == base.STATE_DISCONNECTING) or (self.state == base.STATE_DISCONNECTED):
                 logger.error('While waiting to share view over a connection the peer was disconnected!')
                 self.disconnect()
                 return
         logger.info('Sharing view %s with %s' % (self.view.file_name(), self.sharingWithUser))
         self.toAck = []
-        self.sendMessage(interface.SHARE_VIEW, payload=('%s|%s' % (viewName, totalToSend)))
+        self.sendMessage(base.SHARE_VIEW, payload=('%s|%s' % (viewName, totalToSend)))
         while begin < totalToSend:
             chunkToSend = self.view.substr(sublime.Region(begin, end))
             self.toAck.append(len(chunkToSend))
-            self.sendMessage(interface.VIEW_CHUNK, payload=chunkToSend)
+            self.sendMessage(base.VIEW_CHUNK, payload=chunkToSend)
             begin = begin + MAX_CHUNK_SIZE
             end = end + MAX_CHUNK_SIZE
             status_bar.progress_message("sending view to %s" % self.sharingWithUser, begin, totalToSend)
-        self.sendMessage(interface.END_OF_VIEW, payload=view.settings().get('syntax'))
+        self.sendMessage(base.END_OF_VIEW, payload=view.settings().get('syntax'))
         self.view.set_read_only(False)
         # start the view monitoring thread
         self.viewMonitorThread.start()
+
 
     def resyncCollab(self):
         """
@@ -251,9 +257,9 @@ class BasicPeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serv
         begin = 0
         end = MAX_CHUNK_SIZE
         # now we make sure we are connected... better way to do this?
-        while not self.state == interface.STATE_CONNECTED:
+        while not self.state == base.STATE_CONNECTED:
             time.sleep(1.0)
-            if (self.state == interface.STATE_DISCONNECTING) or (self.state == interface.STATE_DISCONNECTED):
+            if (self.state == base.STATE_DISCONNECTING) or (self.state == base.STATE_DISCONNECTED):
                 logger.error('While waiting to resync view over a connection the peer was disconnected!')
                 self.disconnect()
                 return
@@ -262,15 +268,15 @@ class BasicPeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serv
             view_name = self.view.name()
         logger.info('Resyncing view %s with %s' % (view_name, self.sharingWithUser))
         self.toAck = []
-        self.sendMessage(interface.RESHARE_VIEW, payload=str(totalToSend))
+        self.sendMessage(base.RESHARE_VIEW, payload=str(totalToSend))
         while begin < totalToSend:
             chunkToSend = self.view.substr(sublime.Region(begin, end))
             self.toAck.append(len(chunkToSend))
-            self.sendMessage(interface.VIEW_CHUNK, payload=chunkToSend)
+            self.sendMessage(base.VIEW_CHUNK, payload=chunkToSend)
             begin = begin + MAX_CHUNK_SIZE
             end = end + MAX_CHUNK_SIZE
             status_bar.progress_message("sending view to %s" % self.sharingWithUser, begin, totalToSend)
-        self.sendMessage(interface.END_OF_VIEW, payload=self.view.settings().get('syntax'))
+        self.sendMessage(base.END_OF_VIEW, payload=self.view.settings().get('syntax'))
         self.view.set_read_only(False)
         # send view position as it stands now so the partner view is positioned appropriately post-resync
         viewRegionLines = self.view.split_by_newlines(self.view.visible_region())
@@ -283,6 +289,7 @@ class BasicPeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serv
         if not self.viewMonitorThread.is_alive():
             self.viewMonitorThread.start()
 
+
     def onStartCollab(self):
         """
         Callback method informing the peer that we have received the view.
@@ -291,20 +298,23 @@ class BasicPeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serv
         if self.peerRecvdViewCallback:
             self.peerRecvdViewCallback(self)
 
+
     def stopCollab(self):
         """
         Notify the connected peer that we are terminating the collaborating session.
         """
-        if (self.peerType == interface.CLIENT) and (self.view != None):
+        if (self.peerType == base.CLIENT) and (self.view != None):
             self.view.set_read_only(False)
             self.view = None
         status_bar.status_message('stopped sharing with %s' % self.str())
+
 
     def onStopCollab(self):
         """
         Callback method informing the peer that we are terminating a collaborating session.
         """
         self.stopCollab()
+
 
     def swapRole(self):
         """
@@ -313,11 +323,12 @@ class BasicPeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serv
         if self.view is None:
             logger.warn('Request to swap role when no view is being shared!')
             return
-        if self.role == interface.HOST_ROLE:
+        if self.role == base.HOST_ROLE:
             logger.debug('Stopping ViewMonitorThread until role swap is decided')
             self.viewMonitorThread.destroy()
             self.viewMonitorThread.join()
-        self.sendMessage(interface.SWAP_ROLE)
+        self.sendMessage(base.SWAP_ROLE)
+
 
     def onSwapRole(self):
         """
@@ -326,7 +337,7 @@ class BasicPeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serv
         if self.view is None:
             logger.warn('Request from %s to swap role when no view is being shared!' % self.str())
             return
-        if self.role == interface.HOST_ROLE:
+        if self.role == base.HOST_ROLE:
             logger.debug('Stopping ViewMonitorThread until role swap is decided')
             self.viewMonitorThread.destroy()
             self.viewMonitorThread.join()
@@ -336,38 +347,39 @@ class BasicPeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serv
             view_name = self.view.name()
             if not view_name or (len(view_name) == 0):
                 view_name = 'untitled'
-        if self.role == interface.HOST_ROLE:
+        if self.role == base.HOST_ROLE:
             message = '%s sharing %s with you wants to host...' % (self.str(), view_name)
         else:
             message = '%s sharing %s with you wants you to host...' % (self.str(), view_name)
         swapping_roles = self.acceptSwapRole(message)
 
         if swapping_roles:
-            if self.role == interface.HOST_ROLE:
-                self.role = interface.PARTNER_ROLE
+            if self.role == base.HOST_ROLE:
+                self.role = base.PARTNER_ROLE
                 self.view.set_read_only(True)
             else:
-                self.role = interface.HOST_ROLE
+                self.role = base.HOST_ROLE
                 self.view.set_read_only(False)
                 self.viewMonitorThread = ViewMonitorThread(self)
                 self.viewMonitorThread.start()
-            self.sendMessage(interface.SWAP_ROLE_ACK)
+            self.sendMessage(base.SWAP_ROLE_ACK)
         else:
-            self.sendMessage(interface.SWAP_ROLE_NACK)
+            self.sendMessage(base.SWAP_ROLE_NACK)
         logger.info('session %s with %s role now changed to %s' % (view_name, self.str(), self.role))
         # wait for the swap to complete on the client side... 0.5 second because the message is tiny
         time.sleep(0.5)
+
 
     def onSwapRoleAck(self):
         """
         Callback method to respond to accepted role swap response from the connected peer.
         The caller of swapRole() waits for this method before actually swapping roles on its side.
         """
-        if self.role == interface.HOST_ROLE:
-            self.role = interface.PARTNER_ROLE
+        if self.role == base.HOST_ROLE:
+            self.role = base.PARTNER_ROLE
             self.view.set_read_only(True)
         else:
-            self.role = interface.HOST_ROLE
+            self.role = base.HOST_ROLE
             self.view.set_read_only(False)
             self.viewMonitorThread = ViewMonitorThread(self)
             self.viewMonitorThread.start()
@@ -378,15 +390,17 @@ class BasicPeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serv
                 view_name = 'untitled'
         logger.info('session %s with %s role now changed to %s' % (view_name, self.str(), self.role))
 
+
     def onSwapRoleNAck(self):
         """
         Callback method to respond to rejected role swap response from the connected peer.
         The caller of swapRole() may have this called if the connected peer rejects a swap role request.
         """
-        if self.role == interface.HOST_ROLE:
+        if self.role == base.HOST_ROLE:
             self.viewMonitorThread = ViewMonitorThread()
             self.viewMonitorThread.start()
         sublime.message_dialog('%s sharing %s did not want to swap roles' % (self.str(), self.view.file_name()))
+
 
     def sendViewPositionUpdate(self, centerOnRegion):
         """
@@ -396,7 +410,8 @@ class BasicPeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serv
         @param centerOnRegion: C{sublime.Region} of the central-most line of the current visible portion of the view to send to the peer.
         """
         status_bar.heartbeat_message('sharing with %s' % self.str())
-        self.sendMessage(interface.POSITION, payload=str(centerOnRegion))
+        self.sendMessage(base.POSITION, payload=str(centerOnRegion))
+
 
     def recvViewPositionUpdate(self, centerOnRegion):
         """
@@ -406,6 +421,7 @@ class BasicPeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serv
         """
         self.view.show_at_center(centerOnRegion.begin())
 
+
     def sendSelectionUpdate(self, selectedRegions):
         """
         Send currently selected regions to the peer.
@@ -413,7 +429,8 @@ class BasicPeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serv
         @param selectedRegions: C{sublime.RegionSet} of all selected regions in the current view.
         """
         status_bar.heartbeat_message('sharing with %s' % self.str())
-        self.sendMessage(interface.SELECTION, payload=str(selectedRegions))
+        self.sendMessage(base.SELECTION, payload=str(selectedRegions))
+
 
     def recvSelectionUpdate(self, selectedRegions):
         """
@@ -423,6 +440,7 @@ class BasicPeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serv
         """
         self.view.add_regions(self.sharingWithUser, selectedRegions, 'comment', sublime.DRAW_OUTLINED)
 
+
     def sendEdit(self, editType, content=None):
         """
         Send an edit event to the peer.
@@ -431,13 +449,14 @@ class BasicPeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serv
         @param content: C{Array} contents of the edit (None-able)
         """
         status_bar.heartbeat_message('sharing with %s' % self.str())
-        logger.debug('sending edit: %s %s' %(interface.numeric_to_symbolic[editType], content))
-        if (editType == interface.EDIT_TYPE_INSERT) \
-            or (editType == interface.EDIT_TYPE_INSERT_SNIPPET) \
-            or (editType == interface.EDIT_TYPE_PASTE):
-            self.sendMessage(interface.EDIT, editType, payload=content)
+        logger.debug('sending edit: %s %s' %(base.numeric_to_symbolic[editType], content))
+        if (editType == base.EDIT_TYPE_INSERT) \
+            or (editType == base.EDIT_TYPE_INSERT_SNIPPET) \
+            or (editType == base.EDIT_TYPE_PASTE):
+            self.sendMessage(base.EDIT, editType, payload=content)
         else:
-            self.sendMessage(interface.EDIT, editType)
+            self.sendMessage(base.EDIT, editType)
+
 
     def recvEdit(self, editType, content):
         """
@@ -447,21 +466,21 @@ class BasicPeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serv
         @param content: C{Array} contents of the edit (None if delete editType)
         """
         self.view.set_read_only(False)
-        if editType == interface.EDIT_TYPE_INSERT:
+        if editType == base.EDIT_TYPE_INSERT:
             self.view.run_command('insert', { 'characters': content })
-        elif editType == interface.EDIT_TYPE_INSERT_SNIPPET:
+        elif editType == base.EDIT_TYPE_INSERT_SNIPPET:
             self.view.run_command('insert_snippet', { 'contents': content })
-        elif editType == interface.EDIT_TYPE_LEFT_DELETE:
+        elif editType == base.EDIT_TYPE_LEFT_DELETE:
             self.view.run_command('left_delete')
-        elif editType == interface.EDIT_TYPE_RIGHT_DELETE:
+        elif editType == base.EDIT_TYPE_RIGHT_DELETE:
             self.view.run_command('right_delete')
-        elif editType == interface.EDIT_TYPE_CUT:
+        elif editType == base.EDIT_TYPE_CUT:
             # faux cut since we are recieving the commands instead of invoking them directly
             self.view.run_command('left_delete')
-        elif editType == interface.EDIT_TYPE_COPY:
+        elif editType == base.EDIT_TYPE_COPY:
             # we dont actually want to do anything here
             pass
-        elif editType == interface.EDIT_TYPE_PASTE:
+        elif editType == base.EDIT_TYPE_PASTE:
             # faux cut since we are recieving the commands instead of invoking them directly
             # we actually have to handle this as a direct view.replace() call to avoid
             # autoindent which occurs if we use the view.run_command('insert', ...) call
@@ -469,17 +488,18 @@ class BasicPeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serv
             for region in self.view.sel():
                 self.view.replace(paste_edit, region, content)
             self.view.end_edit(paste_edit)
-        elif editType == interface.EDIT_TYPE_UNDO:
+        elif editType == base.EDIT_TYPE_UNDO:
             self.view.run_command('undo')
-        elif editType == interface.EDIT_TYPE_REDO:
+        elif editType == base.EDIT_TYPE_REDO:
             self.view.run_command('redo')
-        elif editType == interface.EDIT_TYPE_REDO_OR_REPEAT:
+        elif editType == base.EDIT_TYPE_REDO_OR_REPEAT:
             self.view.run_command('redo_or_repeat')
-        elif editType == interface.EDIT_TYPE_SOFT_UNDO:
+        elif editType == base.EDIT_TYPE_SOFT_UNDO:
             self.view.run_command('soft_undo')
-        elif editType == interface.EDIT_TYPE_SOFT_REDO:
+        elif editType == base.EDIT_TYPE_SOFT_REDO:
             self.view.run_command('soft_redo')
         self.view.set_read_only(True)
+
 
     def handleViewChanges(self):
         """
@@ -491,10 +511,10 @@ class BasicPeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serv
         while len(self.toDoToViewQueue) > 0:
             toDo = self.toDoToViewQueue.pop(0)
             if len(toDo) == 2:
-                logger.debug('Handling view change %s with size %d payload' % (interface.numeric_to_symbolic[toDo[0]], len(toDo[1])))
-                if (toDo[0] == interface.SHARE_VIEW) or (toDo[0] == interface.RESHARE_VIEW):
+                logger.debug('Handling view change %s with size %d payload' % (base.numeric_to_symbolic[toDo[0]], len(toDo[1])))
+                if (toDo[0] == base.SHARE_VIEW) or (toDo[0] == base.RESHARE_VIEW):
                     self.totalNewViewSize = 0
-                    if toDo[0] == interface.SHARE_VIEW:
+                    if toDo[0] == base.SHARE_VIEW:
                         self.view = sublime.active_window().new_file()
                         payloadBits = toDo[1].split('|')
                         if payloadBits[0] == 'NONAME':
@@ -510,7 +530,7 @@ class BasicPeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serv
                     self.view.set_read_only(True)
                     self.view.set_scratch(True)
                     status_bar.progress_message("receiving view from %s" % self.sharingWithUser, self.view.size(), self.totalNewViewSize)
-                elif toDo[0] == interface.VIEW_CHUNK:
+                elif toDo[0] == base.VIEW_CHUNK:
                     self.view.set_read_only(False)
                     self.viewPopulateEdit = self.view.begin_edit()
                     # if we are a resync chunk...
@@ -525,20 +545,20 @@ class BasicPeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serv
                     self.viewPopulateEdit = None
                     self.view.set_read_only(True)
                     status_bar.progress_message("receiving view from %s" % self.sharingWithUser, self.view.size(), self.totalNewViewSize)
-                elif toDo[0] == interface.END_OF_VIEW:
+                elif toDo[0] == base.END_OF_VIEW:
                     self.view.set_syntax_file(toDo[1])
                     if hasattr(self, 'lastResyncdPosition'):
                         del self.lastResyncdPosition
                     status_bar.progress_message("receiving view from %s" % self.sharingWithUser, self.view.size(), self.totalNewViewSize)
                     # view is populated and configured, lets share!
                     self.onStartCollab()
-                elif toDo[0] == interface.SELECTION:
+                elif toDo[0] == base.SELECTION:
                     status_bar.heartbeat_message('sharing with %s' % self.str())
                     regions = []
                     for regionMatch in REGION_PATTERN.finditer(toDo[1]):
                         regions.append(sublime.Region(int(regionMatch.group(1)), int(regionMatch.group(2))))
                     self.recvSelectionUpdate(regions)
-                elif toDo[0] == interface.POSITION:
+                elif toDo[0] == base.POSITION:
                     status_bar.heartbeat_message('sharing with %s' % self.str())
                     regionMatch = REGION_PATTERN.search(toDo[1])
                     if regionMatch:
@@ -546,7 +566,7 @@ class BasicPeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serv
             elif len(toDo) == 3:
                 status_bar.heartbeat_message('sharing with %s' % self.str())
                 # edit event
-                assert toDo[0] == interface.EDIT
+                assert toDo[0] == base.EDIT
                 # make the shared selection the ACTUAL selection
                 self.view.sel().clear()
                 for region in self.view.get_regions(self.sharingWithUser):
@@ -555,6 +575,7 @@ class BasicPeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serv
                 self.recvEdit(toDo[1], toDo[2])
         self.toDoToViewQueueLock.release()
 
+
     def checkViewSyncState(self, peerViewSize):
         """
         Compares a received view size with this sides' view size.... if they don't match a resync event is
@@ -562,59 +583,72 @@ class BasicPeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serv
         """
         if self.view.size() != peerViewSize:
             logger.info('view out of sync!')
-            self.sendMessage(interface.VIEW_RESYNC)
+            self.sendMessage(base.VIEW_RESYNC)
+
 
     def recvd_CONNECTED(self, messageSubType, payload):
-        if self.peerType == interface.CLIENT:
-            if self.state == interface.STATE_CONNECTING:
-                self.state = interface.STATE_CONNECTED
+        """
+        Callback method for the connection confirmation handshake between
+        client and server.
+        """
+        if self.peerType == base.CLIENT:
+            if self.state == base.STATE_CONNECTING:
+                self.state = base.STATE_CONNECTED
                 logger.info('Connected to peer: %s' % self.sharingWithUser)
             else:
                 logger.error('Received CONNECTED message from server-peer when in state %s' % self.state)
         else:
             # client is connected, send ACK and set our state to be connected
-            self.sendMessage(interface.CONNECTED)
-            self.state = interface.STATE_CONNECTED
+            self.sendMessage(base.CONNECTED)
+            self.state = base.STATE_CONNECTED
             logger.info('Connected to peer: %s' % self.sharingWithUser)
             self.peerConnectedCallback()
+
 
     def recvd_DISCONNECT(self, messageSubType=None, payload=''):
         self.onDisconnect()
 
+
     def recvd_SHARE_VIEW(self, messageSubType, payload):
         self.toDoToViewQueueLock.acquire()
-        self.toDoToViewQueue.append((interface.SHARE_VIEW, payload))
+        self.toDoToViewQueue.append((base.SHARE_VIEW, payload))
         self.toDoToViewQueueLock.release()
-        self.sendMessage(interface.SHARE_VIEW_ACK)
+        self.sendMessage(base.SHARE_VIEW_ACK)
         self.handleViewChanges()
+
 
     def recvd_RESHARE_VIEW(self, messageSubType, payload):
         self.toDoToViewQueueLock.acquire()
-        self.toDoToViewQueue.append((interface.RESHARE_VIEW, payload))
+        self.toDoToViewQueue.append((base.RESHARE_VIEW, payload))
         self.toDoToViewQueueLock.release()
-        self.sendMessage(interface.SHARE_VIEW_ACK)
+        self.sendMessage(base.SHARE_VIEW_ACK)
         self.handleViewChanges()
+
 
     def recvd_SHARE_VIEW_ACK(self, messageSubType, payload):
         self.ackdChunks = []
 
+
     def recvd_VIEW_CHUNK(self, messageSubType, payload):
         self.toDoToViewQueueLock.acquire()
-        self.toDoToViewQueue.append((interface.VIEW_CHUNK, payload))
+        self.toDoToViewQueue.append((base.VIEW_CHUNK, payload))
         self.toDoToViewQueueLock.release()
-        self.sendMessage(interface.VIEW_CHUNK_ACK, payload=str(len(payload)))
+        self.sendMessage(base.VIEW_CHUNK_ACK, payload=str(len(payload)))
         self.handleViewChanges()
+
 
     def recvd_VIEW_CHUNK_ACK(self, messageSubType, payload):
         ackdChunkSize = int(payload)
         self.ackdChunks.append(ackdChunkSize)
 
+
     def recvd_END_OF_VIEW(self, messageSubType, payload):
         self.toDoToViewQueueLock.acquire()
-        self.toDoToViewQueue.append((interface.END_OF_VIEW, payload))
+        self.toDoToViewQueue.append((base.END_OF_VIEW, payload))
         self.toDoToViewQueueLock.release()
-        self.sendMessage(interface.END_OF_VIEW_ACK)
+        self.sendMessage(base.END_OF_VIEW_ACK)
         self.handleViewChanges()
+
 
     def recvd_END_OF_VIEW_ACK(self, messageSubType, payload):
         if self.toAck == self.ackdChunks:
@@ -624,36 +658,43 @@ class BasicPeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serv
             logger.error('Sent %s chunks of data to peer but peer received %s chunks of data' % (self.toAck, self.ackdChunks))
             self.toAck = None
             self.ackdChunks = None
-            self.sendMessage(interface.BAD_VIEW_SEND)
+            self.sendMessage(base.BAD_VIEW_SEND)
             self.disconnect()
+
 
     def recvd_SELECTION(self, messageSubType, payload):
         # logger.debug('selection change: %s' % payload)
         self.toDoToViewQueueLock.acquire()
-        self.toDoToViewQueue.append((interface.SELECTION, payload))
+        self.toDoToViewQueue.append((base.SELECTION, payload))
         self.toDoToViewQueueLock.release()
         self.handleViewChanges()
+
 
     def recvd_POSITION(self, messageSubType, payload):
         self.toDoToViewQueueLock.acquire()
-        self.toDoToViewQueue.append((interface.POSITION, payload))
+        self.toDoToViewQueue.append((base.POSITION, payload))
         self.toDoToViewQueueLock.release()
         self.handleViewChanges()
 
+
     def recvd_EDIT(self, messageSubType, payload):
         self.toDoToViewQueueLock.acquire()
-        self.toDoToViewQueue.append((interface.EDIT, messageSubType, payload))
+        self.toDoToViewQueue.append((base.EDIT, messageSubType, payload))
         self.toDoToViewQueueLock.release()
         self.handleViewChanges()
+
 
     def recvd_SWAP_ROLE(self, messageSubType, payload):
         self.onSwapRole()
 
+
     def recvd_SWAP_ROLE_ACK(self, messageSubType, payload):
         self.onSwapRoleAck()
 
+
     def recvd_SWAP_ROLE_NACK(self, messageSubType, payload):
         self.onSwapRoleNAck()
+
 
     def recvd_VIEW_SYNC(self, messageSubType, payload):
         self.toDoToViewQueueLock.acquire()
@@ -662,17 +703,20 @@ class BasicPeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serv
             self.checkViewSyncState(int(payload))
         self.toDoToViewQueueLock.release()
 
+
     def recvd_VIEW_RESYNC(self, messageSubType, payload):
         self.resyncCollab()
+
 
     def recvdUnknown(self, messageType, messageSubType, payload):
         logger.warn('Received unknown message: %s, %s, %s' % (messageType, messageSubType, payload))
 
+
     def stringReceived(self, data):
         magicNumber, msgTypeNum, msgSubTypeNum = struct.unpack(self.messageHeaderFmt, data[:self.messageHeaderSize])
-        assert magicNumber == interface.MAGIC_NUMBER
-        msgType = interface.numeric_to_symbolic[msgTypeNum]
-        msgSubType = interface.numeric_to_symbolic[msgSubTypeNum]
+        assert magicNumber == base.MAGIC_NUMBER
+        msgType = base.numeric_to_symbolic[msgTypeNum]
+        msgSubType = base.numeric_to_symbolic[msgSubTypeNum]
         payload = data[self.messageHeaderSize:]
         logger.debug('RECVD: %s-%s[%s]' % (msgType, msgSubType, payload))
         method = getattr(self, "recvd_%s" % msgType, None)
@@ -681,11 +725,13 @@ class BasicPeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serv
         else:
             self.recvdUnknown(msgType, msgSubType, payload)
 
+
     def connectionLost(self, reason):
-        if self.peerType == interface.CLIENT:
+        registry.removeSession(self)
+        if self.peerType == base.CLIENT:
             # ignore this, clientConnectionLost() below will also be called
             return
-        self.state = interface.STATE_DISCONNECTED
+        self.state = base.STATE_DISCONNECTED
         if error.ConnectionDone == reason.type:
             self.disconnect()
         else:
@@ -693,19 +739,30 @@ class BasicPeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serv
             # may want to reconnect, but for now lets print why
             logger.error('Connection lost: %s - %s' % (reason.type, reason.value))
 
+
+    #*** internet.base.BaseProtocol (via basic.Int32StringReceiver) method implementations ***#
+
+    def connectionMade(self):
+        if self.peerType == base.CLIENT:
+            pass
+        else:
+            pass
+
     #*** protocol.Factory method implementations ***#
 
     def buildProtocol(self, addr):
         logger.debug('building protocol for %s' % self.peerType)
-        if self.peerType == interface.CLIENT:
+        if self.peerType == base.CLIENT:
             logger.debug('Connected to peer at %s:%d' % (self.host, self.port))
-            self.sendMessage(interface.CONNECTED)
+            self.sendMessage(base.CONNECTED)
         return self
+
 
     #*** protocol.ClientFactory method implementations ***#
 
     def clientConnectionLost(self, connector, reason):
-        self.state = interface.STATE_DISCONNECTED
+        registry.removeSession(session)
+        self.state = base.STATE_DISCONNECTED
         if error.ConnectionDone == reason.type:
             self.disconnect()
         else:
@@ -713,19 +770,19 @@ class BasicPeer(basic.Int32StringReceiver, protocol.ClientFactory, protocol.Serv
             # may want to reconnect, but for now lets print why
             logger.error('Connection lost: %s - %s' % (reason.type, reason.value))
 
+
     def clientConnectionFailed(self, connector, reason):
         logger.error('Connection failed: %s - %s' % (reason.type, reason.value))
-        self.state = interface.STATE_DISCONNECTED
+        registry.removeSession(session)
+        self.state = base.STATE_DISCONNECTED
         if (error.ConnectionRefusedError == reason.type) or (error.TCPTimedOutError == reason.type) or (error.TimeoutError == reason.type):
-            if (self.peerType == interface.CLIENT) and (not self.failedToInitConnectCallback == None):
+            if (self.peerType == base.CLIENT) and (not self.failedToInitConnectCallback == None):
                 self.failedToInitConnectCallback(self.sharingWithUser)
         self.disconnect()
 
+
     #*** helper functions ***#
 
-    def sendMessage(self, messageType, messageSubType=interface.EDIT_TYPE_NA, payload=''):
-        logger.debug('SEND: %s-%s[%s]' % (interface.numeric_to_symbolic[messageType], interface.numeric_to_symbolic[messageSubType], payload))
-        reactor.callFromThread(self.sendString, struct.pack(self.messageHeaderFmt, interface.MAGIC_NUMBER, messageType, messageSubType) + payload.encode())
-
-    def str(self):
-        return self.sharingWithUser
+    def sendMessage(self, messageType, messageSubType=base.EDIT_TYPE_NA, payload=''):
+        logger.debug('SEND: %s-%s[%s]' % (base.numeric_to_symbolic[messageType], base.numeric_to_symbolic[messageSubType], payload))
+        reactor.callFromThread(self.sendString, struct.pack(self.messageHeaderFmt, base.MAGIC_NUMBER, messageType, messageSubType) + payload.encode())
