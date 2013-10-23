@@ -353,6 +353,18 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
         chosenNegotiator.negotiateSession(chosenPeer)
         # registry.registerSessionByNegotiatorAndPeer(chosenNegotiator.getId(), chosenPeer, session)
 
+        
+
+    # def __init__(self):
+    #     sublime_plugin.ApplicationCommand.__init__(self)
+    #     irc.IRCNegotiator.negotiateCallback = self.openSession
+    #     irc.IRCNegotiator.onNegotiateCallback = self.acceptSessionRequest
+    #     irc.IRCNegotiator.rejectedOrFailedCallback = self.killHostedSession
+    #     base.BasePeer.peerConnectedCallback = self.shareView
+    #     base.BasePeer.peerRecvdViewCallback = self.addSharedView
+    #     base.BasePeer.acceptSwapRole = self.acceptSwapRole
+    #     status_bar.status_message('ready')
+
 
 #     def shareView(self, idx=None):
 #         if idx == None:
