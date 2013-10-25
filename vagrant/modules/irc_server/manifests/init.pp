@@ -32,25 +32,36 @@ class irc_server (
         require => Package['ngircd'],
     }
 
-    file {'/etc/ngircd':
-        ensure => directory,
+    file { 'ngircd_conf_path':
+        path    => '/etc/ngircd',
+        ensure  => directory,
     }
 
-    file {'/etc/ngircd/server.crt':
-        source => 'puppet:///modules/irc_server/server.crt',
+    file { 'server_cert':
+        path    => '/etc/ngircd/server.crt',
+        source  => 'puppet:///modules/irc_server/server.crt',
+        require => File['ngircd_conf_path'],
     }
 
-    file {'/etc/ngircd/server.key':
-        source => 'puppet:///modules/irc_server/server.key',
+    file { 'server_key':
+        path    => '/etc/ngircd/server.key',
+        source  => 'puppet:///modules/irc_server/server.key',
+        require => File['ngircd_conf_path'],
     }
 
-    file {'/etc/ngircd.conf':
+    file { 'ngircd_conf':
+        path    => '/etc/ngircd.conf',
         content => template('irc_server/ngircd.conf.erb'),
+        require => File['ngircd_conf_path'],
     }
 
-    service {'ngircd':
+    service { 'ngircd':
         enable  => true,
         ensure  => running,
-        require => Package['ngircd'],
+        require => [ Package['ngircd'], File['ngircd_conf','server_cert','server_key'] ],
     }
+
+    anchor { 'irc_server::begin': } -> Package['ngircd']
+
+    Service['ngircd'] -> anchor { 'irc_server::end': }
 }

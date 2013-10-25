@@ -1,46 +1,21 @@
 class x11 {
 
-    package { "xorg-x11-server-Xorg":
-        ensure  => present
-    }
+    $packages = [
+        'xorg-x11-server-Xorg',
+        'xorg-x11-apps',
+        'xorg-x11-utils',
+        'xorg-x11-xdm',
+        'xorg-x11-xkb-utils',
+        'gnu-free-mono-fonts',
+        'gnu-free-sans-fonts',
+        'gnu-free-serif-fonts',
+        'gtk2',
+        'dbus',
+        'dbus-x11',
+    ]
 
-    package { "xorg-x11-apps":
-        ensure  => present
-    }
-
-    package { "xorg-x11-utils":
-        ensure  => present
-    }
-
-    package { "xorg-x11-xdm":
-        ensure  => present
-    }
-
-    package { "xorg-x11-xkb-utils":
-        ensure  => present
-    }
-
-    package { "gnu-free-mono-fonts":
-        ensure  => present
-    }
-
-    package { "gnu-free-sans-fonts":
-        ensure  => present
-    }
-
-    package { "gnu-free-serif-fonts":
-        ensure  => present
-    }
-
-    package { "gtk2":
-        ensure  => present
-    }
-
-    package { "dbus":
-        ensure  => present
-    }
-
-    package { "dbus-x11":
+    anchor { 'x11::begin': } ->
+    package { $packages:
         ensure  => present
     }
 
@@ -49,6 +24,7 @@ class x11 {
         enable      => true,
         hasstatus   => true,
         require     => Package[dbus]
-    }
+    } ->
+    anchor { 'x11::end': }
 
 }

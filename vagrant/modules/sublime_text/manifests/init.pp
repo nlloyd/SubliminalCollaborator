@@ -7,6 +7,7 @@ class sublime_text (
     $sublime_version_bits = split($sublime_version, '[.]')
     $sublime_major_version = $sublime_version_bits[0]
 
+    anchor { 'sublime_text::begin': } ->
     exec { "wget http://c758482.r82.cf2.rackcdn.com/Sublime%20Text%20${sublime_version}%20x64.tar.bz2":
         cwd     => '/var/tmp',
         creates => '/var/tmp/Sublime Text ${sublime_version} x64.tar.bz2',
@@ -21,6 +22,7 @@ class sublime_text (
         ensure    => link,
         target    => "/opt/Sublime Text ${sublime_major_version}/sublime_text",
         mode      => 'a+x'
-    }
+    } ->
+    anchor { 'sublime_text::end': }
 
 }
