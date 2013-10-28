@@ -133,8 +133,12 @@ class Registry:
         return self.negotiators.values();
 
 
-    def listNegoriatorEntries(self):
+    def listNegotiatorEntries(self):
         return self.negotiators.items()
+
+
+    def iterNegotiatorEntries(self):
+        return self.negotiators.iteritems()
 
 
     def getNegotiator(self, protocol, config):

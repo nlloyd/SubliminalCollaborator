@@ -2,7 +2,7 @@
     {
         "command": "collaborate",
         "caption": "Collaborate: Connect to Chat Server", 
-        "args": { "task": "connectChat" }
+        "args": { "task": "connectToChat" }
     },
     {
         "command": "collaborate",
@@ -22,7 +22,7 @@
     {
         "command": "collaborate",
         "caption": "Collaborate: Disconnect from Chat Server", 
-        "args": { "task": "disconnectChat" }
+        "args": { "task": "disconnectFromChat" }
     },
     {
         "command": "collaborate",
