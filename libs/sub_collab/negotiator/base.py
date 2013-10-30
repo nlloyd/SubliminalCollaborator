@@ -114,7 +114,7 @@ class INegotiator(Interface):
         """
 
 
-class BaseNegotiator(object)
+class BaseNegotiator(object):
     """
     Base implementation of the Negotiator interface.
 
@@ -127,7 +127,7 @@ class BaseNegotiator(object)
     implements(INegotiator)
 
 
-    def __ init__(self, id, config):
+    def __init__(self, id, config):
         self.id = id
         self.config = config
 
@@ -152,7 +152,7 @@ from twisted.internet import reactor, protocol, error, defer
 class PatchedServerSupportedFeatures(irc.ServerSupportedFeatures):
 
     def __init__(self):
-        irc.ServerSupportedFeatures.__init__(self):
+        irc.ServerSupportedFeatures.__init__(self)
         self._features['PREFIX'] = self._parsePrefixParam('(qaovh)~&@+%')
 
 
@@ -176,6 +176,8 @@ class PatchedIRCClient(irc.IRCClient):
         @param channels: The name of the channel or or channels to request
             the username lists for from the server.
         """
+        # container for NAMES replies
+        self._namreply = {}
         # dump all names of all visible channels
         if not channels:
             self.sendLine("NAMES")
@@ -258,8 +260,6 @@ class PatchedIRCClient(irc.IRCClient):
 
     def connectionMade(self):
         self.supported = PatchedServerSupportedFeatures()
-        # container for NAMES replies
-        self._namreply = {}
         self._queue = []
         if self.performLogin:
             self.register(self.nickname)

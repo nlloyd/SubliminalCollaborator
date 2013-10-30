@@ -85,12 +85,18 @@ else:
 
 import sublime_plugin
 from sub_collab.negotiator import irc
-from sub_collab.peer import interface as pi
+# from sub_collab.peer import base as pi
 from sub_collab import common, event, registry, status_bar
 from sub_collab.peer import base
 from twisted.internet import reactor
 from zope.interface import implements
 import threading, logging, time, shutil, fileinput, re, functools
+
+
+# map of protocol name to negotiator constructor
+NEGOTIATOR_CONSTRUCTOR_MAP = {
+    'irc': irc.IRCNegotiator
+}
 
 #*** globals for preferences and session variables ***#
 # config dictionary, key is protocol:host:username, value is config dict
@@ -158,7 +164,7 @@ def loadConfig():
             CONNECT_ALL_ON_STARTUP = acctDetails
             continue
         for acctDetail in acctDetails:
-            negotiator = registry.addOrUpdateNegotiator(protocol, acctDetail)
+            negotiator = registry.addOrUpdateNegotiator(protocol, acctDetail, NEGOTIATOR_CONSTRUCTOR_MAP)
             loadedNegotiators[negotiator[0]] = negotiator[1]
     # search for any configurations in the registry NOT found in the latest config file data
     for existingNegotiator in registry.listNegotiatorKeys():
@@ -224,6 +230,7 @@ class InstallMenuProxyCommand(sublime_plugin.WindowCommand):
 
     def is_enabled(self):
         return not os.path.exists(os.path.join(os.getcwd(), 'menu_backup', 'Main.sublime-menu.backup'))
+
 
     def installProxyEntries(self):
         if not hasattr(self, 'command_pattern'):
@@ -292,7 +299,7 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
     def connectToChat(self, clientIdx=None):
         if clientIdx == None:
             self.chatClientKeys = []
-            for negotiatorKey, negotiator in iterNegotiatorEntries:
+            for negotiatorKey, negotiator in registry.iterNegotiatorEntries():
                 if not negotiator.isConnected():
                     self.chatClientKeys.append(negotiatorKey)
             if len(self.chatClientKeys) > 0:
@@ -302,7 +309,7 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
             targetNegotiatorKey = self.chatClientKeys[clientIdx]
             if targetNegotiatorKey == '*** ALL ***':
                 connectAllChat()
-            elif not negotiatorInstances.has_key(targetNegotiatorKey):
+            elif not registry.getNegotiator(targetNegotiatorKey).isConnected():
                 logger.info('Connecting to chat %s' % targetNegotiatorKey)
                 registry.getNegotiator(targetNegotiatorKey).connect()
             else:
@@ -312,7 +319,7 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
     def disconnectFromChat(self, clientIdx=None):
         if clientIdx == None:
             self.chatClientKeys = []
-            for negotiatorKey, negotiator in iterNegotiatorEntries:
+            for negotiatorKey, negotiator in registry.iterNegotiatorEntries():
                 if negotiator.isConnected():
                     self.chatClientKeys.append(negotiatorKey)
             sublime.active_window().show_quick_panel(self.chatClientKeys, self.disconnectFromChat)

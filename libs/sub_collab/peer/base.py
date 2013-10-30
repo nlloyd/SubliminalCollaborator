@@ -19,7 +19,7 @@
 #   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #   THE SOFTWARE.
-from zope.interface import Interface
+from zope.interface import Interface, implements
 
 
 #################################################################################
@@ -267,7 +267,7 @@ class IPeer(Interface):
         """
 
 
-class BasePeer(object)
+class BasePeer(object):
     """
     Base implementation of IPeer interface that provides a constructor
     for all subclasses to use requiring a c{str} for the peer username and
@@ -276,7 +276,7 @@ class BasePeer(object)
     implements(IPeer)
 
 
-    def __ init__(self, username, parentNegotiator):
+    def __init__(self, username, parentNegotiator):
         self.sharingWithUser = username
         # just keep the id, otherwise reconfig with active sessions could result in memory leak
         self.parentNegotiatorKey = parentNegotiator.getId()

@@ -51,12 +51,12 @@ class IRCNegotiator(base.BaseNegotiator, common.Observable, protocol.ClientFacto
     onNegotiateCallback = None
     rejectedOrFailedCallback = None
 
-    def __init__(self, config):
+    def __init__(self, id, config):
+        base.BaseNegotiator.__init__(self, id, config)
         assert config.has_key('host'), 'IRCNegotiator missing host'
         assert config.has_key('port'), 'IRCNegotiator missing port'
         assert config.has_key('username'), 'IRCNegotiator missing username'
         assert config.has_key('channel'), 'IRCNegotiator missing channel to connect to'
-        base.BaseNegotiator.__init__(self, config)
         self.clientConnection = None
         self.host = self.config['host'].encode()
         self.port = int(self.config['port'])
@@ -120,7 +120,7 @@ class IRCNegotiator(base.BaseNegotiator, common.Observable, protocol.ClientFacto
             else:
                 self.clientConnection.disconnect()
                 # reactor.callFromThread(self.clientConnection.disconnect)
-                logger.info('Disconnected from %s' % self.host)
+                self.logger.info('Disconnected from %s' % self.host)
                 status_bar.status_message('disconnected from %s' % self.str())
             self.clientConnection = None
         self._registered = False
@@ -175,7 +175,7 @@ class IRCNegotiator(base.BaseNegotiator, common.Observable, protocol.ClientFacto
         ipaddress = self.hostAddressToTryQueue.pop()
         session = basic.BasicPeer(username, self)
         port = session.hostConnect()
-        logger.debug('attempting to start session with %s at %s:%d' % (username, ipaddress, port))
+        self.logger.debug('attempting to start session with %s at %s:%d' % (username, ipaddress, port))
         status_bar.status_message('trying to share with %s@%s' % (username, ipaddress))
         self.pendingSession = session
         registry.registerSession(session)
@@ -183,21 +183,21 @@ class IRCNegotiator(base.BaseNegotiator, common.Observable, protocol.ClientFacto
 
 
     def acceptSessionRequest(self, username, host, port):
-        logger.debug('accepted session request from %s at %s:%d)' % (username, host, port))
+        self.logger.debug('accepted session request from %s at %s:%d)' % (username, host, port))
         status_bar.status_message('accepted session request from %s, trying to connect to %s:%d' % (username, host, port))
-        logger.info('Establishing session with %s at %s:%d' % (username, host, port))
+        self.logger.info('Establishing session with %s at %s:%d' % (username, host, port))
         session = basic.BasicPeer(username, self)
         session.clientConnect(host, port)
         registry.registerSession(session)
 
 
     def rejectSessionRequest(self, username):
-        logger.debug('rejected session request from %s' % username)
+        self.logger.debug('rejected session request from %s' % username)
         self.msg(username, base.SESSION_REJECTED)
 
 
     def retrySessionRequest(self, username):
-        logger.debug('request to retry from %s' % username)
+        self.logger.debug('request to retry from %s' % username)
         self.msg(username, base.SESSION_RETRY)
 
 
@@ -212,12 +212,12 @@ class IRCNegotiator(base.BaseNegotiator, common.Observable, protocol.ClientFacto
             self.disconnect()
         else:
             # may want to reconnect, but for now lets print why
-            logger.error('Connection lost: %s - %s' % (reason.type, reason.value))
+            self.logger.error('Connection lost: %s - %s' % (reason.type, reason.value))
             status_bar.status_message('connection lost to %s' % self.str())
 
 
     def clientConnectionFailed(self, connector, reason):
-        logger.error('Connection failed: %s - %s' % (reason.type, reason.value))
+        self.logger.error('Connection failed: %s - %s' % (reason.type, reason.value))
         status_bar.status_message('connection failed to %s' % self.str())
         self.connectionFailed = True
         self.disconnect()
@@ -228,21 +228,21 @@ class IRCNegotiator(base.BaseNegotiator, common.Observable, protocol.ClientFacto
     def connectionMade(self):
         irc.IRCClient.connectionMade(self)
         # reactor.callFromThread(irc.IRCClient.connectionMade, self)
-        logger.info('Connected to ' + self.host)
+        self.logger.info('Connected to ' + self.host)
 
 
     def signedOn(self):
         # join the channel after we have connected
         # part of the Negotiator connection process
         status_bar.status_message('connected to ' + self.str())
-        logger.info('Joining channel ' + self.channel)
+        self.logger.info('Joining channel ' + self.channel)
         self.join(self.channel)
 
 
     def channelNames(self, channel, names):
         assert self.channel == channel.lstrip(irc.CHANNEL_PREFIXES)
         names.remove(self.nickname)
-        logger.debug('Received initial user list %s' % names)
+        self.logger.debug('Received initial user list %s' % names)
         self.unverifiedUsers = []
         self.peerUsers = []
         for name in names:
@@ -280,10 +280,10 @@ class IRCNegotiator(base.BaseNegotiator, common.Observable, protocol.ClientFacto
         This is used by the peer attempting to establish a session to recieve
         information from the peer recieving the session request.
         """
-        username = user.lstrip(irc.NICK_PREFIXES)
+        username = user.lstrip(self.getNickPrefixes())
         if '!' in username:
             username = username.split('!', 1)[0]
-        logger.debug('Received %s from %s' % (message, username))
+        self.logger.debug('Received %s from %s' % (message, username))
         if message == base.SESSION_RETRY:
             registry.removeSession(self.pendingSession)
             self.pendingSession.disconnect();
@@ -291,24 +291,24 @@ class IRCNegotiator(base.BaseNegotiator, common.Observable, protocol.ClientFacto
             self.negotiateSession(username)
         elif message == base.SESSION_FAILED:
             # client recvd from server... report error and cleanup any half-made sessions
-            logger.warn('All connections to all possible host ip addresses failed.')
+            self.logger.warn('All connections to all possible host ip addresses failed.')
             registry.removeSession(self.pendingSession)
             self.pendingSession.disconnect();
             self.pendingSession = None
         elif message == base.SESSION_REJECTED:
             # server recvd from client... report rejected and cleanup any half-made sessions
-            logger.info('Request to share with user %s was rejected.' % username)
+            self.logger.info('Request to share with user %s was rejected.' % username)
             registry.removeSession(self.pendingSession)
             self.pendingSession.disconnect();
             self.pendingSession = None
 
 
     def ctcpReply_VERSION(self, user, channel, data):
-        username = user.lstrip(irc.NICK_PREFIXES)
+        username = user.lstrip(self.getNickPrefixes())
         if '!' in username:
             username = username.split('!', 1)[0]
         if (data == ('%s:%s:%s' % (self.versionName, self.versionNum, self.versionEnv))) or ((self.versionName in data) and (self.versionNum in data) and (self.versionEnv in data)):
-            logger.debug('Verified peer %s' % username)
+            self.logger.debug('Verified peer %s' % username)
             self.peerUsers.append(username)
             self.unverifiedUsers.remove(username)
         else:
@@ -324,17 +324,17 @@ class IRCNegotiator(base.BaseNegotiator, common.Observable, protocol.ClientFacto
         address and port.  This triggers a notification event to all observers, 
         basically requesting user input before proceeding to establish a session.
         """
-        username = user.lstrip(irc.NICK_PREFIXES)
+        username = user.lstrip(self.getNickPrefixes())
         if '!' in username:
             username = username.split('!', 1)[0]
-        logger.debug('Received dcc chat from %s, protocol %s, address %s, port %d' % (username, protocol, address, port))
+        self.logger.debug('Received dcc chat from %s, protocol %s, address %s, port %d' % (username, protocol, address, port))
         if protocol == base.DCC_PROTOCOL_COLLABORATE or protocol == base.DCC_PROTOCOL_RETRY:
             self.notify(event.INCOMING_SESSION_REQUEST, self, (username, address, port))
 
     #*** helper functions ***#
 
     def dropUserFromLists(self, user):
-        username = user.lstrip(irc.NICK_PREFIXES)
+        username = user.lstrip(self.getNickPrefixes())
         if username in self.peerUsers:
             self.peerUsers.remove(username)
         if username in self.unverifiedUsers:
@@ -342,10 +342,19 @@ class IRCNegotiator(base.BaseNegotiator, common.Observable, protocol.ClientFacto
 
 
     def addUserToLists(self, user):
-        username = user.lstrip(irc.NICK_PREFIXES)
+        username = user.lstrip(self.getNickPrefixes())
         self.unverifiedUsers.append(username)
         self.ctcpMakeQuery(user, [('VERSION', None)])
         # reactor.callFromThread(self.ctcpMakeQuery, user, [('VERSION', None)])
+
+
+    def getNickPrefixes(self):
+        if not self._nickprefixes:
+            self._nickprefixes = ''
+            prefixes = self.supported.getFeature('PREFIX', {})
+            for prefixTuple in prefixes.itervalues():
+                self._nickprefixes = self._nickprefixes + prefixTuple[0]
+        return self._nickprefixes
 
 
     def str(self):

@@ -24,18 +24,11 @@ import sublime
 import threading
 import logging
 import types
-from sub_collab.negotiator import irc
 
 
-class Registry:
+class Registry(object):
 
     logger = logging.getLogger('SubliminalCollaborator.registry')
-
-    # map of protocol name to negotiator constructor
-    negotiatorConstructorMap = {
-        'irc': irc.IRCNegotiator
-    }
-
 
     def __init__(self):
         # negotiator map, key is protocol:host:username, values are configured negotiator instances
@@ -51,7 +44,7 @@ class Registry:
         return '%s|%s@%s:%d' % (protocol, config['username'], config['host'], config['port'])
 
 
-    def addOrUpdateNegotiator(self, protocol, config):
+    def addOrUpdateNegotiator(self, protocol, config, constructorsByProtocol):
         """
         Adds or updates in the global registry the negotiator configuration
         identified by the protocol and contents of the negotiator configuration.
@@ -97,7 +90,7 @@ class Registry:
         # if updated config, disconnect old negotiator and create new
         if updated:
             self.removeNegotiator(negotiatorKey)
-        self.negotiators[negotiatorKey] = self.negotiatorConstructorMap[protocol](negotiatorKey, config)
+        self.negotiators[negotiatorKey] = constructorsByProtocol[protocol](negotiatorKey, config)
 
         # report errors, if any
         if len(errorMsgs) > 1:

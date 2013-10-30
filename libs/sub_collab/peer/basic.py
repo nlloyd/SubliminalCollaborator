@@ -116,7 +116,7 @@ class BasicPeer(base.BasePeer, basic.Int32StringReceiver, protocol.ClientFactory
     peerRecvdViewCallback = None
 
 
-    def __ init__(self, username, parentNegotiator):
+    def __init__(self, username, parentNegotiator):
         base.BasePeer.__init__(self, username, parentNegotiator)
         # connection can be an IListeningPort or IConnector
         self.connection = None
