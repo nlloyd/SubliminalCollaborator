@@ -163,7 +163,9 @@ class PatchedIRCClient(irc.IRCClient):
     _nickprefixes = None
 
     def __init__(self):
-        irc.IRCClient.__init__(self)
+        # container for NAMES replies
+        self._namreply = {}
+        
 
     def names(self, *channels):
         """
@@ -176,8 +178,6 @@ class PatchedIRCClient(irc.IRCClient):
         @param channels: The name of the channel or or channels to request
             the username lists for from the server.
         """
-        # container for NAMES replies
-        self._namreply = {}
         # dump all names of all visible channels
         if not channels:
             self.sendLine("NAMES")

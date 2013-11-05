@@ -39,7 +39,7 @@ class IRCNegotiator(base.BaseNegotiator, common.Observable, protocol.ClientFacto
     will do.
     """
 
-    logger = logging.getLogger('IRCNegotiator')
+    logger = logging.getLogger('SubliminalCollaborator.irc')
 
     #*** irc.IRCClient properties ***#
     versionName = 'SubliminalCollaborator'
@@ -53,6 +53,7 @@ class IRCNegotiator(base.BaseNegotiator, common.Observable, protocol.ClientFacto
 
     def __init__(self, id, config):
         base.BaseNegotiator.__init__(self, id, config)
+        base.PatchedIRCClient.__init__(self)
         assert config.has_key('host'), 'IRCNegotiator missing host'
         assert config.has_key('port'), 'IRCNegotiator missing port'
         assert config.has_key('username'), 'IRCNegotiator missing username'
@@ -226,8 +227,9 @@ class IRCNegotiator(base.BaseNegotiator, common.Observable, protocol.ClientFacto
     #*** irc.IRCClient method implementations ***#
 
     def connectionMade(self):
-        irc.IRCClient.connectionMade(self)
-        # reactor.callFromThread(irc.IRCClient.connectionMade, self)
+        # base.PatchedIRCClient.connectionMade(self)
+        self.logger.debug('Connection made')
+        reactor.callFromThread(base.PatchedIRCClient.connectionMade, self)
         self.logger.info('Connected to ' + self.host)
 
 
@@ -237,6 +239,11 @@ class IRCNegotiator(base.BaseNegotiator, common.Observable, protocol.ClientFacto
         status_bar.status_message('connected to ' + self.str())
         self.logger.info('Joining channel ' + self.channel)
         self.join(self.channel)
+
+
+    def joined(self, channel):
+        self.logger.info('Joined channel ' + self.channel)
+        self.names(self.channel)
 
 
     def channelNames(self, channel, names):

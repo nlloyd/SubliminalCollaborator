@@ -150,9 +150,9 @@ class Registry(object):
             if peerUser in self.sessionsByUserByNegotiator[negotiatorKey]:
                 session = self.sessionsByUserByNegotiator[negotiatorKey][peerUser]
                 if session.view:
-                    logger.warn('already collaborating on %s with %s' % (session.view.file_name(), peerUser))
+                    self.logger.warn('already collaborating on %s with %s' % (session.view.file_name(), peerUser))
                 else:
-                    logger.debug('attempt to register already existing session with %s but without a set view' % peerUser)
+                    self.logger.debug('attempt to register already existing session with %s but without a set view' % peerUser)
             else:
                 self.sessionsByUserByNegotiator[negotiatorKey][peerUser] = set([session])
         else:
@@ -161,7 +161,7 @@ class Registry(object):
 
     def registerSessionByViewId(self, view, session):
         if view.id() in self.sessionsByViewId:
-            logger.warn('already sharing view %s with %s' % (view.file_name(), session.str()))
+            self.logger.warn('already sharing view %s with %s' % (view.file_name(), session.str()))
         else:
             self.sessionsByViewId[view.id()] = session
 
