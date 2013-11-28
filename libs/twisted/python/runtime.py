@@ -2,20 +2,12 @@
 # Copyright (c) Twisted Matrix Laboratories.
 # See LICENSE for details.
 
-from __future__ import division, absolute_import
 
+# System imports
 import os
 import sys
 import time
 import imp
-import warnings
-
-from twisted.python import compat
-
-if compat._PY3:
-    _threadModule = "_thread"
-else:
-    _threadModule = "thread"
 
 
 
@@ -45,9 +37,7 @@ _timeFunctions = {
 
 
 class Platform:
-    """
-    Gives us information about the platform we're running on.
-    """
+    """Gives us information about the platform we're running on"""
 
     type = knownPlatforms.get(os.name)
     seconds = staticmethod(_timeFunctions.get(type, time.time))
@@ -62,61 +52,41 @@ class Platform:
 
 
     def isKnown(self):
-        """
-        Do we know about this platform?
-
-        @return: Boolean indicating whether this is a known platform or not.
-        @rtype: C{bool}
-        """
+        """Do we know about this platform?"""
         return self.type != None
 
 
     def getType(self):
-        """
-        Get platform type.
-
-        @return: Either 'posix', 'win32' or 'java'
-        @rtype: C{str}
-        """
+        """Return 'posix', 'win32' or 'java'"""
         return self.type
 
 
     def isMacOSX(self):
-        """
-        Check if current platform is Mac OS X.
+        """Check if current platform is Mac OS X.
 
-        @return: C{True} if the current platform has been detected as OS X.
+        @return: C{True} if the current platform has been detected as OS X
         @rtype: C{bool}
         """
         return self._platform == "darwin"
 
 
     def isWinNT(self):
-        """
-        Are we running in Windows NT?
-
-        This is deprecated and always returns C{True} on win32 because
-        Twisted only supports Windows NT-derived platforms at this point.
-
-        @return: C{True} if the current platform has been detected as
-            Windows NT.
-        @rtype: C{bool}
-        """
-        warnings.warn(
-                "twisted.python.runtime.Platform.isWinNT was deprecated in "
-                "Twisted 13.0. Use Platform.isWindows instead.",
-                DeprecationWarning, stacklevel=2)
-        return self.isWindows()
+        """Are we running in Windows NT?"""
+        if self.getType() == 'win32':
+            import _winreg
+            try:
+                k = _winreg.OpenKeyEx(
+                        _winreg.HKEY_LOCAL_MACHINE,
+                        r'Software\Microsoft\Windows NT\CurrentVersion')
+                _winreg.QueryValueEx(k, 'SystemRoot')
+                return 1
+            except WindowsError:
+                return 0
+        # not windows NT
+        return 0
 
 
     def isWindows(self):
-        """
-        Are we running in Windows?
-
-        @return: C{True} if the current platform has been detected as
-            Windows.
-        @rtype: C{bool}
-        """
         return self.getType() == 'win32'
 
 
@@ -144,14 +114,10 @@ class Platform:
 
 
     def supportsThreads(self):
-        """
-        Can threads be created?
-
-        @return: C{True} if the threads are supported on the current platform.
-        @rtype: C{bool}
+        """Can threads be created?
         """
         try:
-            return imp.find_module(_threadModule)[0] is None
+            return imp.find_module('thread')[0] is None
         except ImportError:
             return False
 

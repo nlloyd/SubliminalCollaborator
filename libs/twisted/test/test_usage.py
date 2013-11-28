@@ -36,8 +36,7 @@ class WellBehaved(usage.Options):
 
 class ParseCorrectnessTest(unittest.TestCase):
     """
-    Test L{usage.Options.parseOptions} for correct values under
-    good conditions.
+    Test Options.parseArgs for correct values under good conditions.
     """
     def setUp(self):
         """
@@ -54,7 +53,7 @@ class ParseCorrectnessTest(unittest.TestCase):
 
     def test_checkParameters(self):
         """
-        Parameters have correct values.
+        Checking that parameters have correct values.
         """
         self.assertEqual(self.nice.opts['long'], "Alpha")
         self.assertEqual(self.nice.opts['another'], "Beta")
@@ -63,14 +62,14 @@ class ParseCorrectnessTest(unittest.TestCase):
 
     def test_checkFlags(self):
         """
-        Flags have correct values.
+        Checking that flags have correct values.
         """
         self.assertEqual(self.nice.opts['aflag'], 1)
         self.assertEqual(self.nice.opts['flout'], 0)
 
     def test_checkCustoms(self):
         """
-        Custom flags and parameters have correct values.
+        Checking that custom flags and parameters have correct values.
         """
         self.assertEqual(self.nice.opts['myflag'], "PONY!")
         self.assertEqual(self.nice.opts['myparam'], "Tofu WITH A PONY!")
@@ -97,14 +96,14 @@ class TypedOptions(usage.Options):
 
 class TypedTestCase(unittest.TestCase):
     """
-    Test L{usage.Options.parseOptions} for options with forced types.
+    Test Options.parseArgs for options with forced types.
     """
     def setUp(self):
         self.usage = TypedOptions()
 
     def test_defaultValues(self):
         """
-        Default values are parsed.
+        Test parsing of default values.
         """
         argV = []
         self.usage.parseOptions(argV)
@@ -118,7 +117,7 @@ class TypedTestCase(unittest.TestCase):
 
     def test_parsingValues(self):
         """
-        int and float values are parsed.
+        Test basic parsing of int and float values.
         """
         argV = ("--fooint 912 --foofloat -823.1 "
                 "--eggint 32 --eggfloat 21").split()
@@ -152,7 +151,7 @@ class TypedTestCase(unittest.TestCase):
 
     def test_invalidValues(self):
         """
-        Passing wrong values raises an error.
+        Check that passing wrong values raises an error.
         """
         argV = "--fooint egg".split()
         self.assertRaises(usage.UsageError, self.usage.parseOptions, argV)
@@ -178,11 +177,11 @@ class WeirdCallableOptions(usage.Options):
 
 class WrongTypedTestCase(unittest.TestCase):
     """
-    Test L{usage.Options.parseOptions} for wrong coerce options.
+    Test Options.parseArgs for wrong coerce options.
     """
     def test_nonCallable(self):
         """
-        Using a non-callable type fails.
+        Check that using a non callable type fails.
         """
         us =  WrongTypedOptions()
         argV = "--barwrong egg".split()
@@ -190,7 +189,8 @@ class WrongTypedTestCase(unittest.TestCase):
 
     def test_notCalledInDefault(self):
         """
-        The coerce functions are not called if no values are provided.
+        Test that the coerce functions are not called if no values are
+        provided.
         """
         us = WeirdCallableOptions()
         argV = []
@@ -198,7 +198,7 @@ class WrongTypedTestCase(unittest.TestCase):
 
     def test_weirdCallable(self):
         """
-        Errors raised by coerce functions are handled properly.
+        Test what happens when coerce functions raise errors.
         """
         us = WeirdCallableOptions()
         argV = "--foowrong blah".split()
@@ -254,13 +254,8 @@ class SubCommandOptions(usage.Options):
 
 
 class SubCommandTest(unittest.TestCase):
-    """
-    Test L{usage.Options.parseOptions} for options with subcommands.
-    """
+
     def test_simpleSubcommand(self):
-        """
-        A subcommand is recognized.
-        """
         o = SubCommandOptions()
         o.parseOptions(['--europian-swallow', 'inquisition'])
         self.assertEqual(o['europian-swallow'], True)
@@ -270,9 +265,6 @@ class SubCommandTest(unittest.TestCase):
         self.assertEqual(o.subOptions['torture-device'], 'comfy-chair')
 
     def test_subcommandWithFlagsAndOptions(self):
-        """
-        Flags and options of a subcommand are assigned.
-        """
         o = SubCommandOptions()
         o.parseOptions(['inquisition', '--expect', '--torture-device=feather'])
         self.assertEqual(o['europian-swallow'], False)
@@ -282,9 +274,6 @@ class SubCommandTest(unittest.TestCase):
         self.assertEqual(o.subOptions['torture-device'], 'feather')
 
     def test_subcommandAliasWithFlagsAndOptions(self):
-        """
-        Flags and options of a subcommand alias are assigned.
-        """
         o = SubCommandOptions()
         o.parseOptions(['inquest', '--expect', '--torture-device=feather'])
         self.assertEqual(o['europian-swallow'], False)
@@ -294,9 +283,6 @@ class SubCommandTest(unittest.TestCase):
         self.assertEqual(o.subOptions['torture-device'], 'feather')
 
     def test_anotherSubcommandWithFlagsAndOptions(self):
-        """
-        Flags and options of another subcommand are assigned.
-        """
         o = SubCommandOptions()
         o.parseOptions(['holyquest', '--for-grail'])
         self.assertEqual(o['europian-swallow'], False)
@@ -306,10 +292,6 @@ class SubCommandTest(unittest.TestCase):
         self.assertEqual(o.subOptions['for-grail'], True)
 
     def test_noSubcommand(self):
-        """
-        If no subcommand is specified and no default subcommand is assigned,
-        a subcommand will not be implied.
-        """
         o = SubCommandOptions()
         o.parseOptions(['--europian-swallow'])
         self.assertEqual(o['europian-swallow'], True)
@@ -317,9 +299,6 @@ class SubCommandTest(unittest.TestCase):
         self.failIf(hasattr(o, 'subOptions'))
 
     def test_defaultSubcommand(self):
-        """
-        Flags and options in the default subcommand are assigned.
-        """
         o = SubCommandOptions()
         o.defaultSubCommand = 'inquest'
         o.parseOptions(['--europian-swallow'])
@@ -330,10 +309,6 @@ class SubCommandTest(unittest.TestCase):
         self.assertEqual(o.subOptions['torture-device'], 'comfy-chair')
 
     def test_subCommandParseOptionsHasParent(self):
-        """
-        The parseOptions method from the Options object specified for the
-        given subcommand is called.
-        """
         class SubOpt(usage.Options):
             def parseOptions(self, *a, **kw):
                 self.sawParent = self.parent
@@ -373,9 +348,6 @@ class SubCommandTest(unittest.TestCase):
 
 
 class HelpStringTest(unittest.TestCase):
-    """
-    Test generated help strings.
-    """
     def setUp(self):
         """
         Instantiate a well-behaved Options class.

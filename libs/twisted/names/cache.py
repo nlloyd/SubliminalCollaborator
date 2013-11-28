@@ -2,15 +2,11 @@
 # Copyright (c) Twisted Matrix Laboratories.
 # See LICENSE for details.
 
-"""
-An in-memory caching resolver.
-"""
-
-from __future__ import division, absolute_import
+from zope.interface import implements
 
 from twisted.names import dns, common
 from twisted.python import failure, log
-from twisted.internet import defer
+from twisted.internet import interfaces, defer
 
 
 
@@ -20,6 +16,9 @@ class CacheResolver(common.ResolverBase):
 
     @ivar _reactor: A provider of L{interfaces.IReactorTime}.
     """
+
+    implements(interfaces.IResolver)
+
     cache = None
 
     def __init__(self, cache=None, verbose=0, reactor=None):
@@ -72,11 +71,11 @@ class CacheResolver(common.ResolverBase):
 
             try:
                 result = (
-                    [dns.RRHeader(r.name.name, r.type, r.cls, r.ttl - diff,
+                    [dns.RRHeader(str(r.name), r.type, r.cls, r.ttl - diff,
                                   r.payload) for r in ans],
-                    [dns.RRHeader(r.name.name, r.type, r.cls, r.ttl - diff,
+                    [dns.RRHeader(str(r.name), r.type, r.cls, r.ttl - diff,
                                   r.payload) for r in auth],
-                    [dns.RRHeader(r.name.name, r.type, r.cls, r.ttl - diff,
+                    [dns.RRHeader(str(r.name), r.type, r.cls, r.ttl - diff,
                                   r.payload) for r in add])
             except ValueError:
                 return defer.fail(failure.Failure(dns.DomainError(name)))

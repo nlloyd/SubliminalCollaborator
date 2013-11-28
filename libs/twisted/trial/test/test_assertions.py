@@ -12,40 +12,29 @@ demonstrated to work earlier in the file are used by those later in the file
 (even though the runner will probably not run the tests in this order).
 """
 
-from __future__ import division, absolute_import
+from __future__ import division
 
 import warnings
 from pprint import pformat
 import unittest as pyunit
 
-from twisted.python.util import FancyEqMixin
-from twisted.python._reflectpy3 import prefixedMethods, accumulateMethods
-from twisted.python.deprecate import deprecated
-from twisted.python.versions import Version, getVersionString
-from twisted.python.failure import Failure
-from twisted.trial import unittest
-from twisted.internet.defer import Deferred, fail, succeed
+from twisted.python import reflect, failure
+from twisted.python.deprecate import deprecated, getVersionString
+from twisted.python.versions import Version
+from twisted.internet import defer
+from twisted.trial import unittest, runner, reporter
 
-class MockEquality(FancyEqMixin, object):
-    compareAttributes = ("name",)
-
+class MockEquality(object):
     def __init__(self, name):
         self.name = name
-
 
     def __repr__(self):
         return "MockEquality(%s)" % (self.name,)
 
-
-class ComparisonError(object):
-    """
-    An object which raises exceptions from its comparison methods.
-    """
-    def _error(self, other):
-        raise ValueError("Comparison is broken")
-
-    __eq__ = __ne__ = _error
-
+    def __eq__(self, other):
+        if not hasattr(other, 'name'):
+            raise ValueError("%r not comparable to %r" % (other, self))
+        return self.name[0] == other.name[0]
 
 
 class TestFailureTests(pyunit.TestCase):
@@ -136,7 +125,7 @@ class AssertFalseTests(unittest.SynchronousTestCase):
         for true in [1, True, 'cat', [1,2], (3,4)]:
             try:
                 method(true, "failed on %r" % (true,))
-            except self.failureException as e:
+            except self.failureException, e:
                 if str(e) != "failed on %r" % (true,):
                     self.fail("Raised incorrect exception on %r: %r" % (true, e))
             else:
@@ -197,7 +186,7 @@ class AssertTrueTests(unittest.SynchronousTestCase):
         for notTrue in [0, 0.0, False, None, (), []]:
             try:
                 method(notTrue, "failed on %r" % (notTrue,))
-            except self.failureException as e:
+            except self.failureException, e:
                 if str(e) != "failed on %r" % (notTrue,):
                     self.fail(
                         "Raised incorrect exception on %r: %r" % (notTrue, e))
@@ -273,7 +262,7 @@ class TestSynchronousAssertions(unittest.SynchronousTestCase):
     def _testUnequalPair(self, first, second):
         try:
             self.assertEqual(first, second)
-        except self.failureException as e:
+        except self.failureException, e:
             expected = 'not equal:\na = %s\nb = %s\n' % (
                 pformat(first), pformat(second))
             if str(e) != expected:
@@ -293,7 +282,7 @@ class TestSynchronousAssertions(unittest.SynchronousTestCase):
     def test_assertEqual_custom(self):
         x = MockEquality('first')
         y = MockEquality('second')
-        z = MockEquality('first')
+        z = MockEquality('fecund')
         self._testEqualPair(x, x)
         self._testEqualPair(x, z)
         self._testUnequalPair(x, y)
@@ -324,8 +313,8 @@ class TestSynchronousAssertions(unittest.SynchronousTestCase):
 
 
     def test_assertEqual_incomparable(self):
-        apple = ComparisonError()
-        orange = ["orange"]
+        apple = MockEquality('apple')
+        orange = ['orange']
         try:
             self.assertEqual(apple, orange)
         except self.failureException:
@@ -340,7 +329,6 @@ class TestSynchronousAssertions(unittest.SynchronousTestCase):
 
     def _raiseError(self, error):
         raise error
-
 
     def test_failUnlessRaises_expected(self):
         x = self.failUnlessRaises(ValueError, self._raiseError, ValueError)
@@ -360,16 +348,14 @@ class TestSynchronousAssertions(unittest.SynchronousTestCase):
         else:
             self.fail("Expected exception wasn't raised. Should have failed")
 
-
     def test_failUnlessRaises_noException(self):
         try:
             self.failUnlessRaises(ValueError, lambda : None)
-        except self.failureException as e:
+        except self.failureException, e:
             self.assertEqual(str(e),
                                  'ValueError not raised (None returned)')
         else:
             self.fail("Exception not raised. Should have failed")
-
 
     def test_failUnlessRaises_failureException(self):
         x = self.failUnlessRaises(self.failureException, self._raiseError,
@@ -386,7 +372,6 @@ class TestSynchronousAssertions(unittest.SynchronousTestCase):
         else:
             self.fail("Should have raised exception")
 
-
     def test_failIfEqual_basic(self):
         x, y, z = [1], [2], [1]
         ret = self.failIfEqual(x, y)
@@ -397,7 +382,6 @@ class TestSynchronousAssertions(unittest.SynchronousTestCase):
         self.failUnlessRaises(self.failureException,
                               self.failIfEqual, x, z)
 
-
     def test_failIfEqual_customEq(self):
         x = MockEquality('first')
         y = MockEquality('second')
@@ -407,7 +391,8 @@ class TestSynchronousAssertions(unittest.SynchronousTestCase):
                              "failIfEqual should return first parameter")
         self.failUnlessRaises(self.failureException,
                               self.failIfEqual, x, x)
-        self.failIfEqual(x, z, "__ne__ should make these not equal")
+        # test when __ne__ is not defined
+        self.failIfEqual(x, z, "__ne__ not defined, so not equal")
 
 
     def test_failIfIdenticalPositive(self):
@@ -453,7 +438,6 @@ class TestSynchronousAssertions(unittest.SynchronousTestCase):
         self.failUnlessRaises(self.failureException,
                               self.failUnlessApproximates, x, y, 0.1)
 
-
     def test_failUnlessAlmostEqual(self):
         precision = 5
         x = 8.000001
@@ -465,7 +449,6 @@ class TestSynchronousAssertions(unittest.SynchronousTestCase):
                              "first parameter (%r, %r)" % (ret, x))
         self.failUnlessRaises(self.failureException,
                               self.failUnlessAlmostEqual, x, y, precision)
-
 
     def test_failIfAlmostEqual(self):
         precision = 5
@@ -480,7 +463,6 @@ class TestSynchronousAssertions(unittest.SynchronousTestCase):
         self.failUnlessRaises(self.failureException,
                               self.failIfAlmostEqual, x, z, precision)
 
-
     def test_failUnlessSubstring(self):
         x = "cat"
         y = "the dog sat"
@@ -493,7 +475,6 @@ class TestSynchronousAssertions(unittest.SynchronousTestCase):
         self.failUnlessRaises(self.failureException,
                               self.failUnlessSubstring, z, x)
 
-
     def test_failIfSubstring(self):
         x = "cat"
         y = "the dog sat"
@@ -505,40 +486,6 @@ class TestSynchronousAssertions(unittest.SynchronousTestCase):
                               self.failIfSubstring, x, x)
         self.failUnlessRaises(self.failureException,
                               self.failIfSubstring, x, z)
-
-
-    def test_assertIs(self):
-        """
-        L{assertIs} passes if two objects are identical.
-        """
-        a = MockEquality("first")
-        self.assertIs(a, a)
-
-
-    def test_assertIsError(self):
-        """
-        L{assertIs} fails if two objects are not identical.
-        """
-        a, b = MockEquality("first"), MockEquality("first")
-        self.assertEqual(a, b)
-        self.assertRaises(self.failureException, self.assertIs, a, b)
-
-
-    def test_assertIsNot(self):
-        """
-        L{assertIsNot} passes if two objects are not identical.
-        """
-        a, b = MockEquality("first"), MockEquality("first")
-        self.assertEqual(a, b)
-        self.assertIsNot(a, b)
-
-
-    def test_assertIsNotError(self):
-        """
-        L{assertIsNot} fails if two objects are identical.
-        """
-        a = MockEquality("first")
-        self.assertRaises(self.failureException, self.assertIsNot, a, a)
 
 
     def test_assertIsInstance(self):
@@ -645,6 +592,75 @@ class TestSynchronousAssertions(unittest.SynchronousTestCase):
         test_assertDictEqual.skip = (
             "assertDictEqual is not available on this version of Python")
 
+
+
+class TestAsynchronousAssertions(unittest.TestCase):
+    """
+    Tests for L{TestCase}'s asynchronous extensions to L{SynchronousTestCase}.
+    That is, assertFailure.
+    """
+    def test_assertFailure(self):
+        d = defer.maybeDeferred(lambda: 1/0)
+        return self.assertFailure(d, ZeroDivisionError)
+
+
+    def test_assertFailure_wrongException(self):
+        d = defer.maybeDeferred(lambda: 1/0)
+        self.assertFailure(d, OverflowError)
+        d.addCallbacks(lambda x: self.fail('Should have failed'),
+                       lambda x: x.trap(self.failureException))
+        return d
+
+
+    def test_assertFailure_noException(self):
+        d = defer.succeed(None)
+        self.assertFailure(d, ZeroDivisionError)
+        d.addCallbacks(lambda x: self.fail('Should have failed'),
+                       lambda x: x.trap(self.failureException))
+        return d
+
+
+    def test_assertFailure_moreInfo(self):
+        """
+        In the case of assertFailure failing, check that we get lots of
+        information about the exception that was raised.
+        """
+        try:
+            1/0
+        except ZeroDivisionError:
+            f = failure.Failure()
+            d = defer.fail(f)
+        d = self.assertFailure(d, RuntimeError)
+        d.addErrback(self._checkInfo, f)
+        return d
+
+
+    def _checkInfo(self, assertionFailure, f):
+        assert assertionFailure.check(self.failureException)
+        output = assertionFailure.getErrorMessage()
+        self.assertIn(f.getErrorMessage(), output)
+        self.assertIn(f.getBriefTraceback(), output)
+
+
+    def test_assertFailure_masked(self):
+        """
+        A single wrong assertFailure should fail the whole test.
+        """
+        class ExampleFailure(Exception):
+            pass
+
+        class TC(unittest.TestCase):
+            failureException = ExampleFailure
+            def test_assertFailure(self):
+                d = defer.maybeDeferred(lambda: 1/0)
+                self.assertFailure(d, OverflowError)
+                self.assertFailure(d, ZeroDivisionError)
+                return d
+
+        test = TC('test_assertFailure')
+        result = reporter.TestResult()
+        test.run(result)
+        self.assertEqual(1, len(result.failures))
 
 
 class WarningAssertionTests(unittest.SynchronousTestCase):
@@ -843,223 +859,13 @@ class WarningAssertionTests(unittest.SynchronousTestCase):
 
 
 
-class TestResultOfAssertions(unittest.SynchronousTestCase):
-    """
-    Tests for L{SynchronousTestCase.successResultOf},
-    L{SynchronousTestCase.failureResultOf}, and
-    L{SynchronousTestCase.assertNoResult}.
-    """
-    result = object()
-    failure = Failure(Exception("Bad times"))
-
-    def test_withoutSuccessResult(self):
-        """
-        L{SynchronousTestCase.successResultOf} raises
-        L{SynchronousTestCase.failureException} when called with a L{Deferred}
-        with no current result.
-        """
-        self.assertRaises(
-            self.failureException, self.successResultOf, Deferred())
-
-
-    def test_successResultOfWithFailure(self):
-        """
-        L{SynchronousTestCase.successResultOf} raises
-        L{SynchronousTestCase.failureException} when called with a L{Deferred}
-        with a failure result.
-        """
-        self.assertRaises(
-            self.failureException, self.successResultOf, fail(self.failure))
-
-
-    def test_successResultOfWithFailureHasTraceback(self):
-        """
-        L{SynchronousTestCase.successResultOf} raises a
-        L{SynchronousTestCase.failureException} that has the original failure
-        traceback when called with a L{Deferred} with a failure result.
-        """
-        try:
-            self.successResultOf(fail(self.failure))
-        except self.failureException as e:
-            self.assertIn(self.failure.getTraceback(), str(e))
-
-
-    def test_withoutFailureResult(self):
-        """
-        L{SynchronousTestCase.failureResultOf} raises
-        L{SynchronousTestCase.failureException} when called with a L{Deferred}
-        with no current result.
-        """
-        self.assertRaises(
-            self.failureException, self.failureResultOf, Deferred())
-
-
-    def test_failureResultOfWithSuccess(self):
-        """
-        L{SynchronousTestCase.failureResultOf} raises
-        L{SynchronousTestCase.failureException} when called with a L{Deferred}
-        with a success result.
-        """
-        self.assertRaises(
-            self.failureException, self.failureResultOf, succeed(self.result))
-
-    def test_failureResultOfWithWrongFailure(self):
-        """
-        L{SynchronousTestCase.failureResultOf} raises
-        L{SynchronousTestCase.failureException} when called with a L{Deferred}
-        with a failure type that was not expected.
-        """
-        self.assertRaises(
-            self.failureException, self.failureResultOf, fail(self.failure),
-            KeyError)
-
-
-    def test_failureResultOfWithWrongFailureOneExpectedFailure(self):
-        """
-        L{SynchronousTestCase.failureResultOf} raises
-        L{SynchronousTestCase.failureException} when called with a L{Deferred}
-        with a failure type that was not expected, and the
-        L{SynchronousTestCase.failureException} message contains the original
-        failure traceback as well as the expected failure type
-        """
-        try:
-            self.failureResultOf(fail(self.failure), KeyError)
-        except self.failureException as e:
-            self.assertIn(self.failure.getTraceback(), str(e))
-            self.assertIn(
-                "Failure of type ({0}.{1}) expected on".format(
-                    KeyError.__module__, KeyError.__name__),
-                str(e))
-
-
-    def test_failureResultOfWithWrongFailureMultiExpectedFailure(self):
-        """
-        L{SynchronousTestCase.failureResultOf} raises
-        L{SynchronousTestCase.failureException} when called with a L{Deferred}
-        with a failure type that was not expected, and the
-        L{SynchronousTestCase.failureException} message contains the original
-        failure traceback as well as the expected failure types in the error
-        message
-        """
-        try:
-            self.failureResultOf(fail(self.failure), KeyError, IOError)
-        except self.failureException as e:
-            self.assertIn(self.failure.getTraceback(), str(e))
-            self.assertIn(
-                "Failure of type ({0}.{1} or {2}.{3}) expected on".format(
-                    KeyError.__module__, KeyError.__name__,
-                    IOError.__module__, IOError.__name__),
-                str(e))
-
-
-    def test_withSuccessResult(self):
-        """
-        When passed a L{Deferred} which currently has a result (ie,
-        L{Deferred.addCallback} would cause the added callback to be called
-        before C{addCallback} returns), L{SynchronousTestCase.successResultOf}
-        returns that result.
-        """
-        self.assertIdentical(
-            self.result, self.successResultOf(succeed(self.result)))
-
-
-    def test_withExpectedFailureResult(self):
-        """
-        When passed a L{Deferred} which currently has a L{Failure} result (ie,
-        L{Deferred.addErrback} would cause the added errback to be called
-        before C{addErrback} returns), L{SynchronousTestCase.failureResultOf}
-        returns that L{Failure} if that L{Failure}'s type is expected.
-        """
-        self.assertIdentical(
-            self.failure,
-            self.failureResultOf(fail(self.failure), self.failure.type,
-                                 KeyError))
-
-
-    def test_withFailureResult(self):
-        """
-        When passed a L{Deferred} which currently has a L{Failure} result
-        (ie, L{Deferred.addErrback} would cause the added errback to be called
-        before C{addErrback} returns), L{SynchronousTestCase.failureResultOf}
-        returns that L{Failure}.
-        """
-        self.assertIdentical(
-            self.failure, self.failureResultOf(fail(self.failure)))
-
-
-    def test_assertNoResultSuccess(self):
-        """
-        When passed a L{Deferred} which currently has a success result (see
-        L{test_withSuccessResult}), L{SynchronousTestCase.assertNoResult} raises
-        L{SynchronousTestCase.failureException}.
-        """
-        self.assertRaises(
-            self.failureException, self.assertNoResult, succeed(self.result))
-
-
-    def test_assertNoResultFailure(self):
-        """
-        When passed a L{Deferred} which currently has a failure result (see
-        L{test_withFailureResult}), L{SynchronousTestCase.assertNoResult} raises
-        L{SynchronousTestCase.failureException}.
-        """
-        self.assertRaises(
-            self.failureException, self.assertNoResult, fail(self.failure))
-
-
-    def test_assertNoResult(self):
-        """
-        When passed a L{Deferred} with no current result,
-        """
-        self.assertNoResult(Deferred())
-
-
-    def test_assertNoResultPropagatesSuccess(self):
-        """
-        When passed a L{Deferred} with no current result, which is then
-        fired with a success result, L{SynchronousTestCase.assertNoResult}
-        doesn't modify the result of the L{Deferred}.
-        """
-        d = Deferred()
-        self.assertNoResult(d)
-        d.callback(self.result)
-        self.assertEqual(self.result, self.successResultOf(d))
-
-
-    def test_assertNoResultPropagatesLaterFailure(self):
-        """
-        When passed a L{Deferred} with no current result, which is then
-        fired with a L{Failure} result, L{SynchronousTestCase.assertNoResult}
-        doesn't modify the result of the L{Deferred}.
-        """
-        d = Deferred()
-        self.assertNoResult(d)
-        d.errback(self.failure)
-        self.assertEqual(self.failure, self.failureResultOf(d))
-
-
-    def test_assertNoResultSwallowsImmediateFailure(self):
-        """
-        When passed a L{Deferred} which currently has a L{Failure} result,
-        L{SynchronousTestCase.assertNoResult} changes the result of the
-        L{Deferred} to a success.
-        """
-        d = fail(self.failure)
-        try:
-            self.assertNoResult(d)
-        except self.failureException:
-            pass
-        self.assertEqual(None, self.successResultOf(d))
-
-
-
 class TestAssertionNames(unittest.SynchronousTestCase):
     """
     Tests for consistency of naming within TestCase assertion methods
     """
     def _getAsserts(self):
         dct = {}
-        accumulateMethods(self, dct, 'assert')
+        reflect.accumulateMethods(self, dct, 'assert')
         return [ dct[k] for k in dct if not k.startswith('Not') and k != '_' ]
 
     def _name(self, x):
@@ -1076,14 +882,14 @@ class TestAssertionNames(unittest.SynchronousTestCase):
         corresponding I{failUnless}-prefixed methods.
         """
         asserts = set(self._getAsserts())
-        failUnlesses = set(prefixedMethods(self, 'failUnless'))
+        failUnlesses = set(reflect.prefixedMethods(self, 'failUnless'))
         self.assertEqual(
             failUnlesses, asserts.intersection(failUnlesses))
 
 
     def test_failIf_matches_assertNot(self):
-        asserts = prefixedMethods(unittest.SynchronousTestCase, 'assertNot')
-        failIfs = prefixedMethods(unittest.SynchronousTestCase, 'failIf')
+        asserts = reflect.prefixedMethods(unittest.SynchronousTestCase, 'assertNot')
+        failIfs = reflect.prefixedMethods(unittest.SynchronousTestCase, 'failIf')
         self.assertEqual(sorted(asserts, key=self._name),
                              sorted(failIfs, key=self._name))
 

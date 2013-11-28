@@ -2,14 +2,17 @@
 # Copyright (c) Twisted Matrix Laboratories.
 # See LICENSE for details.
 
+
 """
-A module to provide some very basic threading primitives, such as
-synchronization.
+A module that will allow your program to be multi-threaded,
+micro-threaded, and single-threaded.  Currently microthreads are
+unimplemented.  The idea is to abstract away some commonly used
+functionality so that I don't have to special-case it in all programs.
 """
 
-from __future__ import division, absolute_import
 
-from functools import wraps
+
+from twisted.python import hook
 
 class DummyLock(object):
     """
@@ -19,8 +22,6 @@ class DummyLock(object):
     def __reduce__(self):
         return (unpickle_lock, ())
 
-
-
 def unpickle_lock():
     if threadingmodule is not None:
         return XLock()
@@ -28,9 +29,7 @@ def unpickle_lock():
         return DummyLock()
 unpickle_lock.__safe_for_unpickling__ = True
 
-
-
-def _synchPre(self):
+def _synchPre(self, *a, **b):
     if '_threadable_lock' not in self.__dict__:
         _synchLockCreator.acquire()
         if '_threadable_lock' not in self.__dict__:
@@ -38,40 +37,21 @@ def _synchPre(self):
         _synchLockCreator.release()
     self._threadable_lock.acquire()
 
-
-
-def _synchPost(self):
+def _synchPost(self, *a, **b):
     self._threadable_lock.release()
 
-
-
-def _sync(klass, function):
-    @wraps(function)
-    def sync(self, *args, **kwargs):
-        _synchPre(self)
-        try:
-            return function(self, *args, **kwargs)
-        finally:
-            _synchPost(self)
-    return sync
-
-
-
 def synchronize(*klasses):
-    """
-    Make all methods listed in each class' synchronized attribute synchronized.
+    """Make all methods listed in each class' synchronized attribute synchronized.
 
     The synchronized attribute should be a list of strings, consisting of the
     names of methods that must be synchronized. If we are running in threaded
     mode these methods will be wrapped with a lock.
     """
-    if threadingmodule is not None:
+    if threadmodule is not None:
         for klass in klasses:
             for methodName in klass.synchronized:
-                sync = _sync(klass, klass.__dict__[methodName])
-                setattr(klass, methodName, sync)
-
-
+                hook.addPre(klass, methodName, _synchPre)
+                hook.addPost(klass, methodName, _synchPost)
 
 def init(with_threads=1):
     """Initialize threading.
@@ -82,7 +62,7 @@ def init(with_threads=1):
 
     if with_threads:
         if not threaded:
-            if threadingmodule is not None:
+            if threadmodule is not None:
                 threaded = True
 
                 class XLock(threadingmodule._RLock, object):
@@ -98,14 +78,11 @@ def init(with_threads=1):
         else:
             pass
 
-
-
 _dummyID = object()
 def getThreadID():
-    if threadingmodule is None:
+    if threadmodule is None:
         return _dummyID
-    return threadingmodule.currentThread().ident
-
+    return threadmodule.get_ident()
 
 
 def isInIOThread():
@@ -128,8 +105,10 @@ threaded = False
 
 
 try:
+    import thread as threadmodule
     import threading as threadingmodule
 except ImportError:
+    threadmodule = None
     threadingmodule = None
 else:
     init(True)

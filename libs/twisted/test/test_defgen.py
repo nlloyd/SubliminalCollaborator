@@ -5,8 +5,6 @@
 Tests for L{twisted.internet.defer.deferredGenerator} and related APIs.
 """
 
-from __future__ import division, absolute_import
-
 import sys
 
 from twisted.internet import reactor
@@ -14,9 +12,7 @@ from twisted.internet import reactor
 from twisted.trial import unittest
 
 from twisted.internet.defer import waitForDeferred, deferredGenerator, Deferred
-from twisted.internet.defer import inlineCallbacks, returnValue
 from twisted.internet import defer
-
 
 def getThing():
     d = Deferred()
@@ -116,7 +112,7 @@ class DeferredGeneratorTests(BaseDefgenTests, unittest.TestCase):
         yield ow
         try:
             ow.getResult()
-        except ZeroDivisionError as e:
+        except ZeroDivisionError, e:
             self.assertEqual(str(e), 'OMG')
         yield "WOOSH"
         return
@@ -184,6 +180,11 @@ class DeferredGeneratorTests(BaseDefgenTests, unittest.TestCase):
 
 
 
+## This has to be in a string so the new yield syntax doesn't cause a
+## syntax error in Python 2.4 and before.
+inlineCallbacksTestsSource = '''
+from twisted.internet.defer import inlineCallbacks, returnValue
+
 class InlineCallbacksTests(BaseDefgenTests, unittest.TestCase):
     # First provide all the generator impls necessary for BaseDefgenTests
 
@@ -195,7 +196,7 @@ class InlineCallbacksTests(BaseDefgenTests, unittest.TestCase):
 
         try:
             ow = yield getOwie()
-        except ZeroDivisionError as e:
+        except ZeroDivisionError, e:
             self.assertEqual(str(e), 'OMG')
         returnValue("WOOSH")
     _genBasics = inlineCallbacks(_genBasics)
@@ -299,3 +300,15 @@ class InlineCallbacksTests(BaseDefgenTests, unittest.TestCase):
 
         self.assertIn("inlineCallbacks",
             str(self.assertRaises(TypeError, _noYield)))
+
+'''
+
+if sys.version_info > (2, 5):
+    # Load tests
+    exec inlineCallbacksTestsSource
+else:
+    # Make a placeholder test case
+    class InlineCallbacksTests(unittest.TestCase):
+        skip = "defer.defgen doesn't run on python < 2.5."
+        def test_everything(self):
+            pass

@@ -18,35 +18,6 @@ from twisted.python.filepath import FilePath
 from twisted.python.test.test_shellcomp import ZshScriptTestMixin
 
 
-
-def outputFromPythonScript(script, *args):
-    """
-    Synchronously run a Python script, with the same Python interpreter that
-    ran the process calling this function, using L{Popen}, using the given
-    command-line arguments, with standard input and standard error both
-    redirected to L{os.devnull}, and return its output as a string.
-
-    @param script: The path to the script.
-    @type script: L{FilePath}
-
-    @param args: The command-line arguments to follow the script in its
-        invocation (the desired C{sys.argv[1:]}).
-    @type args: L{tuple} of L{str}
-
-    @return: the output passed to the proces's C{stdout}, without any messages
-        from C{stderr}.
-    @rtype: L{bytes}
-    """
-    nullInput = file(devnull, "rb")
-    nullError = file(devnull, "wb")
-    stdout = Popen([executable, script.path] + list(args),
-                   stdout=PIPE, stderr=nullError, stdin=nullInput).stdout.read()
-    nullInput.close()
-    nullError.close()
-    return stdout
-
-
-
 class ScriptTestsMixin:
     """
     Mixin for L{TestCase} subclasses which defines a helper function for testing
@@ -76,7 +47,9 @@ class ScriptTestsMixin:
                 "Script tests do not apply to installed configuration.")
 
         from twisted.copyright import version
-        scriptVersion = outputFromPythonScript(script, '--version')
+        scriptVersion = Popen(
+            [executable, script.path, '--version'],
+            stdout=PIPE, stderr=file(devnull)).stdout.read()
 
         self.assertIn(str(version), scriptVersion)
 
@@ -107,7 +80,9 @@ class ScriptTests(TestCase, ScriptTestsMixin):
         testDir.child("bar.tac").setContent(
             "import sys\n"
             "print sys.path\n")
-        output = outputFromPythonScript(script, '-ny', 'bar.tac')
+        output = Popen(
+            [executable, script.path, '-ny', 'bar.tac'],
+            stdout=PIPE, stderr=file(devnull)).stdout.read()
         self.assertIn(repr(testDir.path), output)
 
 
@@ -134,7 +109,9 @@ class ScriptTests(TestCase, ScriptTestsMixin):
         testDir.makedirs()
         chdir(testDir.path)
         testDir.child("foo.py").setContent("")
-        output = outputFromPythonScript(script, 'foo')
+        output = Popen(
+            [executable, script.path, 'foo'],
+            stdout=PIPE, stderr=file(devnull)).stdout.read()
         self.assertIn("PASSED", output)
 
 

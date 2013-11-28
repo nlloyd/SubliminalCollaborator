@@ -9,23 +9,19 @@ __metaclass__ = type
 
 import os, sys, signal, threading
 
-from twisted.trial.unittest import TestCase
+from twisted.trial.unittest import TestCase, SkipTest
 from twisted.internet.test.reactormixins import ReactorBuilder
+from twisted.python.compat import set
 from twisted.python.log import msg, err
-from twisted.python.runtime import platform, platformType
+from twisted.python.runtime import platform
 from twisted.python.filepath import FilePath
 from twisted.internet import utils
 from twisted.internet.interfaces import IReactorProcess, IProcessTransport
 from twisted.internet.defer import Deferred, succeed
 from twisted.internet.protocol import ProcessProtocol
 from twisted.internet.error import ProcessDone, ProcessTerminated
+from twisted.internet import _signals
 
-_uidgidSkip = None
-if platform.isWindows():
-    _uidgidSkip = "Cannot change UID/GID on Windows"
-else:
-    if os.getuid() != 0:
-        _uidgidSkip = "Cannot change UID/GID except as root"
 
 
 class _ShutdownCallbackProcessProtocol(ProcessProtocol):
@@ -309,11 +305,25 @@ class ProcessTestsBuilderBase(ReactorBuilder):
         sometimes fail with EINTR.
         """
         reactor = self.buildReactor()
+
+        # XXX Since pygobject/pygtk wants to use signal.set_wakeup_fd,
+        # we aren't actually providing this functionality on the glib2
+        # or gtk2 reactors yet.  See #4286 for the possibility of
+        # improving this.
+        skippedReactors = ["Glib2Reactor", "Gtk2Reactor", "PortableGtkReactor"]
+        hasSigInterrupt = getattr(signal, "siginterrupt", None) is not None
+        reactorClassName = reactor.__class__.__name__
+        if reactorClassName in skippedReactors and not hasSigInterrupt:
+            raise SkipTest(
+                "%s is not supported without siginterrupt" % reactorClassName)
+        if _signals.installHandler.__name__  == "_installHandlerUsingSignal":
+            raise SkipTest("_signals._installHandlerUsingSignal doesn't support this feature")
+
         result = []
 
         def f():
             try:
-                os.popen('%s -c "import time; time.sleep(0.1)"' %
+                f1 = os.popen('%s -c "import time; time.sleep(0.1)"' %
                     (sys.executable,))
                 f2 = os.popen('%s -c "import time; time.sleep(0.5); print \'Foo\'"' %
                     (sys.executable,))
@@ -335,6 +345,10 @@ class ProcessTestsBuilderBase(ReactorBuilder):
         (file descriptor 3 is also reported as open, because of the call to
         'os.listdir()').
         """
+        from twisted.python.runtime import platformType
+        if platformType != "posix":
+            raise SkipTest("Test only applies to POSIX platforms")
+
         here = FilePath(__file__)
         top = here.parent().parent().parent().parent()
         source = (
@@ -369,9 +383,6 @@ class ProcessTestsBuilderBase(ReactorBuilder):
             usePTY=self.usePTY)
         self.runReactor(reactor)
 
-    if platformType != "posix":
-        test_openFileDescriptors.skip = "Test only applies to POSIX platforms"
-
 
     def test_timelyProcessExited(self):
         """
@@ -397,59 +408,6 @@ class ProcessTestsBuilderBase(ReactorBuilder):
         # This will timeout if processExited isn't called:
         self.runReactor(reactor, timeout=30)
         self.assertEqual(protocol.exited, True)
-
-
-    def _changeIDTest(self, which):
-        """
-        Launch a child process, using either the C{uid} or C{gid} argument to
-        L{IReactorProcess.spawnProcess} to change either its UID or GID to a
-        different value.  If the child process reports this hasn't happened,
-        raise an exception to fail the test.
-
-        @param which: Either C{b"uid"} or C{b"gid"}.
-        """
-        program = [
-            b"import os",
-            b"raise SystemExit(os.get%s() != 1)" % (which,)]
-
-        container = []
-        class CaptureExitStatus(ProcessProtocol):
-            def childDataReceived(self, fd, bytes):
-                print fd, bytes
-            def processEnded(self, reason):
-                container.append(reason)
-                reactor.stop()
-
-        reactor = self.buildReactor()
-        protocol = CaptureExitStatus()
-        reactor.callWhenRunning(
-            reactor.spawnProcess, protocol, sys.executable,
-            [sys.executable, b"-c", b"\n".join(program)],
-            **{which: 1})
-
-        self.runReactor(reactor)
-
-        self.assertEqual(0, container[0].value.exitCode)
-
-
-    def test_changeUID(self):
-        """
-        If a value is passed for L{IReactorProcess.spawnProcess}'s C{uid}, the
-        child process is run with that UID.
-        """
-        self._changeIDTest(b"uid")
-    if _uidgidSkip is not None:
-        test_changeUID.skip = _uidgidSkip
-
-
-    def test_changeGID(self):
-        """
-        If a value is passed for L{IReactorProcess.spawnProcess}'s C{gid}, the
-        child process is run with that GID.
-        """
-        self._changeIDTest(b"gid")
-    if _uidgidSkip is not None:
-        test_changeGID.skip = _uidgidSkip
 
 
 

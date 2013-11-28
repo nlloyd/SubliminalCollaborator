@@ -7,18 +7,18 @@ Standard implementations of Twisted protocol-related interfaces.
 
 Start here if you are looking to write a new protocol implementation for
 Twisted.  The Protocol class contains some introductory material.
+
+Maintainer: Itamar Shtull-Trauring
 """
 
-from __future__ import division, absolute_import
-
 import random
-from zope.interface import implementer
+from zope.interface import implements
 
+# Twisted Imports
 from twisted.python import log, failure, components
 from twisted.internet import interfaces, error, defer
 
 
-@implementer(interfaces.IProtocolFactory, interfaces.ILoggingContext)
 class Factory:
     """
     This is a factory which produces protocols.
@@ -27,32 +27,13 @@ class Factory:
     self.protocol.
     """
 
+    implements(interfaces.IProtocolFactory, interfaces.ILoggingContext)
+
     # put a subclass of Protocol here:
     protocol = None
 
     numPorts = 0
     noisy = True
-
-    @classmethod
-    def forProtocol(cls, protocol, *args, **kwargs):
-        """
-        Create a factory for the given protocol.
-
-        It sets the C{protocol} attribute and returns the constructed factory
-        instance.
-
-        @param protocol: A L{Protocol} subclass
-
-        @param args: Positional arguments for the factory.
-
-        @param kwargs: Keyword arguments for the factory.
-
-        @return: A L{Factory} instance wired up to C{protocol}.
-        """
-        factory = cls(*args, **kwargs)
-        factory.protocol = protocol
-        return factory
-
 
     def logPrefix(self):
         """
@@ -495,7 +476,6 @@ connectionDone=failure.Failure(error.ConnectionDone())
 connectionDone.cleanFailure()
 
 
-@implementer(interfaces.IProtocol, interfaces.ILoggingContext)
 class Protocol(BaseProtocol):
     """
     This is the base class for streaming connection-oriented protocols.
@@ -513,6 +493,7 @@ class Protocol(BaseProtocol):
     Some subclasses exist already to help you write common types of protocols:
     see the L{twisted.protocols.basic} module for a few of them.
     """
+    implements(interfaces.IProtocol, interfaces.ILoggingContext)
 
     def logPrefix(self):
         """
@@ -546,8 +527,8 @@ class Protocol(BaseProtocol):
         """
 
 
-@implementer(interfaces.IConsumer)
 class ProtocolToConsumerAdapter(components.Adapter):
+    implements(interfaces.IConsumer)
 
     def write(self, data):
         self.original.dataReceived(data)
@@ -561,8 +542,8 @@ class ProtocolToConsumerAdapter(components.Adapter):
 components.registerAdapter(ProtocolToConsumerAdapter, interfaces.IProtocol,
                            interfaces.IConsumer)
 
-@implementer(interfaces.IProtocol)
 class ConsumerToProtocolAdapter(components.Adapter):
+    implements(interfaces.IProtocol)
 
     def dataReceived(self, data):
         self.original.write(data)
@@ -579,12 +560,12 @@ class ConsumerToProtocolAdapter(components.Adapter):
 components.registerAdapter(ConsumerToProtocolAdapter, interfaces.IConsumer,
                            interfaces.IProtocol)
 
-@implementer(interfaces.IProcessProtocol)
 class ProcessProtocol(BaseProtocol):
     """
     Base process protocol implementation which does simple dispatching for
     stdin, stdout, and stderr file descriptors.
     """
+    implements(interfaces.IProcessProtocol)
 
     def childDataReceived(self, childFD, data):
         if childFD == 1:
@@ -718,7 +699,6 @@ class AbstractDatagramProtocol:
         """
 
 
-@implementer(interfaces.ILoggingContext)
 class DatagramProtocol(AbstractDatagramProtocol):
     """
     Protocol for datagram-oriented transport, e.g. UDP.
@@ -728,6 +708,7 @@ class DatagramProtocol(AbstractDatagramProtocol):
     @ivar transport: The transport with which this protocol is associated,
         if it is associated with one.
     """
+    implements(interfaces.ILoggingContext)
 
     def logPrefix(self):
         """
@@ -765,13 +746,14 @@ class ConnectedDatagramProtocol(DatagramProtocol):
 
 
 
-@implementer(interfaces.ITransport)
 class FileWrapper:
     """A wrapper around a file-like object to make it behave as a Transport.
 
     This doesn't actually stream the file to the attached protocol,
     and is thus useful mainly as a utility for debugging protocols.
     """
+
+    implements(interfaces.ITransport)
 
     closed = 0
     disconnecting = 0

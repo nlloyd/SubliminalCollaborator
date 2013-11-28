@@ -6,11 +6,14 @@
 """I hold HTML generation helpers.
 """
 
-from cgi import escape
-
 from twisted.python import log
-from twisted.python.compat import NativeStringIO as StringIO
+#t.w imports
+from twisted.web import resource
 
+import traceback, string
+
+from cStringIO import StringIO
+from microdom import escape
 
 def PRE(text):
     "Wrap <pre> tags around some text and HTML-escape it."

@@ -44,7 +44,6 @@ See also L{Version}.
     to use when one is not provided by the user.
 """
 
-from __future__ import division, absolute_import
 
 __all__ = [
     'deprecated',
@@ -58,11 +57,14 @@ __all__ = [
 import sys, inspect
 from warnings import warn, warn_explicit
 from dis import findlinestarts
-from functools import wraps
 
 from twisted.python.versions import getVersionString
+from twisted.python.util import mergeFunctionMetadata
+
+
 
 DEPRECATION_WARNING_FORMAT = '%(fqpn)s was deprecated in %(version)s'
+
 
 # Notionally, part of twisted.python.reflect, but defining it there causes a
 # cyclic dependency between this module and that module.  Define it here,
@@ -75,44 +77,37 @@ def _fullyQualifiedName(obj):
 
     @rtype: C{str}.
     """
-    try:
-        name = obj.__qualname__
-    except AttributeError:
-        name = obj.__name__
-
+    name = obj.__name__
     if inspect.isclass(obj) or inspect.isfunction(obj):
         moduleName = obj.__module__
         return "%s.%s" % (moduleName, name)
     elif inspect.ismethod(obj):
-        try:
-            cls = obj.im_class
-        except AttributeError:
-            # Python 3 eliminates im_class, substitutes __module__ and
-            # __qualname__ to provide similar information.
-            return "%s.%s" % (obj.__module__, obj.__qualname__)
-        else:
-            className = _fullyQualifiedName(cls)
-            return "%s.%s" % (className, name)
+        className = _fullyQualifiedName(obj.im_class)
+        return "%s.%s" % (className, name)
     return name
 # Try to keep it looking like something in twisted.python.reflect.
 _fullyQualifiedName.__module__ = 'twisted.python.reflect'
 _fullyQualifiedName.__name__ = 'fullyQualifiedName'
-_fullyQualifiedName.__qualname__ = 'fullyQualifiedName'
 
 
-def _getReplacementString(replacement):
+
+def getWarningMethod():
     """
-    Surround a replacement for a deprecated API with some polite text exhorting
-    the user to consider it as an alternative.
-
-    @type replacement: C{str} or callable
-
-    @return: a string like "please use twisted.python.modules.getModule
-        instead".
+    Return the warning method currently used to record deprecation warnings.
     """
-    if callable(replacement):
-        replacement = _fullyQualifiedName(replacement)
-    return "please use %s instead" % (replacement,)
+    return warn
+
+
+
+def setWarningMethod(newMethod):
+    """
+    Set the warning method to use to record deprecation warnings.
+
+    The callable should take message, category and stacklevel. The return
+    value is ignored.
+    """
+    global warn
+    warn = newMethod
 
 
 
@@ -134,6 +129,22 @@ def _getDeprecationDocstring(version, replacement=None):
     if replacement:
         doc = "%s; %s" % (doc, _getReplacementString(replacement))
     return doc + "."
+
+
+
+def _getReplacementString(replacement):
+    """
+    Surround a replacement for a deprecated API with some polite text exhorting
+    the user to consider it as an alternative.
+
+    @type replacement: C{str} or callable
+
+    @return: a string like "please use twisted.python.modules.getModule
+        instead".
+    """
+    if callable(replacement):
+        replacement = _fullyQualifiedName(replacement)
+    return "please use %s instead" % (replacement,)
 
 
 
@@ -210,33 +221,6 @@ def getDeprecationWarningString(callableThing, version, format=None,
 
 
 
-def _appendToDocstring(thingWithDoc, textToAppend):
-    """
-    Append the given text to the docstring of C{thingWithDoc}.
-
-    If C{thingWithDoc} has no docstring, then the text just replaces the
-    docstring. If it has a single-line docstring then it appends a blank line
-    and the message text. If it has a multi-line docstring, then in appends a
-    blank line a the message text, and also does the indentation correctly.
-    """
-    if thingWithDoc.__doc__:
-        docstringLines = thingWithDoc.__doc__.splitlines()
-    else:
-        docstringLines = []
-
-    if len(docstringLines) == 0:
-        docstringLines.append(textToAppend)
-    elif len(docstringLines) == 1:
-        docstringLines.extend(['', textToAppend, ''])
-    else:
-        spaces = docstringLines.pop()
-        docstringLines.extend(['',
-                               spaces + textToAppend,
-                               spaces])
-    thingWithDoc.__doc__ = '\n'.join(docstringLines)
-
-
-
 def deprecated(version, replacement=None):
     """
     Return a decorator that marks callables as deprecated.
@@ -262,7 +246,6 @@ def deprecated(version, replacement=None):
         warningString = getDeprecationWarningString(
             function, version, None, replacement)
 
-        @wraps(function)
         def deprecatedFunction(*args, **kwargs):
             warn(
                 warningString,
@@ -270,6 +253,8 @@ def deprecated(version, replacement=None):
                 stacklevel=2)
             return function(*args, **kwargs)
 
+        deprecatedFunction = mergeFunctionMetadata(
+            function, deprecatedFunction)
         _appendToDocstring(deprecatedFunction,
                            _getDeprecationDocstring(version, replacement))
         deprecatedFunction.deprecatedVersion = version
@@ -279,23 +264,30 @@ def deprecated(version, replacement=None):
 
 
 
-def getWarningMethod():
+def _appendToDocstring(thingWithDoc, textToAppend):
     """
-    Return the warning method currently used to record deprecation warnings.
+    Append the given text to the docstring of C{thingWithDoc}.
+
+    If C{thingWithDoc} has no docstring, then the text just replaces the
+    docstring. If it has a single-line docstring then it appends a blank line
+    and the message text. If it has a multi-line docstring, then in appends a
+    blank line a the message text, and also does the indentation correctly.
     """
-    return warn
+    if thingWithDoc.__doc__:
+        docstringLines = thingWithDoc.__doc__.splitlines()
+    else:
+        docstringLines = []
 
-
-
-def setWarningMethod(newMethod):
-    """
-    Set the warning method to use to record deprecation warnings.
-
-    The callable should take message, category and stacklevel. The return
-    value is ignored.
-    """
-    global warn
-    warn = newMethod
+    if len(docstringLines) == 0:
+        docstringLines.append(textToAppend)
+    elif len(docstringLines) == 1:
+        docstringLines.extend(['', textToAppend, ''])
+    else:
+        spaces = docstringLines.pop()
+        docstringLines.extend(['',
+                               spaces + textToAppend,
+                               spaces])
+    thingWithDoc.__doc__ = '\n'.join(docstringLines)
 
 
 
@@ -524,9 +516,9 @@ def warnAboutFunction(offender, warningString):
     # broken in Python < 2.6.  See Python bug 4845.
     offenderModule = sys.modules[offender.__module__]
     filename = inspect.getabsfile(offenderModule)
-    lineStarts = list(findlinestarts(offender.__code__))
+    lineStarts = list(findlinestarts(offender.func_code))
     lastLineNo = lineStarts[-1][1]
-    globals = offender.__globals__
+    globals = offender.func_globals
 
     kwargs = dict(
         category=DeprecationWarning,
@@ -535,5 +527,8 @@ def warnAboutFunction(offender, warningString):
         module=offenderModule.__name__,
         registry=globals.setdefault("__warningregistry__", {}),
         module_globals=None)
+
+    if sys.version_info[:2] < (2, 5):
+        kwargs.pop('module_globals')
 
     warn_explicit(warningString, **kwargs)

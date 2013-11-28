@@ -6,25 +6,18 @@
 Tests for L{twisted.trial.util}
 """
 
-from __future__ import division, absolute_import
+import os
 
-import os, sys
+from zope.interface import implements
 
-from zope.interface import implementer
-
-from twisted.python.compat import _PY3, NativeStringIO
-from twisted.python import filepath
 from twisted.internet.interfaces import IProcessTransport
 from twisted.internet import defer
 from twisted.internet.base import DelayedCall
-from twisted.python.failure import Failure
 
-from twisted.trial.unittest import SynchronousTestCase
+from twisted.trial.unittest import SynchronousTestCase, TestCase
 from twisted.trial import util
-from twisted.trial.util import (
-    DirtyReactorAggregateError, _Janitor, excInfoOrFailureToExcInfo,
-    acquireAttribute)
-from twisted.trial.test import suppression
+from twisted.trial.util import DirtyReactorAggregateError, _Janitor
+from twisted.trial.test import packages, suppression
 
 
 
@@ -82,21 +75,66 @@ class TestIntrospection(SynchronousTestCase):
         expected = [suppression.SynchronousTestSuppression2, suppression]
         for a, b in zip(parents, expected):
             self.assertEqual(a, b)
-        # Also, the function is deprecated.
-        warnings = self.flushWarnings([self.test_containers])
-        self.assertEqual(DeprecationWarning, warnings[0]['category'])
-        self.assertEqual(
-            "twisted.trial.util.getPythonContainers was deprecated in "
-            "Twisted 12.3.0: This function never worked correctly.  "
-            "Implement lookup on your own.",
-            warnings[0]['message'])
-        self.assertEqual(1, len(warnings))
-    if _PY3:
-        test_containers.skip = "getPythonContainers is unsupported on Python 3."
 
 
 
-class TestRunSequentially(SynchronousTestCase):
+class TestFindObject(packages.SysPathManglingTest):
+    """
+    Tests for L{twisted.trial.util.findObject}
+    """
+
+    def test_deprecation(self):
+        """
+        Calling L{findObject} results in a deprecation warning
+        """
+        util.findObject('')
+        warningsShown = self.flushWarnings()
+        self.assertEqual(len(warningsShown), 1)
+        self.assertIdentical(warningsShown[0]['category'], DeprecationWarning)
+        self.assertEqual(warningsShown[0]['message'],
+                          "twisted.trial.util.findObject was deprecated "
+                          "in Twisted 10.1.0: Please use "
+                          "twisted.python.reflect.namedAny instead.")
+
+
+    def test_importPackage(self):
+        package1 = util.findObject('package')
+        import package as package2
+        self.assertEqual(package1, (True, package2))
+
+    def test_importModule(self):
+        test_sample2 = util.findObject('goodpackage.test_sample')
+        from goodpackage import test_sample
+        self.assertEqual((True, test_sample), test_sample2)
+
+    def test_importError(self):
+        self.failUnlessRaises(ZeroDivisionError,
+                              util.findObject, 'package.test_bad_module')
+
+    def test_sophisticatedImportError(self):
+        self.failUnlessRaises(ImportError,
+                              util.findObject, 'package2.test_module')
+
+    def test_importNonexistentPackage(self):
+        self.assertEqual(util.findObject('doesntexist')[0], False)
+
+    def test_findNonexistentModule(self):
+        self.assertEqual(util.findObject('package.doesntexist')[0], False)
+
+    def test_findNonexistentObject(self):
+        self.assertEqual(util.findObject(
+            'goodpackage.test_sample.doesnt')[0], False)
+        self.assertEqual(util.findObject(
+            'goodpackage.test_sample.AlphabetTest.doesntexist')[0], False)
+
+    def test_findObjectExist(self):
+        alpha1 = util.findObject('goodpackage.test_sample.AlphabetTest')
+        from goodpackage import test_sample
+        self.assertEqual(alpha1, (True, test_sample.AlphabetTest))
+
+
+
+class TestRunSequentially(TestCase):
     """
     Sometimes it is useful to be able to run an arbitrary list of callables,
     one after the other.
@@ -104,22 +142,14 @@ class TestRunSequentially(SynchronousTestCase):
     When some of those callables can return Deferreds, things become complex.
     """
 
-    def assertDeferredResult(self, deferred, assertFunction, *args, **kwargs):
-        """
-        Call the given assertion function against the current result of a
-        Deferred.
-        """
-        result = []
-        deferred.addCallback(result.append)
-        assertFunction(result[0], *args, **kwargs)
-
     def test_emptyList(self):
         """
         When asked to run an empty list of callables, runSequentially returns a
         successful Deferred that fires an empty list.
         """
         d = util._runSequentially([])
-        self.assertDeferredResult(d, self.assertEqual, [])
+        d.addCallback(self.assertEqual, [])
+        return d
 
 
     def test_singleSynchronousSuccess(self):
@@ -129,7 +159,8 @@ class TestRunSequentially(SynchronousTestCase):
         flag.
         """
         d = util._runSequentially([lambda: None])
-        self.assertDeferredResult(d, self.assertEqual, [(defer.SUCCESS, None)])
+        d.addCallback(self.assertEqual, [(defer.SUCCESS, None)])
+        return d
 
 
     def test_singleSynchronousFailure(self):
@@ -143,7 +174,7 @@ class TestRunSequentially(SynchronousTestCase):
             fail.trap(self.failureException)
             self.assertEqual(fail.getErrorMessage(), 'foo')
             self.assertEqual(flag, defer.FAILURE)
-        self.assertDeferredResult(d, check)
+        return d.addCallback(check)
 
 
     def test_singleAsynchronousSuccess(self):
@@ -152,7 +183,8 @@ class TestRunSequentially(SynchronousTestCase):
         result of the Deferred in the results list, tagged with a SUCCESS flag.
         """
         d = util._runSequentially([lambda: defer.succeed(None)])
-        self.assertDeferredResult(d, self.assertEqual, [(defer.SUCCESS, None)])
+        d.addCallback(self.assertEqual, [(defer.SUCCESS, None)])
+        return d
 
 
     def test_singleAsynchronousFailure(self):
@@ -166,7 +198,7 @@ class TestRunSequentially(SynchronousTestCase):
             fail.trap(ValueError)
             self.assertEqual(fail.getErrorMessage(), 'foo')
             self.assertEqual(flag, defer.FAILURE)
-        self.assertDeferredResult(d, check)
+        return d.addCallback(check)
 
 
     def test_callablesCalledInOrder(self):
@@ -183,14 +215,18 @@ class TestRunSequentially(SynchronousTestCase):
             deferreds.append(d)
             return d
 
-        util._runSequentially([lambda: append('foo'),
-                               lambda: append('bar')])
+        d = util._runSequentially([lambda: append('foo'),
+                                   lambda: append('bar')])
 
         # runSequentially should wait until the Deferred has fired before
         # running the second callable.
         self.assertEqual(log, ['foo'])
         deferreds[-1].callback(None)
         self.assertEqual(log, ['foo', 'bar'])
+
+        # Because returning created Deferreds makes jml happy.
+        deferreds[-1].callback(None)
+        return d
 
 
     def test_continuesAfterError(self):
@@ -206,7 +242,7 @@ class TestRunSequentially(SynchronousTestCase):
             self.assertEqual(fail.getErrorMessage(), 'foo')
             self.assertEqual(flag2, defer.SUCCESS)
             self.assertEqual(result, 'bar')
-        self.assertDeferredResult(d, check)
+        return d.addCallback(check)
 
 
     def test_stopOnFirstError(self):
@@ -221,7 +257,25 @@ class TestRunSequentially(SynchronousTestCase):
             fail.trap(self.failureException)
             self.assertEqual(flag1, defer.FAILURE)
             self.assertEqual(fail.getErrorMessage(), 'foo')
-        self.assertDeferredResult(d, check)
+        return d.addCallback(check)
+
+
+    def test_stripFlags(self):
+        """
+        If the C{stripFlags} option is passed to C{runSequentially} then the
+        SUCCESS / FAILURE flags are stripped from the output. Instead, the
+        Deferred fires a flat list of results containing only the results and
+        failures.
+        """
+        d = util._runSequentially([lambda: self.fail('foo'), lambda: 'bar'],
+                                  stripFlags=True)
+        def check(results):
+            [fail, result] = results
+            fail.trap(self.failureException)
+            self.assertEqual(fail.getErrorMessage(), 'foo')
+            self.assertEqual(result, 'bar')
+        return d.addCallback(check)
+    test_stripFlags.todo = "YAGNI"
 
 
 
@@ -407,12 +461,12 @@ class JanitorTests(SynchronousTestCase):
         """
         The Janitor will kill processes during reactor cleanup.
         """
-        @implementer(IProcessTransport)
         class StubProcessTransport(object):
             """
             A stub L{IProcessTransport} provider which records signals.
             @ivar signals: The signals passed to L{signalProcess}.
             """
+            implements(IProcessTransport)
 
             def __init__(self):
                 self.signals = []
@@ -528,156 +582,3 @@ class JanitorTests(SynchronousTestCase):
         self.assertEqual(reporter.errors[0][1].value.selectables,
                           [repr(selectable)])
 
-
-
-class RemoveSafelyTests(SynchronousTestCase):
-    """
-    Tests for L{util._removeSafely}.
-    """
-    def test_removeSafelyNoTrialMarker(self):
-        """
-        If a path doesn't contain a node named C{"_trial_marker"}, that path is
-        not removed by L{util._removeSafely} and a L{util._NoTrialMarker}
-        exception is raised instead.
-        """
-        directory = self.mktemp().encode("utf-8")
-        os.mkdir(directory)
-        dirPath = filepath.FilePath(directory)
-        self.assertRaises(util._NoTrialMarker, util._removeSafely, dirPath)
-
-
-    def test_removeSafelyRemoveFailsMoveSucceeds(self):
-        """
-        If an L{OSError} is raised while removing a path in
-        L{util._removeSafely}, an attempt is made to move the path to a new
-        name.
-        """
-        def dummyRemove():
-            """
-            Raise an C{OSError} to emulate the branch of L{util._removeSafely}
-            in which path removal fails.
-            """
-            raise OSError()
-
-        # Patch stdout so we can check the print statements in _removeSafely
-        out = NativeStringIO()
-        self.patch(sys, 'stdout', out)
-
-        # Set up a trial directory with a _trial_marker
-        directory = self.mktemp().encode("utf-8")
-        os.mkdir(directory)
-        dirPath = filepath.FilePath(directory)
-        dirPath.child(b'_trial_marker').touch()
-        # Ensure that path.remove() raises an OSError
-        dirPath.remove = dummyRemove
-
-        util._removeSafely(dirPath)
-        self.assertIn("could not remove FilePath", out.getvalue())
-
-
-    def test_removeSafelyRemoveFailsMoveFails(self):
-        """
-        If an L{OSError} is raised while removing a path in
-        L{util._removeSafely}, an attempt is made to move the path to a new
-        name. If that attempt fails, the L{OSError} is re-raised.
-        """
-        def dummyRemove():
-            """
-            Raise an C{OSError} to emulate the branch of L{util._removeSafely}
-            in which path removal fails.
-            """
-            raise OSError("path removal failed")
-
-        def dummyMoveTo(path):
-            """
-            Raise an C{OSError} to emulate the branch of L{util._removeSafely}
-            in which path movement fails.
-            """
-            raise OSError("path movement failed")
-
-        # Patch stdout so we can check the print statements in _removeSafely
-        out = NativeStringIO()
-        self.patch(sys, 'stdout', out)
-
-        # Set up a trial directory with a _trial_marker
-        directory = self.mktemp().encode("utf-8")
-        os.mkdir(directory)
-        dirPath = filepath.FilePath(directory)
-        dirPath.child(b'_trial_marker').touch()
-
-        # Ensure that path.remove() and path.moveTo() both raise OSErrors
-        dirPath.remove = dummyRemove
-        dirPath.moveTo = dummyMoveTo
-
-        error = self.assertRaises(OSError, util._removeSafely, dirPath)
-        self.assertEqual(str(error), "path movement failed")
-        self.assertIn("could not remove FilePath", out.getvalue())
-
-
-
-class ExcInfoTests(SynchronousTestCase):
-    """
-    Tests for L{excInfoOrFailureToExcInfo}.
-    """
-    def test_excInfo(self):
-        """
-        L{excInfoOrFailureToExcInfo} returns exactly what it is passed, if it is
-        passed a tuple like the one returned by L{sys.exc_info}.
-        """
-        info = (ValueError, ValueError("foo"), None)
-        self.assertTrue(info is excInfoOrFailureToExcInfo(info))
-
-
-    def test_failure(self):
-        """
-        When called with a L{Failure} instance, L{excInfoOrFailureToExcInfo}
-        returns a tuple like the one returned by L{sys.exc_info}, with the
-        elements taken from the type, value, and traceback of the failure.
-        """
-        try:
-            1 / 0
-        except:
-            f = Failure()
-        self.assertEqual((f.type, f.value, f.tb), excInfoOrFailureToExcInfo(f))
-
-
-
-class AcquireAttributeTests(SynchronousTestCase):
-    """
-    Tests for L{acquireAttribute}.
-    """
-    def test_foundOnEarlierObject(self):
-        """
-        The value returned by L{acquireAttribute} is the value of the requested
-        attribute on the first object in the list passed in which has that
-        attribute.
-        """
-        self.value = value = object()
-        self.assertTrue(value is acquireAttribute([self, object()], "value"))
-
-
-    def test_foundOnLaterObject(self):
-        """
-        The same as L{test_foundOnEarlierObject}, but for the case where the 2nd
-        element in the object list has the attribute and the first does not.
-        """
-        self.value = value = object()
-        self.assertTrue(value is acquireAttribute([object(), self], "value"))
-
-
-    def test_notFoundException(self):
-        """
-        If none of the objects passed in the list to L{acquireAttribute} have
-        the requested attribute, L{AttributeError} is raised.
-        """
-        self.assertRaises(AttributeError, acquireAttribute, [object()], "foo")
-
-
-    def test_notFoundDefault(self):
-        """
-        If none of the objects passed in the list to L{acquireAttribute} have
-        the requested attribute and a default value is given, the default value
-        is returned.
-        """
-        default = object()
-        self.assertTrue(default is acquireAttribute([object()], "foo", default))

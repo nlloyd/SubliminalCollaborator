@@ -6,24 +6,15 @@ Checker for common errors in Lore documents.
 """
 
 from xml.dom import minidom as dom
-import parser
-import urlparse
-import os.path
+import parser, urlparse, os.path
 
 from twisted.lore import tree, process
 from twisted.web import domhelpers
 from twisted.python import reflect
-from twisted.python.versions import Version
-from twisted.python.deprecate import deprecatedModuleAttribute
 
 
-parserErrors = (SyntaxError,)
-deprecatedModuleAttribute(
-    Version("Twisted", 13, 1, 0),
-    "parserErrors is deprecated",
-    __name__,
-    "parserErrors")
-
+# parser.suite in Python 2.3 raises SyntaxError, <2.3 raises parser.ParserError
+parserErrors = (SyntaxError, parser.ParserError)
 
 class TagChecker:
 
@@ -140,11 +131,11 @@ class DefaultTagChecker(TagChecker):
                     text = '\n'.join(lines) + '\n'
                     try:
                         parser.suite(text)
-                    except SyntaxError:
+                    except parserErrors, e:
                         # Pretend the "..." idiom is syntactically valid
                         text = text.replace("...","'...'")
                         parser.suite(text)
-                except SyntaxError as e:
+                except parserErrors, e:
                     self._reportError(filename, node,
                                       'invalid python code:' + str(e))
 

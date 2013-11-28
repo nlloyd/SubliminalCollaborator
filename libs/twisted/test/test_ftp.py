@@ -54,7 +54,6 @@ class Dummy(basic.LineReceiver):
         pass
 
 
-
 class _BufferingProtocol(protocol.Protocol):
     def connectionMade(self):
         self.buffer = ''
@@ -181,7 +180,6 @@ class FTPServerTestCase(unittest.TestCase):
             chainDeferred=d)
 
 
-
 class FTPAnonymousTestCase(FTPServerTestCase):
     """
     Simple tests for an FTP server with different anonymous username.
@@ -208,62 +206,41 @@ class FTPAnonymousTestCase(FTPServerTestCase):
 
 class BasicFTPServerTestCase(FTPServerTestCase):
     def testNotLoggedInReply(self):
+        """When not logged in, all commands other than USER and PASS should
+        get NOT_LOGGED_IN errors.
         """
-        When not logged in, most commands other than USER and PASS should
-        get NOT_LOGGED_IN errors, but some can be called before USER and PASS.
-        """
-        loginRequiredCommandList = ['CDUP', 'CWD', 'LIST', 'MODE', 'PASV',
-            'PWD', 'RETR', 'STRU', 'SYST', 'TYPE']
-        loginNotRequiredCommandList = ['FEAT']
+        commandList = ['CDUP', 'CWD', 'LIST', 'MODE', 'PASV',
+                       'PWD', 'RETR', 'STRU', 'SYST', 'TYPE']
 
         # Issue commands, check responses
-        def checkFailResponse(exception, command):
+        def checkResponse(exception):
             failureResponseLines = exception.args[0]
             self.failUnless(failureResponseLines[-1].startswith("530"),
-                            "%s - Response didn't start with 530: %r"
-                            % (command, failureResponseLines[-1],))
-
-        def checkPassResponse(result, command):
-            result = result[0]
-            self.failIf(result.startswith("530"),
-                            "%s - Response start with 530: %r"
-                            % (command, result,))
-
+                            "Response didn't start with 530: %r"
+                            % (failureResponseLines[-1],))
         deferreds = []
-        for command in loginRequiredCommandList:
+        for command in commandList:
             deferred = self.client.queueStringCommand(command)
             self.assertFailure(deferred, ftp.CommandFailed)
-            deferred.addCallback(checkFailResponse, command)
+            deferred.addCallback(checkResponse)
             deferreds.append(deferred)
-
-        for command in loginNotRequiredCommandList:
-            deferred = self.client.queueStringCommand(command)
-            deferred.addCallback(checkPassResponse, command)
-            deferreds.append(deferred)
-
         return defer.DeferredList(deferreds, fireOnOneErrback=True)
 
     def testPASSBeforeUSER(self):
-        """
-        Issuing PASS before USER should give an error.
-        """
+        """Issuing PASS before USER should give an error."""
         return self.assertCommandFailed(
             'PASS foo',
             ["503 Incorrect sequence of commands: "
              "USER required before PASS"])
 
     def testNoParamsForUSER(self):
-        """
-        Issuing USER without a username is a syntax error.
-        """
+        """Issuing USER without a username is a syntax error."""
         return self.assertCommandFailed(
             'USER',
             ['500 Syntax error: USER requires an argument.'])
 
     def testNoParamsForPASS(self):
-        """
-        Issuing PASS without a password is a syntax error.
-        """
+        """Issuing PASS without a password is a syntax error."""
         d = self.client.queueStringCommand('USER foo')
         return self.assertCommandFailed(
             'PASS',
@@ -274,9 +251,7 @@ class BasicFTPServerTestCase(FTPServerTestCase):
         return self._anonymousLogin()
 
     def testQuit(self):
-        """
-        Issuing QUIT should return a 221 message.
-        """
+        """Issuing QUIT should return a 221 message."""
         d = self._anonymousLogin()
         return self.assertCommandResponse(
             'QUIT',
@@ -487,122 +462,6 @@ class BasicFTPServerTestCase(FTPServerTestCase):
         protocol = self.factory.buildProtocol(None)
         self.assertEqual(portRange, protocol.wrappedProtocol.passivePortRange)
 
-    def testFEAT(self):
-        """
-        When the server receives 'FEAT', it should report the list of supported
-        features. (Additionally, ensure that the server reports various
-        particular features that are supported by all Twisted FTP servers.)
-        """
-        d = self.client.queueStringCommand('FEAT')
-        def gotResponse(responseLines):
-            self.assertEqual('211-Features:', responseLines[0])
-            self.assertTrue(' MDTM' in responseLines)
-            self.assertTrue(' PASV' in responseLines)
-            self.assertTrue(' TYPE A;I' in responseLines)
-            self.assertTrue(' SIZE' in responseLines)
-            self.assertEqual('211 End', responseLines[-1])
-        return d.addCallback(gotResponse)
-
-    def testOPTS(self):
-        """
-        When the server receives 'OPTS something', it should report
-        that the FTP server does not support the option called 'something'.
-        """
-        d = self._anonymousLogin()
-        self.assertCommandFailed(
-            'OPTS something',
-            ["502 Option 'something' not implemented."],
-            chainDeferred=d,
-            )
-        return d
-
-
-    def test_STORreturnsErrorFromOpen(self):
-        """
-        Any FTP error raised inside STOR while opening the file is returned
-        to the client.
-        """
-        # We create a folder inside user's home folder and then
-        # we try to write a file with the same name.
-        # This will trigger an FTPCmdError.
-        self.dirPath.child(self.username).createDirectory()
-        self.dirPath.child(self.username).child('folder').createDirectory()
-        d = self._userLogin()
-
-        def sendPASV(result):
-            """
-            Send the PASV command required before port.
-            """
-            return self.client.queueStringCommand('PASV')
-
-        def mockDTPInstance(result):
-            """
-            Fake an incoming connection and create a mock DTPInstance so
-            that PORT command will start processing the request.
-            """
-            self.serverProtocol.dtpFactory.deferred.callback(None)
-            self.serverProtocol.dtpInstance = object()
-            return result
-
-        d.addCallback(sendPASV)
-        d.addCallback(mockDTPInstance)
-        self.assertCommandFailed(
-            'STOR folder',
-            ["550 folder: is a directory"],
-            chainDeferred=d,
-            )
-        return d
-
-
-
-    def test_STORunknownErrorBecomesFileNotFound(self):
-        """
-        Any non FTP error raised inside STOR while opening the file is
-        converted into FileNotFound error and returned to the client together
-        with the path.
-
-        The unknown error is logged.
-        """
-        d = self._userLogin()
-
-        def failingOpenForWriting(ignore):
-            return defer.fail(AssertionError())
-
-        def sendPASV(result):
-            """
-            Send the PASV command required before port.
-            """
-            return self.client.queueStringCommand('PASV')
-
-        def mockDTPInstance(result):
-            """
-            Fake an incoming connection and create a mock DTPInstance so
-            that PORT command will start processing the request.
-            """
-            self.serverProtocol.dtpFactory.deferred.callback(None)
-            self.serverProtocol.dtpInstance = object()
-            self.serverProtocol.shell.openForWriting = failingOpenForWriting
-            return result
-
-        def checkLogs(result):
-            """
-            Check that unknown errors are logged.
-            """
-            logs = self.flushLoggedErrors()
-            self.assertEqual(1, len(logs))
-            self.assertIsInstance(logs[0].value, AssertionError)
-
-        d.addCallback(sendPASV)
-        d.addCallback(mockDTPInstance)
-
-        self.assertCommandFailed(
-            'STOR something',
-            ["550 something: No such file or directory."],
-            chainDeferred=d,
-            )
-        d.addCallback(checkLogs)
-        return d
-
 
 
 class FTPServerTestCaseAdvancedClient(FTPServerTestCase):
@@ -624,61 +483,30 @@ class FTPServerTestCaseAdvancedClient(FTPServerTestCase):
         d2.addErrback(eb)
         return defer.gatherResults([d1, d2])
 
-    def test_STORtransferErrorIsReturned(self):
+
+    def test_STORwriteError(self):
         """
-        Any FTP error raised by STOR while transferring the file is returned
-        to the client.
+        Any errors during writing a file inside a STOR should be returned to
+        the client.
         """
         # Make a failing file writer.
         class FailingFileWriter(ftp._FileWriter):
             def receive(self):
-                return defer.fail(ftp.IsADirectoryError("failing_file"))
+                return defer.fail(ftp.IsNotADirectoryError("blah"))
 
         def failingSTOR(a, b):
             return defer.succeed(FailingFileWriter(None))
 
         # Monkey patch the shell so it returns a file writer that will
-        # fail during transfer.
+        # fail.
         self.patch(ftp.FTPAnonymousShell, 'openForWriting', failingSTOR)
 
         def eb(res):
+            self.flushLoggedErrors()
             res.trap(ftp.CommandFailed)
-            logs = self.flushLoggedErrors()
-            self.assertEqual(1, len(logs))
-            self.assertIsInstance(logs[0].value, ftp.IsADirectoryError)
             self.assertEqual(
                 res.value.args[0][0],
-                "550 failing_file: is a directory")
-        d1, d2 = self.client.storeFile('failing_file')
-        d2.addErrback(eb)
-        return defer.gatherResults([d1, d2])
-
-    def test_STORunknownTransferErrorBecomesAbort(self):
-        """
-        Any non FTP error raised by STOR while transferring the file is
-        converted into a critical error and transfer is closed.
-
-        The unknown error is logged.
-        """
-        class FailingFileWriter(ftp._FileWriter):
-            def receive(self):
-                return defer.fail(AssertionError())
-
-        def failingSTOR(a, b):
-            return defer.succeed(FailingFileWriter(None))
-
-        # Monkey patch the shell so it returns a file writer that will
-        # fail during transfer.
-        self.patch(ftp.FTPAnonymousShell, 'openForWriting', failingSTOR)
-
-        def eb(res):
-            res.trap(ftp.CommandFailed)
-            logs = self.flushLoggedErrors()
-            self.assertEqual(1, len(logs))
-            self.assertIsInstance(logs[0].value, AssertionError)
-            self.assertEqual(
-                res.value.args[0][0],
-                "426 Transfer aborted.  Data connection closed.")
+                "550 Cannot rmd, blah is not a directory")
         d1, d2 = self.client.storeFile('failing_file')
         d2.addErrback(eb)
         return defer.gatherResults([d1, d2])
@@ -716,7 +544,6 @@ class FTPServerTestCaseAdvancedClient(FTPServerTestCase):
         return d
 
 
-
 class FTPServerPasvDataConnectionTestCase(FTPServerTestCase):
     def _makeDataConnection(self, ignored=None):
         # Establish a passive data connection (i.e. client connecting to
@@ -745,10 +572,8 @@ class FTPServerPasvDataConnectionTestCase(FTPServerTestCase):
             return downloader.buffer
         return chainDeferred.addCallback(downloadDone)
 
-    def test_LISTEmpty(self):
-        """
-        When listing empty folders, LIST returns an empty response.
-        """
+    def testEmptyLIST(self):
+        # Login
         d = self._anonymousLogin()
 
         # No files, so the file listing should be empty
@@ -757,34 +582,8 @@ class FTPServerPasvDataConnectionTestCase(FTPServerTestCase):
             self.assertEqual('', result)
         return d.addCallback(checkEmpty)
 
-    def test_LISTWithBinLsFlags(self):
-        """
-        LIST ignores requests for folder with names like '-al' and will list
-        the content of current folder.
-        """
-        os.mkdir(os.path.join(self.directory, 'foo'))
-        os.mkdir(os.path.join(self.directory, 'bar'))
-
-        # Login
-        d = self._anonymousLogin()
-
-        self._download('LIST -aL', chainDeferred=d)
-
-        def checkDownload(download):
-            names = []
-            for line in download.splitlines():
-                names.append(line.split(' ')[-1])
-            self.assertEqual(2, len(names))
-            self.assertIn('foo', names)
-            self.assertIn('bar', names)
-
-        return d.addCallback(checkDownload)
-
-    def test_LISTWithContent(self):
-        """
-        LIST returns all folder's members, each member listed on a separate
-        line and with name and other details.
-        """
+    def testTwoDirLIST(self):
+        # Make some directories
         os.mkdir(os.path.join(self.directory, 'foo'))
         os.mkdir(os.path.join(self.directory, 'bar'))
 
@@ -823,80 +622,6 @@ class FTPServerPasvDataConnectionTestCase(FTPServerTestCase):
         def checkDownload(download):
             self.assertEqual('', download)
         return d.addCallback(checkDownload)
-
-
-    def _listTestHelper(self, command, listOutput, expectedOutput):
-        """
-        Exercise handling by the implementation of I{LIST} or I{NLST} of certain
-        return values and types from an L{IFTPShell.list} implementation.
-
-        This will issue C{command} and assert that if the L{IFTPShell.list}
-        implementation includes C{listOutput} as one of the file entries then
-        the result given to the client is matches C{expectedOutput}.
-
-        @param command: Either C{b"LIST"} or C{b"NLST"}
-        @type command: L{bytes}
-
-        @param listOutput: A value suitable to be used as an element of the list
-            returned by L{IFTPShell.list}.  Vary the values and types of the
-            contents to exercise different code paths in the server's handling
-            of this result.
-
-        @param expectedOutput: A line of output to expect as a result of
-            C{listOutput} being transformed into a response to the command
-            issued.
-        @type expectedOutput: L{bytes}
-
-        @return: A L{Deferred} which fires when the test is done, either with an
-            L{Failure} if the test failed or with a function object if it
-            succeeds.  The function object is the function which implements
-            L{IFTPShell.list} (and is useful to make assertions about what
-            warnings might have been emitted).
-        @rtype: L{Deferred}
-        """
-        # Login
-        d = self._anonymousLogin()
-
-        def patchedList(segments, keys=()):
-            return defer.succeed([listOutput])
-
-        def loggedIn(result):
-            self.serverProtocol.shell.list = patchedList
-            return result
-        d.addCallback(loggedIn)
-
-        self._download('%s something' % (command,), chainDeferred=d)
-
-        def checkDownload(download):
-            self.assertEqual(expectedOutput, download)
-            return patchedList
-
-        return d.addCallback(checkDownload)
-
-
-    def test_LISTUnicode(self):
-        """
-        Unicode filenames returned from L{IFTPShell.list} are encoded using
-        UTF-8 before being sent with the response.
-        """
-        return self._listTestHelper(
-            "LIST",
-            (u'my resum\xe9', (0, 1, 0777, 0, 0, 'user', 'group')),
-            'drwxrwxrwx   0 user      group                   '
-            '0 Jan 01  1970 my resum\xc3\xa9\r\n')
-
-
-    def test_LISTNonASCIIBytes(self):
-        """
-        When LIST receive a filename as byte string from L{IFTPShell.list}
-        it will just pass the data to lower level without any change.
-        """
-        return self._listTestHelper(
-            "LIST",
-            ('my resum\xc3\xa9', (0, 1, 0777, 0, 0, 'user', 'group')),
-            'drwxrwxrwx   0 user      group                   '
-            '0 Jan 01  1970 my resum\xc3\xa9\r\n')
-
 
     def testManyLargeDownloads(self):
         # Login
@@ -982,27 +707,6 @@ class FTPServerPasvDataConnectionTestCase(FTPServerTestCase):
         return d.addCallback(checkDownload)
 
 
-    def test_NLSTUnicode(self):
-        """
-        NLST will receive Unicode filenames for IFTPShell.list, and will
-        encode them using UTF-8.
-        """
-        return self._listTestHelper(
-            "NLST",
-            (u'my resum\xe9', (0, 1, 0777, 0, 0, 'user', 'group')),
-            'my resum\xc3\xa9\r\n')
-
-
-    def test_NLSTNonASCIIBytes(self):
-        """
-        NLST will just pass the non-Unicode data to lower level.
-        """
-        return self._listTestHelper(
-            "NLST",
-            ('my resum\xc3\xa9', (0, 1, 0777, 0, 0, 'user', 'group')),
-            'my resum\xc3\xa9\r\n')
-
-
     def test_NLSTOnPathToFile(self):
         """
         NLST on an existent file returns only the path to that file.
@@ -1014,7 +718,6 @@ class FTPServerPasvDataConnectionTestCase(FTPServerTestCase):
         self.dirPath.child('test.txt').touch()
 
         self._download('NLST test.txt', chainDeferred=d)
-
         def checkDownload(download):
             filenames = download[:-2].split('\r\n')
             self.assertEqual(['test.txt'], filenames)
@@ -1072,26 +775,6 @@ class FTPServerPortDataConnectionTestCase(FTPServerPasvDataConnectionTestCase):
                 'PORT ' + ftp.encodeHostPort('127.0.0.1', portNum),
                 ["425 Can't open data connection."])
         return d.addCallback(gotPortNum)
-
-
-    def test_nlstGlobbing(self):
-        """
-        When Unix shell globbing is used with NLST only files matching the
-        pattern will be returned.
-        """
-        self.dirPath.child('test.txt').touch()
-        self.dirPath.child('ceva.txt').touch()
-        self.dirPath.child('no.match').touch()
-        d = self._anonymousLogin()
-
-        self._download('NLST *.txt', chainDeferred=d)
-
-        def checkDownload(download):
-            filenames = download[:-2].split('\r\n')
-            filenames.sort()
-            self.assertEqual(['ceva.txt', 'test.txt'], filenames)
-
-        return d.addCallback(checkDownload)
 
 
 
@@ -1231,46 +914,6 @@ class DTPFactoryTests(unittest.TestCase):
 
 
 
-class DTPTests(unittest.TestCase):
-    """
-    Tests for L{ftp.DTP}.
-
-    The DTP instances in these tests are generated using
-    DTPFactory.buildProtocol()
-    """
-
-    def setUp(self):
-        """
-        Create a fake protocol interpreter, a L{ftp.DTPFactory} instance,
-        and dummy transport to help with tests.
-        """
-        self.reactor = task.Clock()
-
-        class ProtocolInterpreter(object):
-            dtpInstance = None
-
-        self.protocolInterpreter = ProtocolInterpreter()
-        self.factory = ftp.DTPFactory(
-            self.protocolInterpreter, None, self.reactor)
-        self.transport = proto_helpers.StringTransportWithDisconnection()
-
-
-    def test_sendLineNewline(self):
-        """
-        L{ftp.DTP.sendLine} writes the line passed to it plus a line delimiter
-        to its transport.
-        """
-        dtpInstance = self.factory.buildProtocol(None)
-        dtpInstance.makeConnection(self.transport)
-        lineContent = 'line content'
-
-        dtpInstance.sendLine(lineContent)
-
-        dataSent = self.transport.value()
-        self.assertEqual(lineContent + '\r\n', dataSent)
-
-
-
 # -- Client Tests -----------------------------------------------------------
 
 class PrintLines(protocol.Protocol):
@@ -1285,7 +928,6 @@ class PrintLines(protocol.Protocol):
         self.transport.loseConnection()
 
 
-
 class MyFTPFileListProtocol(ftp.FTPFileListProtocol):
     def __init__(self):
         self.other = []
@@ -1293,7 +935,6 @@ class MyFTPFileListProtocol(ftp.FTPFileListProtocol):
 
     def unknownLine(self, line):
         self.other.append(line)
-
 
 
 class FTPFileListingTests(unittest.TestCase):
@@ -1354,48 +995,6 @@ class FTPFileListingTests(unittest.TestCase):
                             'incorrect unparsable lines: %s' % repr(others))
         return self.getFilesForLines(['ABC', 'not a file']).addCallback(check)
 
-    def test_filenameWithUnescapedSpace(self):
-        '''
-        Will parse filenames and linktargets containing unescaped
-        space characters.
-        '''
-        line1 = 'drw-r--r--   2 root     other        531 Jan  9  2003 A B'
-        line2 = (
-            'lrw-r--r--   1 root     other          1 Jan 29 03:26 '
-            'B A -> D C/A B'
-            )
-
-        def check((files, others)):
-            self.assertEqual([], others, 'unexpected others entries')
-            self.assertEqual(
-                'A B', files[0]['filename'], 'misparsed filename')
-            self.assertEqual(
-                'B A', files[1]['filename'], 'misparsed filename')
-            self.assertEqual(
-                'D C/A B', files[1]['linktarget'], 'misparsed linktarget')
-        return self.getFilesForLines([line1, line2]).addCallback(check)
-
-    def test_filenameWithEscapedSpace(self):
-        '''
-        Will parse filenames and linktargets containing escaped
-        space characters.
-        '''
-        line1 = 'drw-r--r--   2 root     other        531 Jan  9  2003 A\ B'
-        line2 = (
-            'lrw-r--r--   1 root     other          1 Jan 29 03:26 '
-            'B A -> D\ C/A B'
-            )
-
-        def check((files, others)):
-            self.assertEqual([], others, 'unexpected others entries')
-            self.assertEqual(
-                'A B', files[0]['filename'], 'misparsed filename')
-            self.assertEqual(
-                'B A', files[1]['filename'], 'misparsed filename')
-            self.assertEqual(
-                'D C/A B', files[1]['linktarget'], 'misparsed linktarget')
-        return self.getFilesForLines([line1, line2]).addCallback(check)
-
     def testYear(self):
         # This example derived from bug description in issue 514.
         fileList = ftp.FTPFileListProtocol()
@@ -1414,7 +1013,6 @@ class FTPFileListingTests(unittest.TestCase):
 
         d = loopback.loopbackAsync(PrintLine(), fileList)
         return d.addCallback(check)
-
 
 
 class FTPClientTests(unittest.TestCase):
@@ -2641,44 +2239,6 @@ class PathHandling(unittest.TestCase):
             self.assertRaises(ftp.InvalidPath, ftp.toSegments, ['x'], inp)
 
 
-
-class IsGlobbingExpressionTests(unittest.TestCase):
-    """
-    Tests for _isGlobbingExpression utility function.
-    """
-
-    def test_isGlobbingExpressionEmptySegments(self):
-        """
-        _isGlobbingExpression will return False for None, or empty
-        segments.
-        """
-        self.assertFalse(ftp._isGlobbingExpression())
-        self.assertFalse(ftp._isGlobbingExpression([]))
-        self.assertFalse(ftp._isGlobbingExpression(None))
-
-
-    def test_isGlobbingExpressionNoGlob(self):
-        """
-        _isGlobbingExpression will return False for plain segments.
-
-        Also, it only checks the last segment part (filename) and will not
-        check the path name.
-        """
-        self.assertFalse(ftp._isGlobbingExpression(['ignore', 'expr']))
-        self.assertFalse(ftp._isGlobbingExpression(['*.txt', 'expr']))
-
-
-    def test_isGlobbingExpressionGlob(self):
-        """
-        _isGlobbingExpression will return True for segments which contains
-        globbing characters in the last segment part (filename).
-        """
-        self.assertTrue(ftp._isGlobbingExpression(['ignore', '*.txt']))
-        self.assertTrue(ftp._isGlobbingExpression(['ignore', '[a-b].txt']))
-        self.assertTrue(ftp._isGlobbingExpression(['ignore', 'fil?.txt']))
-
-
-
 class BaseFTPRealmTests(unittest.TestCase):
     """
     Tests for L{ftp.BaseFTPRealm}, a base class to help define L{IFTPShell}
@@ -3472,7 +3032,6 @@ class FTPReadWriteTestCase(unittest.TestCase, IReadWriteTestsMixin):
         return self.root.child(self.filename).getContent()
 
 
-
 class CloseTestWriter:
     implements(ftp.IWriteFile)
     closeStarted = False
@@ -3484,13 +3043,9 @@ class CloseTestWriter:
         self.closeStarted = True
         return self.d
 
-
-
 class CloseTestShell:
     def openForWriting(self, segs):
         return defer.succeed(self.writer)
-
-
 
 class FTPCloseTest(unittest.TestCase):
     """Tests that the server invokes IWriteFile.close"""

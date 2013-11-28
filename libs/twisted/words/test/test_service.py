@@ -15,7 +15,8 @@ from twisted.words import ewords, service
 from twisted.words.protocols import irc
 from twisted.spread import pb
 from twisted.internet.defer import Deferred, DeferredList, maybeDeferred, succeed
-from twisted.internet import address, defer, reactor
+from twisted.internet.defer import deferredGenerator as dG, waitForDeferred as wFD
+from twisted.internet import address, reactor
 
 class RealmTestCase(unittest.TestCase):
     def _entityCreationTest(self, kind):
@@ -30,24 +31,35 @@ class RealmTestCase(unittest.TestCase):
         noSuchExc = getattr(ewords, 'NoSuch' + kind.title())
 
         # Creating should succeed
-        p = self.successResultOf(create(name))
-        self.assertEqual(name, p.name)
+        d = wFD(create(name))
+        yield d
+        p = d.getResult()
+        self.assertEqual(p.name, name)
 
         # Creating the same user again should not
-        self.failureResultOf(create(name)).trap(dupExc)
+        d = wFD(create(name))
+        yield d
+        self.assertRaises(dupExc, d.getResult)
 
         # Getting a non-existent user should succeed if createUserOnRequest is True
         setattr(realm, flag, True)
-        p = self.successResultOf(get(u"new" + kind.lower()))
-        self.assertEqual("new" + kind.lower(), p.name)
+        d = wFD(get(u"new" + kind.lower()))
+        yield d
+        p = d.getResult()
+        self.assertEqual(p.name, "new" + kind.lower())
 
         # Getting that user again should return the same object
-        newp = self.successResultOf(get(u"new" + kind.lower()))
+        d = wFD(get(u"new" + kind.lower()))
+        yield d
+        newp = d.getResult()
         self.assertIdentical(p, newp)
 
         # Getting a non-existent user should fail if createUserOnRequest is False
         setattr(realm, flag, False)
-        self.failureResultOf(get(u"another" + kind.lower())).trap(noSuchExc)
+        d = wFD(get(u"another" + kind.lower()))
+        yield d
+        self.assertRaises(noSuchExc, d.getResult)
+    _entityCreationTest = dG(_entityCreationTest)
 
 
     def testUserCreation(self):
@@ -62,19 +74,27 @@ class RealmTestCase(unittest.TestCase):
         realm = service.InMemoryWordsRealm("realmname")
 
         # Make a user to play around with
-        user = self.successResultOf(realm.createUser(u"testuser"))
+        d = wFD(realm.createUser(u"testuser"))
+        yield d
+        user = d.getResult()
 
         # Make sure getting the user returns the same object
-        retrieved = self.successResultOf(realm.getUser(u"testuser"))
+        d = wFD(realm.getUser(u"testuser"))
+        yield d
+        retrieved = d.getResult()
         self.assertIdentical(user, retrieved)
 
         # Make sure looking up the user also returns the same object
-        lookedUp = self.successResultOf(realm.lookupUser(u"testuser"))
+        d = wFD(realm.lookupUser(u"testuser"))
+        yield d
+        lookedUp = d.getResult()
         self.assertIdentical(retrieved, lookedUp)
 
         # Make sure looking up a user who does not exist fails
-        (self.failureResultOf(realm.lookupUser(u"nosuchuser"))
-             .trap(ewords.NoSuchUser))
+        d = wFD(realm.lookupUser(u"nosuchuser"))
+        yield d
+        self.assertRaises(ewords.NoSuchUser, d.getResult)
+    testUserRetrieval = dG(testUserRetrieval)
 
 
     def testUserAddition(self):
@@ -82,38 +102,58 @@ class RealmTestCase(unittest.TestCase):
 
         # Create and manually add a user to the realm
         p = service.User("testuser")
-        user = self.successResultOf(realm.addUser(p))
+        d = wFD(realm.addUser(p))
+        yield d
+        user = d.getResult()
         self.assertIdentical(p, user)
 
         # Make sure getting that user returns the same object
-        retrieved = self.successResultOf(realm.getUser(u"testuser"))
+        d = wFD(realm.getUser(u"testuser"))
+        yield d
+        retrieved = d.getResult()
         self.assertIdentical(user, retrieved)
 
         # Make sure looking up that user returns the same object
-        lookedUp = self.successResultOf(realm.lookupUser(u"testuser"))
+        d = wFD(realm.lookupUser(u"testuser"))
+        yield d
+        lookedUp = d.getResult()
         self.assertIdentical(retrieved, lookedUp)
+    testUserAddition = dG(testUserAddition)
 
 
     def testGroupRetrieval(self):
         realm = service.InMemoryWordsRealm("realmname")
 
-        group = self.successResultOf(realm.createGroup(u"testgroup"))
+        d = wFD(realm.createGroup(u"testgroup"))
+        yield d
+        group = d.getResult()
 
-        retrieved = self.successResultOf(realm.getGroup(u"testgroup"))
+        d = wFD(realm.getGroup(u"testgroup"))
+        yield d
+        retrieved = d.getResult()
 
         self.assertIdentical(group, retrieved)
 
-        (self.failureResultOf(realm.getGroup(u"nosuchgroup"))
-             .trap(ewords.NoSuchGroup))
+        d = wFD(realm.getGroup(u"nosuchgroup"))
+        yield d
+        self.assertRaises(ewords.NoSuchGroup, d.getResult)
+    testGroupRetrieval = dG(testGroupRetrieval)
 
 
     def testGroupAddition(self):
         realm = service.InMemoryWordsRealm("realmname")
 
         p = service.Group("testgroup")
-        self.successResultOf(realm.addGroup(p))
-        group = self.successResultOf(realm.getGroup(u"testGroup"))
+        d = wFD(realm.addGroup(p))
+        yield d
+        d.getResult()
+
+        d = wFD(realm.getGroup(u"testGroup"))
+        yield d
+        group = d.getResult()
+
         self.assertIdentical(p, group)
+    testGroupAddition = dG(testGroupAddition)
 
 
     def testGroupUsernameCollision(self):
@@ -124,21 +164,34 @@ class RealmTestCase(unittest.TestCase):
         """
         realm = service.InMemoryWordsRealm("realmname")
 
-        self.successResultOf(realm.createUser(u"test"))
-        self.successResultOf(realm.createGroup(u"test"))
+        d = wFD(realm.createUser(u"test"))
+        yield d
+        user = d.getResult()
+
+        d = wFD(realm.createGroup(u"test"))
+        yield d
+        group = d.getResult()
+    testGroupUsernameCollision = dG(testGroupUsernameCollision)
 
 
     def testEnumeration(self):
         realm = service.InMemoryWordsRealm("realmname")
-        self.successResultOf(realm.createGroup(u"groupone"))
+        d = wFD(realm.createGroup(u"groupone"))
+        yield d
+        d.getResult()
 
-        self.successResultOf(realm.createGroup(u"grouptwo"))
+        d = wFD(realm.createGroup(u"grouptwo"))
+        yield d
+        d.getResult()
 
-        groups = self.successResultOf(realm.itergroups())
+        groups = wFD(realm.itergroups())
+        yield groups
+        groups = groups.getResult()
 
         n = [g.name for g in groups]
         n.sort()
         self.assertEqual(n, ["groupone", "grouptwo"])
+    testEnumeration = dG(testEnumeration)
 
 
 class TestGroup(object):
@@ -227,10 +280,13 @@ class IRCProtocolTestCase(unittest.TestCase):
 
 
     def _loggedInUser(self, name):
-        user = self.successResultOf(self.realm.lookupUser(name))
+        d = wFD(self.realm.lookupUser(name))
+        yield d
+        user = d.getResult()
         agg = TestCaseUserAgg(user, self.realm, self.factory)
         self._login(agg, name)
-        return agg
+        yield agg
+    _loggedInUser = dG(_loggedInUser)
 
 
     def _response(self, user, messageType=None):
@@ -248,8 +304,11 @@ class IRCProtocolTestCase(unittest.TestCase):
 
 
     def testPASSLogin(self):
-        user = self._loggedInUser(u'firstuser')
+        user = wFD(self._loggedInUser(u'firstuser'))
+        yield user
+        user = user.getResult()
         self._assertGreeting(user)
+    testPASSLogin = dG(testPASSLogin)
 
 
     def test_nickServLogin(self):
@@ -258,7 +317,9 @@ class IRCProtocolTestCase(unittest.TestCase):
         When the user sends their password to NickServ, it will respond with a
         Greeting.
         """
-        firstuser = self.successResultOf(self.realm.lookupUser(u'firstuser'))
+        firstuser = wFD(self.realm.lookupUser(u'firstuser'))
+        yield firstuser
+        firstuser = firstuser.getResult()
 
         user = TestCaseUserAgg(firstuser, self.realm, self.factory)
         user.write('NICK firstuser extrainfo\r\n')
@@ -271,34 +332,44 @@ class IRCProtocolTestCase(unittest.TestCase):
 
         user.write('PRIVMSG nickserv firstuser_password\r\n')
         self._assertGreeting(user)
+    test_nickServLogin = dG(test_nickServLogin)
 
 
     def testFailedLogin(self):
-        firstuser = self.successResultOf(self.realm.lookupUser(u'firstuser'))
+        firstuser = wFD(self.realm.lookupUser(u'firstuser'))
+        yield firstuser
+        firstuser = firstuser.getResult()
 
         user = TestCaseUserAgg(firstuser, self.realm, self.factory)
         self._login(user, "firstuser", "wrongpass")
         response = self._response(user, "PRIVMSG")
         self.assertEqual(len(response), 1)
         self.assertEqual(response[0][2], ['firstuser', 'Login failed.  Goodbye.'])
+    testFailedLogin = dG(testFailedLogin)
 
 
     def testLogout(self):
         logout = []
-        firstuser = self.successResultOf(self.realm.lookupUser(u'firstuser'))
+        firstuser = wFD(self.realm.lookupUser(u'firstuser'))
+        yield firstuser
+        firstuser = firstuser.getResult()
 
         user = TestCaseUserAgg(firstuser, self.realm, self.factory)
         self._login(user, "firstuser")
         user.protocol.logout = lambda: logout.append(True)
         user.write('QUIT\r\n')
         self.assertEqual(logout, [True])
+    testLogout = dG(testLogout)
 
 
     def testJoin(self):
-        firstuser = self.successResultOf(self.realm.lookupUser(u'firstuser'))
+        firstuser = wFD(self.realm.lookupUser(u'firstuser'))
+        yield firstuser
+        firstuser = firstuser.getResult()
 
-        somechannel = self.successResultOf(
-                self.realm.createGroup(u"somechannel"))
+        somechannel = wFD(self.realm.createGroup(u"somechannel"))
+        yield somechannel
+        somechannel = somechannel.getResult()
 
         somechannel.meta['topic'] = 'some random topic'
 
@@ -326,7 +397,9 @@ class IRCProtocolTestCase(unittest.TestCase):
 
 
         # Hook up another client!  It is a CHAT SYSTEM!!!!!!!
-        other = self._loggedInUser(u'otheruser')
+        other = wFD(self._loggedInUser(u'otheruser'))
+        yield other
+        other = other.getResult()
 
         other.transport.clear()
         user.transport.clear()
@@ -347,6 +420,7 @@ class IRCProtocolTestCase(unittest.TestCase):
                       ['otheruser', '=', '#somechannel', 'firstuser otheruser'],
                       ['otheruser', '=', '#somechannel', 'otheruser firstuser'],
                       ])
+    testJoin = dG(testJoin)
 
 
     def test_joinTopicless(self):
@@ -354,9 +428,13 @@ class IRCProtocolTestCase(unittest.TestCase):
         When a user joins a group without a topic, no topic information is
         sent to that user.
         """
-        firstuser = self.successResultOf(self.realm.lookupUser(u'firstuser'))
+        firstuser = wFD(self.realm.lookupUser(u'firstuser'))
+        yield firstuser
+        firstuser = firstuser.getResult()
 
-        self.successResultOf(self.realm.createGroup(u"somechannel"))
+        somechannel = wFD(self.realm.createGroup(u"somechannel"))
+        yield somechannel
+        somechannel = somechannel.getResult()
 
         # Bring in one user, make sure he gets into the channel sanely
         user = TestCaseUserAgg(firstuser, self.realm, self.factory)
@@ -368,17 +446,24 @@ class IRCProtocolTestCase(unittest.TestCase):
         responseCodes = [r[1] for r in response]
         self.assertNotIn('332', responseCodes)
         self.assertNotIn('333', responseCodes)
+    test_joinTopicless = dG(test_joinTopicless)
 
 
     def testLeave(self):
-        user = self._loggedInUser(u'useruser')
+        user = wFD(self._loggedInUser(u'useruser'))
+        yield user
+        user = user.getResult()
 
-        self.successResultOf(self.realm.createGroup(u"somechannel"))
+        somechannel = wFD(self.realm.createGroup(u"somechannel"))
+        yield somechannel
+        somechannel = somechannel.getResult()
 
         user.write('JOIN #somechannel\r\n')
         user.transport.clear()
 
-        other = self._loggedInUser(u'otheruser')
+        other = wFD(self._loggedInUser(u'otheruser'))
+        yield other
+        other = other.getResult()
 
         other.write('JOIN #somechannel\r\n')
 
@@ -412,17 +497,22 @@ class IRCProtocolTestCase(unittest.TestCase):
         self.assertEqual(response[0][1], 'PART')
         self.assertEqual(response[0][2], ['#somechannel', 'goodbye stupidheads'])
         self.assertEqual(response, event)
+    testLeave = dG(testLeave)
 
 
     def testGetTopic(self):
-        user = self._loggedInUser(u'useruser')
+        user = wFD(self._loggedInUser(u'useruser'))
+        yield user
+        user = user.getResult()
 
         group = service.Group("somechannel")
         group.meta["topic"] = "This is a test topic."
         group.meta["topic_author"] = "some_fellow"
         group.meta["topic_date"] = 77777777
 
-        self.successResultOf(self.realm.addGroup(group))
+        add = wFD(self.realm.addGroup(group))
+        yield add
+        add.getResult()
 
         user.transport.clear()
         user.write("JOIN #somechannel\r\n")
@@ -447,17 +537,23 @@ class IRCProtocolTestCase(unittest.TestCase):
         self.assertEqual(response[0][2], ['useruser', '#somechannel', 'This is a test topic.'])
         self.assertEqual(response[1][1], '333')
         self.assertEqual(response[1][2], ['useruser', '#somechannel', 'some_fellow', '77777777'])
+    testGetTopic = dG(testGetTopic)
 
 
     def testSetTopic(self):
-        user = self._loggedInUser(u'useruser')
+        user = wFD(self._loggedInUser(u'useruser'))
+        yield user
+        user = user.getResult()
 
-        somechannel = self.successResultOf(
-                self.realm.createGroup(u"somechannel"))
+        add = wFD(self.realm.createGroup(u"somechannel"))
+        yield add
+        somechannel = add.getResult()
 
         user.write("JOIN #somechannel\r\n")
 
-        other = self._loggedInUser(u'otheruser')
+        other = wFD(self._loggedInUser(u'otheruser'))
+        yield other
+        other = other.getResult()
 
         other.write("JOIN #somechannel\r\n")
 
@@ -491,16 +587,23 @@ class IRCProtocolTestCase(unittest.TestCase):
 
         response = self._response(other)
         self.assertEqual(response[0][1], '403')
+    testSetTopic = dG(testSetTopic)
 
 
     def testGroupMessage(self):
-        user = self._loggedInUser(u'useruser')
+        user = wFD(self._loggedInUser(u'useruser'))
+        yield user
+        user = user.getResult()
 
-        self.successResultOf(self.realm.createGroup(u"somechannel"))
+        add = wFD(self.realm.createGroup(u"somechannel"))
+        yield add
+        somechannel = add.getResult()
 
         user.write("JOIN #somechannel\r\n")
 
-        other = self._loggedInUser(u'otheruser')
+        other = wFD(self._loggedInUser(u'otheruser'))
+        yield other
+        other = other.getResult()
 
         other.write("JOIN #somechannel\r\n")
 
@@ -517,12 +620,17 @@ class IRCProtocolTestCase(unittest.TestCase):
         self.assertEqual(event[0][0], 'useruser!useruser@realmname')
         self.assertEqual(event[0][1], 'PRIVMSG', -1)
         self.assertEqual(event[0][2], ['#somechannel', 'Hello, world.'])
+    testGroupMessage = dG(testGroupMessage)
 
 
     def testPrivateMessage(self):
-        user = self._loggedInUser(u'useruser')
+        user = wFD(self._loggedInUser(u'useruser'))
+        yield user
+        user = user.getResult()
 
-        other = self._loggedInUser(u'otheruser')
+        other = wFD(self._loggedInUser(u'otheruser'))
+        yield other
+        other = other.getResult()
 
         user.transport.clear()
         other.transport.clear()
@@ -546,10 +654,13 @@ class IRCProtocolTestCase(unittest.TestCase):
         self.assertEqual(response[0][0], 'realmname')
         self.assertEqual(response[0][1], '401')
         self.assertEqual(response[0][2], ['useruser', 'nousernamedthis', 'No such nick/channel.'])
+    testPrivateMessage = dG(testPrivateMessage)
 
 
     def testOper(self):
-        user = self._loggedInUser(u'useruser')
+        user = wFD(self._loggedInUser(u'useruser'))
+        yield user
+        user = user.getResult()
 
         user.transport.clear()
         user.write('OPER user pass\r\n')
@@ -557,10 +668,13 @@ class IRCProtocolTestCase(unittest.TestCase):
 
         self.assertEqual(len(response), 1)
         self.assertEqual(response[0][1], '491')
+    testOper = dG(testOper)
 
 
     def testGetUserMode(self):
-        user = self._loggedInUser(u'useruser')
+        user = wFD(self._loggedInUser(u'useruser'))
+        yield user
+        user = user.getResult()
 
         user.transport.clear()
         user.write('MODE useruser\r\n')
@@ -570,10 +684,13 @@ class IRCProtocolTestCase(unittest.TestCase):
         self.assertEqual(response[0][0], 'realmname')
         self.assertEqual(response[0][1], '221')
         self.assertEqual(response[0][2], ['useruser', '+'])
+    testGetUserMode = dG(testGetUserMode)
 
 
     def testSetUserMode(self):
-        user = self._loggedInUser(u'useruser')
+        user = wFD(self._loggedInUser(u'useruser'))
+        yield user
+        user = user.getResult()
 
         user.transport.clear()
         user.write('MODE useruser +abcd\r\n')
@@ -581,12 +698,17 @@ class IRCProtocolTestCase(unittest.TestCase):
         response = self._response(user)
         self.assertEqual(len(response), 1)
         self.assertEqual(response[0][1], '472')
+    testSetUserMode = dG(testSetUserMode)
 
 
     def testGetGroupMode(self):
-        user = self._loggedInUser(u'useruser')
+        user = wFD(self._loggedInUser(u'useruser'))
+        yield user
+        user = user.getResult()
 
-        self.successResultOf(self.realm.createGroup(u"somechannel"))
+        add = wFD(self.realm.createGroup(u"somechannel"))
+        yield add
+        somechannel = add.getResult()
 
         user.write('JOIN #somechannel\r\n')
 
@@ -596,12 +718,17 @@ class IRCProtocolTestCase(unittest.TestCase):
         response = self._response(user)
         self.assertEqual(len(response), 1)
         self.assertEqual(response[0][1], '324')
+    testGetGroupMode = dG(testGetGroupMode)
 
 
     def testSetGroupMode(self):
-        user = self._loggedInUser(u'useruser')
+        user = wFD(self._loggedInUser(u'useruser'))
+        yield user
+        user = user.getResult()
 
-        self.successResultOf(self.realm.createGroup(u"groupname"))
+        group = wFD(self.realm.createGroup(u"groupname"))
+        yield group
+        group = group.getResult()
 
         user.write('JOIN #groupname\r\n')
 
@@ -611,15 +738,20 @@ class IRCProtocolTestCase(unittest.TestCase):
         response = self._response(user)
         self.assertEqual(len(response), 1)
         self.assertEqual(response[0][1], '472')
+    testSetGroupMode = dG(testSetGroupMode)
 
 
     def testWho(self):
         group = service.Group('groupname')
-        self.successResultOf(self.realm.addGroup(group))
+        add = wFD(self.realm.addGroup(group))
+        yield add
+        add.getResult()
 
         users = []
         for nick in u'userone', u'usertwo', u'userthree':
-            u = self._loggedInUser(nick)
+            u = wFD(self._loggedInUser(nick))
+            yield u
+            u = u.getResult()
             users.append(u)
             users[-1].write('JOIN #groupname\r\n')
         for user in users:
@@ -654,13 +786,18 @@ class IRCProtocolTestCase(unittest.TestCase):
         self.assertEqual(myname, 'userone')
         self.assertEqual(channel, '#groupname')
         self.assertEqual(extra, 'End of /WHO list.')
+    testWho = dG(testWho)
 
 
     def testList(self):
-        user = self._loggedInUser(u"someuser")
+        user = wFD(self._loggedInUser(u"someuser"))
+        yield user
+        user = user.getResult()
         user.transport.clear()
 
-        somegroup = self.successResultOf(self.realm.createGroup(u"somegroup"))
+        somegroup = wFD(self.realm.createGroup(u"somegroup"))
+        yield somegroup
+        somegroup = somegroup.getResult()
         somegroup.size = lambda: succeed(17)
         somegroup.meta['topic'] = 'this is the topic woo'
 
@@ -698,10 +835,13 @@ class IRCProtocolTestCase(unittest.TestCase):
         self.assertEqual(fg1[2][3], 'this is the topic woo')
 
         self.assertEqual(end[1], '323')
+    testList = dG(testList)
 
 
     def testWhois(self):
-        user = self._loggedInUser(u'someguy')
+        user = wFD(self._loggedInUser(u'someguy'))
+        yield user
+        user = user.getResult()
 
         otherguy = service.User("otherguy")
         otherguy.itergroups = lambda: iter([
@@ -710,7 +850,9 @@ class IRCProtocolTestCase(unittest.TestCase):
         otherguy.signOn = 10
         otherguy.lastMessage = time.time() - 15
 
-        self.successResultOf(self.realm.addUser(otherguy))
+        add = wFD(self.realm.addUser(otherguy))
+        yield add
+        add.getResult()
 
         user.transport.clear()
         user.write('WHOIS otherguy\r\n')
@@ -754,6 +896,7 @@ class IRCProtocolTestCase(unittest.TestCase):
         self.assertEqual(end[2][0], 'someguy')
         self.assertEqual(end[2][1], 'otherguy')
         self.assertEqual(end[2][2], 'End of WHOIS list.')
+    testWhois = dG(testWhois)
 
 
 class TestMind(service.PBMind):
@@ -819,20 +962,34 @@ class PBProtocolTestCase(unittest.TestCase):
         return d
 
 
-    @defer.inlineCallbacks
     def testGroups(self):
         mindone = TestMind()
-        one = yield self._loggedInAvatar(u"one", "p1", mindone)
+        one = wFD(self._loggedInAvatar(u"one", "p1", mindone))
+        yield one
+        one = one.getResult()
 
         mindtwo = TestMind()
-        two = yield self._loggedInAvatar(u"two", "p2", mindtwo)
+        two = wFD(self._loggedInAvatar(u"two", "p2", mindtwo))
+        yield two
+        two = two.getResult()
 
-        yield self.realm.createGroup(u"foobar")
+        add = wFD(self.realm.createGroup(u"foobar"))
+        yield add
+        add.getResult()
 
-        groupone = yield one.join(u"foobar")
+        groupone = wFD(one.join(u"foobar"))
+        yield groupone
+        groupone = groupone.getResult()
 
-        yield two.join(u"foobar")
+        grouptwo = wFD(two.join(u"foobar"))
+        yield grouptwo
+        grouptwo = grouptwo.getResult()
 
-        yield groupone.send({"text": "hello, monkeys"})
+        msg = wFD(groupone.send({"text": "hello, monkeys"}))
+        yield msg
+        msg = msg.getResult()
 
-        yield groupone.leave()
+        leave = wFD(groupone.leave())
+        yield leave
+        leave = leave.getResult()
+    testGroups = dG(testGroups)

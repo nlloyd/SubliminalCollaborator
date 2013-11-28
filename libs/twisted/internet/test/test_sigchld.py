@@ -6,25 +6,44 @@ Tests for L{twisted.internet._sigchld}, an alternate, superior SIGCHLD
 monitoring API.
 """
 
-from __future__ import division, absolute_import
-
 import os, signal, errno
 
-from twisted.python.runtime import platformType
 from twisted.python.log import msg
-from twisted.trial.unittest import SynchronousTestCase
-if platformType == "posix":
-    from twisted.internet.fdesc import setNonBlocking
-    from twisted.internet._signals import installHandler, isDefaultHandler
-else:
-    skip = "These tests can only run on POSIX platforms."
+from twisted.trial.unittest import TestCase
+from twisted.internet.fdesc import setNonBlocking
+from twisted.internet._signals import installHandler, isDefaultHandler
+from twisted.internet._signals import _extInstallHandler, _extIsDefaultHandler
+from twisted.internet._signals import _installHandlerUsingSetWakeup, \
+    _installHandlerUsingSignal, _isDefaultHandler
 
 
-class SetWakeupSIGCHLDTests(SynchronousTestCase):
+class SIGCHLDTestsMixin:
     """
-    Tests for the L{signal.set_wakeup_fd} implementation of the
-    L{installHandler} and L{isDefaultHandler} APIs.
+    Mixin for L{TestCase} subclasses which defines several tests for
+    I{installHandler} and I{isDefaultHandler}.  Subclasses are expected to
+    define C{self.installHandler} and C{self.isDefaultHandler} to invoke the
+    implementation to be tested.
     """
+
+    if getattr(signal, 'SIGCHLD', None) is None:
+        skip = "Platform does not have SIGCHLD"
+
+    def installHandler(self, fd):
+        """
+        Override in a subclass to install a SIGCHLD handler which writes a byte
+        to the given file descriptor.  Return the previously registered file
+        descriptor.
+        """
+        raise NotImplementedError()
+
+
+    def isDefaultHandler(self):
+        """
+        Override in a subclass to determine if the current SIGCHLD handler is
+        SIG_DFL or not.  Return True if it is SIG_DFL, False otherwise.
+        """
+        raise NotImplementedError()
+
 
     def pipe(self):
         """
@@ -51,11 +70,11 @@ class SetWakeupSIGCHLDTests(SynchronousTestCase):
         else:
             self.signalModuleHandler = None
 
-        self.oldFD = installHandler(-1)
+        self.oldFD = self.installHandler(-1)
 
         if self.signalModuleHandler is not None and self.oldFD != -1:
-            msg("Previous test didn't clean up after its SIGCHLD setup: %r %r"
-                % (self.signalModuleHandler, self.oldFD))
+            msg("SIGCHLD setup issue: %r %r" % (self.signalModuleHandler, self.oldFD))
+            raise RuntimeError("You used some signal APIs wrong!  Try again.")
 
 
     def tearDown(self):
@@ -63,14 +82,14 @@ class SetWakeupSIGCHLDTests(SynchronousTestCase):
         Restore whatever signal handler was present when setUp ran.
         """
         # If tests set up any kind of handlers, clear them out.
-        installHandler(-1)
+        self.installHandler(-1)
         signal.signal(signal.SIGCHLD, signal.SIG_DFL)
 
         # Now restore whatever the setup was before the test ran.
         if self.signalModuleHandler is not None:
             signal.signal(signal.SIGCHLD, self.signalModuleHandler)
         elif self.oldFD != -1:
-            installHandler(self.oldFD)
+            self.installHandler(self.oldFD)
 
 
     def test_isDefaultHandler(self):
@@ -78,13 +97,13 @@ class SetWakeupSIGCHLDTests(SynchronousTestCase):
         L{isDefaultHandler} returns true if the SIGCHLD handler is SIG_DFL,
         false otherwise.
         """
-        self.assertTrue(isDefaultHandler())
+        self.assertTrue(self.isDefaultHandler())
         signal.signal(signal.SIGCHLD, signal.SIG_IGN)
-        self.assertFalse(isDefaultHandler())
+        self.assertFalse(self.isDefaultHandler())
         signal.signal(signal.SIGCHLD, signal.SIG_DFL)
-        self.assertTrue(isDefaultHandler())
+        self.assertTrue(self.isDefaultHandler())
         signal.signal(signal.SIGCHLD, lambda *args: None)
-        self.assertFalse(isDefaultHandler())
+        self.assertFalse(self.isDefaultHandler())
 
 
     def test_returnOldFD(self):
@@ -92,8 +111,8 @@ class SetWakeupSIGCHLDTests(SynchronousTestCase):
         L{installHandler} returns the previously registered file descriptor.
         """
         read, write = self.pipe()
-        oldFD = installHandler(write)
-        self.assertEqual(installHandler(oldFD), write)
+        oldFD = self.installHandler(write)
+        self.assertEqual(self.installHandler(oldFD), write)
 
 
     def test_uninstallHandler(self):
@@ -101,11 +120,11 @@ class SetWakeupSIGCHLDTests(SynchronousTestCase):
         C{installHandler(-1)} removes the SIGCHLD handler completely.
         """
         read, write = self.pipe()
-        self.assertTrue(isDefaultHandler())
-        installHandler(write)
-        self.assertFalse(isDefaultHandler())
-        installHandler(-1)
-        self.assertTrue(isDefaultHandler())
+        self.assertTrue(self.isDefaultHandler())
+        self.installHandler(write)
+        self.assertFalse(self.isDefaultHandler())
+        self.installHandler(-1)
+        self.assertTrue(self.isDefaultHandler())
 
 
     def test_installHandler(self):
@@ -114,7 +133,7 @@ class SetWakeupSIGCHLDTests(SynchronousTestCase):
         it when SIGCHLD is delivered to the process.
         """
         read, write = self.pipe()
-        installHandler(write)
+        self.installHandler(write)
 
         exc = self.assertRaises(OSError, os.read, read, 1)
         self.assertEqual(exc.errno, errno.EAGAIN)
@@ -123,3 +142,53 @@ class SetWakeupSIGCHLDTests(SynchronousTestCase):
 
         self.assertEqual(len(os.read(read, 5)), 1)
 
+
+
+class DefaultSIGCHLDTests(SIGCHLDTestsMixin, TestCase):
+    """
+    Tests for whatever implementation is selected for the L{installHandler}
+    and L{isDefaultHandler} APIs.
+    """
+    installHandler = staticmethod(installHandler)
+    isDefaultHandler = staticmethod(isDefaultHandler)
+
+
+
+class ExtensionSIGCHLDTests(SIGCHLDTestsMixin, TestCase):
+    """
+    Tests for the L{twisted.internet._sigchld} implementation of the
+    L{installHandler} and L{isDefaultHandler} APIs.
+    """
+    try:
+        import twisted.internet._sigchld
+    except ImportError:
+        skip = "twisted.internet._sigchld is not available"
+
+    installHandler = _extInstallHandler
+    isDefaultHandler = _extIsDefaultHandler
+
+
+
+class SetWakeupSIGCHLDTests(SIGCHLDTestsMixin, TestCase):
+    """
+    Tests for the L{signal.set_wakeup_fd} implementation of the
+    L{installHandler} and L{isDefaultHandler} APIs.
+    """
+    # Check both of these.  On Ubuntu 9.10 (to take an example completely at
+    # random), Python 2.5 has set_wakeup_fd but not siginterrupt.
+    if (getattr(signal, 'set_wakeup_fd', None) is None
+        or getattr(signal, 'siginterrupt', None) is None):
+        skip = "signal.set_wakeup_fd is not available"
+
+    installHandler = staticmethod(_installHandlerUsingSetWakeup)
+    isDefaultHandler = staticmethod(_isDefaultHandler)
+
+
+
+class PlainSignalModuleSIGCHLDTests(SIGCHLDTestsMixin, TestCase):
+    """
+    Tests for the L{signal.signal} implementation of the L{installHandler}
+    and L{isDefaultHandler} APIs.
+    """
+    installHandler = staticmethod(_installHandlerUsingSignal)
+    isDefaultHandler = staticmethod(_isDefaultHandler)

@@ -8,7 +8,6 @@ Simple Mail Transfer Protocol implementation.
 
 import time, re, base64, types, socket, os, random, rfc822
 import binascii
-import warnings
 from email.base64MIME import encode as encode_base64
 
 from zope.interface import implements, Interface
@@ -20,7 +19,7 @@ from twisted.internet import protocol
 from twisted.internet import defer
 from twisted.internet import error
 from twisted.internet import reactor
-from twisted.internet.interfaces import ITLSTransport, ISSLTransport
+from twisted.internet.interfaces import ITLSTransport
 from twisted.python import log
 from twisted.python import util
 
@@ -499,9 +498,7 @@ class IMessage(Interface):
         """
 
 class SMTP(basic.LineOnlyReceiver, policies.TimeoutMixin):
-    """
-    SMTP server-side protocol.
-    """
+    """SMTP server-side protocol."""
 
     timeout = 600
     host = DNSNAME
@@ -927,7 +924,7 @@ class SMTP(basic.LineOnlyReceiver, policies.TimeoutMixin):
         """
         Validate the address for which the message is destined.
 
-        @type user: L{User}
+        @type user: C{User}
         @param user: The address to validate.
 
         @rtype: no-argument callable
@@ -959,6 +956,10 @@ class SMTP(basic.LineOnlyReceiver, policies.TimeoutMixin):
                                rfc822date())
         return "Received: %s\n\t%s\n\t%s" % (from_, by, for_)
 
+    def startMessage(self, recipients):
+        if self.delivery:
+            return self.delivery.startMessage(recipients)
+        return []
 
 
 class SMTPFactory(protocol.ServerFactory):
@@ -983,7 +984,7 @@ class SMTPFactory(protocol.ServerFactory):
 class SMTPClient(basic.LineReceiver, policies.TimeoutMixin):
     """
     SMTP client for sending emails.
-
+    
     After the client has connected to the SMTP server, it repeatedly calls
     L{SMTPClient.getMailFrom}, L{SMTPClient.getMailTo} and
     L{SMTPClient.getMailData} and uses this information to send an email.
@@ -1233,7 +1234,7 @@ class ESMTPClient(SMTPClient):
     requireTransportSecurity = False
 
     # Indicate whether or not our transport can be considered secure.
-    _tlsMode = False
+    tlsMode = False
 
     # ClientContextFactory to use for STARTTLS
     context = None
@@ -1243,30 +1244,7 @@ class ESMTPClient(SMTPClient):
         self.authenticators = []
         self.secret = secret
         self.context = contextFactory
-
-
-    def __getattr__(self, name):
-        if name == "tlsMode":
-            warnings.warn(
-                "tlsMode attribute of twisted.mail.smtp.ESMTPClient "
-                "is deprecated since Twisted 13.0",
-                category=DeprecationWarning, stacklevel=2)
-            return self._tlsMode
-        else:
-            raise AttributeError(
-                '%s instance has no attribute %r' % (
-                    self.__class__.__name__, name,))
-
-
-    def __setattr__(self, name, value):
-        if name == "tlsMode":
-            warnings.warn(
-                "tlsMode attribute of twisted.mail.smtp.ESMTPClient "
-                "is deprecated since Twisted 13.0",
-                category=DeprecationWarning, stacklevel=2)
-            self._tlsMode = value
-        else:
-            self.__dict__[name] = value
+        self.tlsMode = False
 
 
     def esmtpEHLORequired(self, code=-1, resp=None):
@@ -1329,13 +1307,7 @@ class ESMTPClient(SMTPClient):
 
         self.sendLine('EHLO ' + self.identity)
 
-
     def esmtpState_serverConfig(self, code, resp):
-        """
-        Handle a positive response to the I{EHLO} command by parsing the
-        capabilities in the server's response and then taking the most
-        appropriate next step towards entering a mail transaction.
-        """
         items = {}
         for line in resp.splitlines():
             e = line.split(None, 1)
@@ -1344,71 +1316,28 @@ class ESMTPClient(SMTPClient):
             else:
                 items[e[0]] = None
 
-        self.tryTLS(code, resp, items)
-
+        if self.tlsMode:
+            self.authenticate(code, resp, items)
+        else:
+            self.tryTLS(code, resp, items)
 
     def tryTLS(self, code, resp, items):
-        """
-        Take a necessary step towards being able to begin a mail transaction.
-
-        The step may be to ask the server to being a TLS session.  If TLS is
-        already in use or not necessary and not available then the step may be
-        to authenticate with the server.  If TLS is necessary and not available,
-        fail the mail transmission attempt.
-
-        This is an internal helper method.
-
-        @param code: The server status code from the most recently received
-            server message.
-        @type code: L{int}
-
-        @param resp: The server status response from the most recently received
-            server message.
-        @type resp: L{bytes}
-
-        @param items: A mapping of ESMTP extensions offered by the server.  Keys
-            are extension identifiers and values are the associated values.
-        @type items: L{dict} mapping L{bytes} to L{bytes}
-
-        @return: C{None}
-        """
-
-        # has ssl        can ssl         must ssl       result
-        #   t               t               t           authenticate
-        #   t               t               f           authenticate
-        #   t               f               t           authenticate
-        #   t               f               f           authenticate
-
-        #   f               t               t           STARTTLS
-        #   f               t               f           STARTTLS
-        #   f               f               t           esmtpTLSRequired
-        #   f               f               f           authenticate
-
-        hasTLS = ISSLTransport.providedBy(self.transport)
-        canTLS = self.context and b"STARTTLS" in items
-        mustTLS = self.requireTransportSecurity
-
-        if hasTLS or not (canTLS or mustTLS):
-            self.authenticate(code, resp, items)
-        elif canTLS:
+        if self.context and 'STARTTLS' in items:
             self._expected = [220]
             self._okresponse = self.esmtpState_starttls
             self._failresponse = self.esmtpTLSFailed
             self.sendLine('STARTTLS')
-        else:
+        elif self.requireTransportSecurity:
+            self.tlsMode = False
             self.esmtpTLSRequired()
-
+        else:
+            self.tlsMode = False
+            self.authenticate(code, resp, items)
 
     def esmtpState_starttls(self, code, resp):
-        """
-        Handle a positive response to the I{STARTTLS} command by starting a new
-        TLS session on C{self.transport}.
-
-        Upon success, re-handshake with the server to discover what capabilities
-        it has when TLS is in use.
-        """
         try:
             self.transport.startTLS(self.context)
+            self.tlsMode = True
         except:
             log.err()
             self.esmtpTLSFailed(451)
@@ -1416,7 +1345,6 @@ class ESMTPClient(SMTPClient):
         # Send another EHLO once TLS has been started to
         # get the TLS / AUTH schemes. Some servers only allow AUTH in TLS mode.
         self.esmtpState_ehlo(code, resp)
-
 
     def authenticate(self, code, resp, items):
         if self.secret and items.get('AUTH'):
@@ -1721,7 +1649,7 @@ class SenderMixin:
 
 class SMTPSender(SenderMixin, SMTPClient):
     """
-    SMTP protocol that sends a single email based on information it
+    SMTP protocol that sends a single email based on information it 
     gets from its factory, a L{SMTPSenderFactory}.
     """
 
@@ -1747,7 +1675,6 @@ class SMTPSenderFactory(protocol.ClientFactory):
 
         @param deferred: A Deferred to callback or errback when sending
         of this message completes.
-        @type deferred: L{defer.Deferred}
 
         @param retries: The number of times to retry delivery of this
         message.

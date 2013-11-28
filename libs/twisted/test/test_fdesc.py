@@ -19,45 +19,14 @@ from twisted.python.util import untilConcludes
 from twisted.trial import unittest
 
 
-
-class NonBlockingTestCase(unittest.SynchronousTestCase):
+class ReadWriteTestCase(unittest.TestCase):
     """
-    Tests for L{fdesc.setNonBlocking} and L{fdesc.setBlocking}.
-    """
-
-    def test_setNonBlocking(self):
-        """
-        L{fdesc.setNonBlocking} sets a file description to non-blocking.
-        """
-        r, w = os.pipe()
-        self.addCleanup(os.close, r)
-        self.addCleanup(os.close, w)
-        self.assertFalse(fcntl.fcntl(r, fcntl.F_GETFL) & os.O_NONBLOCK)
-        fdesc.setNonBlocking(r)
-        self.assertTrue(fcntl.fcntl(r, fcntl.F_GETFL) & os.O_NONBLOCK)
-
-
-    def test_setBlocking(self):
-        """
-        L{fdesc.setBlocking} sets a file description to blocking.
-        """
-        r, w = os.pipe()
-        self.addCleanup(os.close, r)
-        self.addCleanup(os.close, w)
-        fdesc.setNonBlocking(r)
-        fdesc.setBlocking(r)
-        self.assertFalse(fcntl.fcntl(r, fcntl.F_GETFL) & os.O_NONBLOCK)
-
-
-
-class ReadWriteTestCase(unittest.SynchronousTestCase):
-    """
-    Tests for L{fdesc.readFromFD}, L{fdesc.writeToFD}.
+    Tests for fdesc.readFromFD, fdesc.writeToFD.
     """
 
     def setUp(self):
         """
-        Create a non-blocking pipe that can be used in tests.
+        Create two non-blocking pipes that can be used in tests.
         """
         self.r, self.w = os.pipe()
         fdesc.setNonBlocking(self.r)
@@ -95,7 +64,7 @@ class ReadWriteTestCase(unittest.SynchronousTestCase):
             if l:
                 return l[0]
             else:
-                return b""
+                return ""
         else:
             return res
 
@@ -105,11 +74,11 @@ class ReadWriteTestCase(unittest.SynchronousTestCase):
         Test that the number of bytes L{fdesc.writeToFD} reports as written
         with its return value are seen by L{fdesc.readFromFD}.
         """
-        n = self.write(b"hello")
+        n = self.write("hello")
         self.failUnless(n > 0)
         s = self.read()
         self.assertEqual(len(s), n)
-        self.assertEqual(b"hello"[:n], s)
+        self.assertEqual("hello"[:n], s)
 
 
     def test_writeAndReadLarge(self):
@@ -117,7 +86,7 @@ class ReadWriteTestCase(unittest.SynchronousTestCase):
         Similar to L{test_writeAndRead}, but use a much larger string to verify
         the behavior for that case.
         """
-        orig = b"0123456879" * 10000
+        orig = "0123456879" * 10000
         written = self.write(orig)
         self.failUnless(written > 0)
         result = []
@@ -128,7 +97,7 @@ class ReadWriteTestCase(unittest.SynchronousTestCase):
             resultlength += len(result[-1])
             # Increment a counter to be sure we'll exit at some point
             i += 1
-        result = b"".join(result)
+        result = "".join(result)
         self.assertEqual(len(result), written)
         self.assertEqual(orig[:written], result)
 
@@ -159,7 +128,7 @@ class ReadWriteTestCase(unittest.SynchronousTestCase):
         results in a connection lost indicator.
         """
         os.close(self.r)
-        self.assertEqual(self.write(b"s"), fdesc.CONNECTION_LOST)
+        self.assertEqual(self.write("s"), fdesc.CONNECTION_LOST)
 
 
     def test_readFromInvalid(self):
@@ -177,7 +146,7 @@ class ReadWriteTestCase(unittest.SynchronousTestCase):
         closed results in a connection lost indicator.
         """
         os.close(self.w)
-        self.assertEqual(self.write(b"s"), fdesc.CONNECTION_LOST)
+        self.assertEqual(self.write("s"), fdesc.CONNECTION_LOST)
 
 
     def test_writeErrors(self):
@@ -191,7 +160,7 @@ class ReadWriteTestCase(unittest.SynchronousTestCase):
             raise err
         os.write = eagainWrite
         try:
-            self.assertEqual(self.write(b"s"), 0)
+            self.assertEqual(self.write("s"), 0)
         finally:
             os.write = oldOsWrite
 
@@ -201,21 +170,21 @@ class ReadWriteTestCase(unittest.SynchronousTestCase):
             raise err
         os.write = eintrWrite
         try:
-            self.assertEqual(self.write(b"s"), 0)
+            self.assertEqual(self.write("s"), 0)
         finally:
             os.write = oldOsWrite
 
 
 
-class CloseOnExecTests(unittest.SynchronousTestCase):
+class CloseOnExecTests(unittest.TestCase):
     """
     Tests for L{fdesc._setCloseOnExec} and L{fdesc._unsetCloseOnExec}.
     """
     program = '''
 import os, errno
 try:
-    os.write(%d, b'lul')
-except OSError as e:
+    os.write(%d, 'lul')
+except OSError, e:
     if e.errno == errno.EBADF:
         os._exit(0)
     os._exit(5)
@@ -246,11 +215,11 @@ else:
         by a new process image created with one of the exec family of
         functions.
         """
-        with open(self.mktemp(), 'wb') as fObj:
-            fdesc._setCloseOnExec(fObj.fileno())
-            status = self._execWithFileDescriptor(fObj)
-            self.assertTrue(os.WIFEXITED(status))
-            self.assertEqual(os.WEXITSTATUS(status), 0)
+        fObj = file(self.mktemp(), 'w')
+        fdesc._setCloseOnExec(fObj.fileno())
+        status = self._execWithFileDescriptor(fObj)
+        self.assertTrue(os.WIFEXITED(status))
+        self.assertEqual(os.WEXITSTATUS(status), 0)
 
 
     def test_unsetCloseOnExec(self):
@@ -258,9 +227,9 @@ else:
         A file descriptor passed to L{fdesc._unsetCloseOnExec} is inherited by
         a new process image created with one of the exec family of functions.
         """
-        with open(self.mktemp(), 'wb') as fObj:
-            fdesc._setCloseOnExec(fObj.fileno())
-            fdesc._unsetCloseOnExec(fObj.fileno())
-            status = self._execWithFileDescriptor(fObj)
-            self.assertTrue(os.WIFEXITED(status))
-            self.assertEqual(os.WEXITSTATUS(status), 20)
+        fObj = file(self.mktemp(), 'w')
+        fdesc._setCloseOnExec(fObj.fileno())
+        fdesc._unsetCloseOnExec(fObj.fileno())
+        status = self._execWithFileDescriptor(fObj)
+        self.assertTrue(os.WIFEXITED(status))
+        self.assertEqual(os.WEXITSTATUS(status), 20)

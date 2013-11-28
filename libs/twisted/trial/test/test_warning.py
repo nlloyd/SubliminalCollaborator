@@ -5,16 +5,13 @@
 Tests for Trial's interaction with the Python warning system.
 """
 
-from __future__ import division, absolute_import
-
 import sys, warnings
+from StringIO import StringIO
 
-from unittest import TestResult
-
-from twisted.python.compat import NativeStringIO as StringIO
 from twisted.python.filepath import FilePath
 from twisted.trial.unittest import (
     SynchronousTestCase, _collectWarnings, _setWarningRegistryToNone)
+from twisted.trial.reporter import TestResult
 
 class Mask(object):
     """
@@ -55,7 +52,7 @@ class FlushWarningsTests(SynchronousTestCase):
         Assert that all the keys present in C{subset} are also present in
         C{set} and that the corresponding values are equal.
         """
-        for k, v in subset.items():
+        for k, v in subset.iteritems():
             self.assertEqual(set[k], v)
 
 
@@ -138,7 +135,7 @@ class FlushWarningsTests(SynchronousTestCase):
         self.assertEqual(warningsShown[0]['message'], 'some warning text')
         self.assertIdentical(warningsShown[0]['category'], UserWarning)
 
-        where = type(case).test_unflushed.__code__
+        where = case.test_unflushed.im_func.func_code
         filename = where.co_filename
         # If someone edits MockTests.test_unflushed, the value added to
         # firstlineno might need to change.
@@ -183,11 +180,7 @@ class FlushWarningsTests(SynchronousTestCase):
             case.run(result)
             self.assertEqual(len(result.errors), 1)
             self.assertIdentical(result.errors[0][0], case)
-            self.assertTrue(
-                # Different python versions differ in whether they report the
-                # fully qualified class name or just the class name.
-                result.errors[0][1].splitlines()[-1].endswith(
-                    "CustomWarning: some warning text"))
+            result.errors[0][1].trap(CustomWarning)
         finally:
             warnings.filters[:] = originalWarnings
 
@@ -283,21 +276,20 @@ class FlushWarningsTests(SynchronousTestCase):
         Warnings emitted by a function the source code of which is not
         available can still be flushed.
         """
-        package = FilePath(self.mktemp().encode('utf-8')).child(b'twisted_private_helper')
+        package = FilePath(self.mktemp()).child('twisted_private_helper')
         package.makedirs()
-        package.child(b'__init__.py').setContent(b'')
-        package.child(b'missingsourcefile.py').setContent(b'''
+        package.child('__init__.py').setContent('')
+        package.child('missingsourcefile.py').setContent('''
 import warnings
 def foo():
     warnings.warn("oh no")
 ''')
-        pathEntry = package.parent().path.decode('utf-8')
-        sys.path.insert(0, pathEntry)
-        self.addCleanup(sys.path.remove, pathEntry)
+        sys.path.insert(0, package.parent().path)
+        self.addCleanup(sys.path.remove, package.parent().path)
         from twisted_private_helper import missingsourcefile
         self.addCleanup(sys.modules.pop, 'twisted_private_helper')
         self.addCleanup(sys.modules.pop, missingsourcefile.__name__)
-        package.child(b'missingsourcefile.py').remove()
+        package.child('missingsourcefile.py').remove()
 
         missingsourcefile.foo()
         self.assertEqual(len(self.flushWarnings([missingsourcefile.foo])), 1)
@@ -314,17 +306,16 @@ def foo():
         various places.  If source files are renamed, .pyc files may not be
         regenerated, but they will contain incorrect filenames.
         """
-        package = FilePath(self.mktemp().encode('utf-8')).child(b'twisted_private_helper')
+        package = FilePath(self.mktemp()).child('twisted_private_helper')
         package.makedirs()
-        package.child(b'__init__.py').setContent(b'')
-        package.child(b'module.py').setContent(b'''
+        package.child('__init__.py').setContent('')
+        package.child('module.py').setContent('''
 import warnings
 def foo():
     warnings.warn("oh no")
 ''')
-        pathEntry = package.parent().path.decode('utf-8')
-        sys.path.insert(0, pathEntry)
-        self.addCleanup(sys.path.remove, pathEntry)
+        sys.path.insert(0, package.parent().path)
+        self.addCleanup(sys.path.remove, package.parent().path)
 
         # Import it to cause pycs to be generated
         from twisted_private_helper import module
@@ -334,18 +325,8 @@ def foo():
         del sys.modules['twisted_private_helper']
         del sys.modules[module.__name__]
 
-        # Some Python versions have extra state related to the just
-        # imported/renamed package.  Clean it up too.  See also
-        # http://bugs.python.org/issue15912
-        try:
-            from importlib import invalidate_caches
-        except ImportError:
-            pass
-        else:
-            invalidate_caches()
-
         # Rename the source directory
-        package.moveTo(package.sibling(b'twisted_renamed_helper'))
+        package.moveTo(package.sibling('twisted_renamed_helper'))
 
         # Import the newly renamed version
         from twisted_renamed_helper import module

@@ -8,8 +8,6 @@ Resource limiting policies.
 @seealso: See also L{twisted.protocols.htb} for rate limiting.
 """
 
-from __future__ import division, absolute_import
-
 # system imports
 import sys, operator
 
@@ -237,7 +235,7 @@ class ThrottlingFactory(WrappingFactory):
 
     protocol = ThrottlingProtocol
 
-    def __init__(self, wrappedFactory, maxConnectionCount=sys.maxsize,
+    def __init__(self, wrappedFactory, maxConnectionCount=sys.maxint,
                  readLimit=None, writeLimit=None):
         WrappingFactory.__init__(self, wrappedFactory)
         self.connectionCount = 0

@@ -12,7 +12,7 @@ from twisted.trial import unittest
 from twisted.trial.itrial import IReporter
 
 
-class TestPlugins(unittest.SynchronousTestCase):
+class TestPlugins(unittest.TestCase):
     """
     Tests for Trial's reporter plugins.
     """

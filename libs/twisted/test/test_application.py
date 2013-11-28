@@ -357,21 +357,6 @@ class TestInternet2(unittest.TestCase):
         return defer.maybeDeferred(t.stopService).addCallback(onStop)
 
 
-    def test_deprecatedUDPClient(self):
-        """
-        L{internet.UDPClient} is deprecated since Twisted-13.1.
-        """
-        internet.UDPClient
-        warningsShown = self.flushWarnings([self.test_deprecatedUDPClient])
-        self.assertEqual(1, len(warningsShown))
-        self.assertEqual(
-                "twisted.application.internet.UDPClient was deprecated in "
-                "Twisted 13.1.0: It relies upon IReactorUDP.connectUDP "
-                "which was removed in Twisted 10. "
-                "Use twisted.application.internet.UDPServer instead.",
-                warningsShown[0]['message'])
-
-
     def testPrivileged(self):
         factory = protocol.ServerFactory()
         factory.protocol = TestEcho
@@ -505,6 +490,34 @@ class TestInternet2(unittest.TestCase):
         return d
 
 
+    def test_genericServerDeprecated(self):
+        """
+        Instantiating L{GenericServer} emits a deprecation warning.
+        """
+        internet.GenericServer()
+        warnings = self.flushWarnings(
+            offendingFunctions=[self.test_genericServerDeprecated])
+        self.assertEqual(
+            warnings[0]['message'],
+            'GenericServer was deprecated in Twisted 10.1.')
+        self.assertEqual(warnings[0]['category'], DeprecationWarning)
+        self.assertEqual(len(warnings), 1)
+
+
+    def test_genericClientDeprecated(self):
+        """
+        Instantiating L{GenericClient} emits a deprecation warning.
+        """
+        internet.GenericClient()
+        warnings = self.flushWarnings(
+            offendingFunctions=[self.test_genericClientDeprecated])
+        self.assertEqual(
+            warnings[0]['message'],
+            'GenericClient was deprecated in Twisted 10.1.')
+        self.assertEqual(warnings[0]['category'], DeprecationWarning)
+        self.assertEqual(len(warnings), 1)
+
+
     def test_everythingThere(self):
         """
         L{twisted.application.internet} dynamically defines a set of
@@ -515,6 +528,8 @@ class TestInternet2(unittest.TestCase):
         for tran in trans[:]:
             if not getattr(interfaces, "IReactor" + tran)(reactor, None):
                 trans.remove(tran)
+        if interfaces.IReactorArbitrary(reactor, None) is not None:
+            trans.insert(0, "Generic")
         for tran in trans:
             for side in 'Server Client'.split():
                 if tran == "Multicast" and side == "Client":
@@ -526,6 +541,13 @@ class TestInternet2(unittest.TestCase):
                         (prefix == "connect" and method == "UDP"))
                 o = getattr(internet, tran + side)()
                 self.assertEqual(service.IService(o), o)
+    test_everythingThere.suppress = [
+        util.suppress(message='GenericServer was deprecated in Twisted 10.1.',
+                      category=DeprecationWarning),
+        util.suppress(message='GenericClient was deprecated in Twisted 10.1.',
+                      category=DeprecationWarning),
+        util.suppress(message='twisted.internet.interfaces.IReactorArbitrary was '
+                      'deprecated in Twisted 10.1.0: See IReactorFDSet.')]
 
 
     def test_importAll(self):

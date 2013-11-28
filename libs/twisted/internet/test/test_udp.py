@@ -5,13 +5,11 @@
 Tests for implementations of L{IReactorUDP}.
 """
 
-from __future__ import division, absolute_import
-
 __metaclass__ = type
 
 from socket import SOCK_DGRAM
 
-from zope.interface import implementer
+from zope.interface import implements
 from zope.interface.verify import verifyObject
 
 from twisted.python import context
@@ -23,8 +21,8 @@ from twisted.internet.interfaces import (
 from twisted.internet.address import IPv4Address
 from twisted.internet.protocol import DatagramProtocol
 
-from twisted.internet.test.connectionmixins import (LogObserverMixin,
-                                                    findFreePort)
+from twisted.internet.test.test_tcp import findFreePort
+from twisted.internet.test.connectionmixins import LogObserverMixin
 
 
 class UDPPortMixin(object):
@@ -61,13 +59,11 @@ class DatagramTransportTestsMixin(LogObserverMixin):
         """
         loggedMessages = self.observe()
         reactor = self.buildReactor()
-
-        @implementer(ILoggingContext)
         class SomeProtocol(DatagramProtocol):
+            implements(ILoggingContext)
             def logPrefix(self):
                 return "Crazy Protocol"
         protocol = SomeProtocol()
-
         p = self.getListeningPort(reactor, protocol)
         expectedMessage = self.getExpectedStartListeningLogMessage(
             p, "Crazy Protocol")
@@ -194,25 +190,8 @@ class UDPServerTestsBuilder(ReactorBuilder, UDPPortMixin,
         d.addErrback(err)
         d.addCallback(lambda ignored: reactor.stop())
 
-        port.write(b"some bytes", ('127.0.0.1', address.port))
+        port.write("some bytes", ('127.0.0.1', address.port))
         self.runReactor(reactor)
 
-
-    def test_str(self):
-        """
-        C{str()} on the listening port object includes the port number.
-        """
-        reactor = self.buildReactor()
-        port = reactor.listenUDP(0, DatagramProtocol())
-        self.assertIn(str(port.getHost().port), str(port))
-
-
-    def test_repr(self):
-        """
-        C{repr()} on the listening port object includes the port number.
-        """
-        reactor = self.buildReactor()
-        port = reactor.listenUDP(0, DatagramProtocol())
-        self.assertIn(repr(port.getHost().port), str(port))
 
 globals().update(UDPServerTestsBuilder.makeTestCaseClasses())

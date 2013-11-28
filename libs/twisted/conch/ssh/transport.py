@@ -14,18 +14,17 @@ Maintainer: Paul Swartz
 import struct
 import zlib
 import array
-from hashlib import md5, sha1
-import string
-import hmac
 
 # external library imports
 from Crypto import Util
+from Crypto.Cipher import XOR
 
 # twisted imports
 from twisted.internet import protocol, defer
 
 from twisted.conch import error
 from twisted.python import log, randbytes
+from twisted.python.hashlib import md5, sha1
 
 
 # sibling imports
@@ -66,28 +65,6 @@ def _generateX(random, bits):
         x = _getRandomNumber(random, bits)
         if 2 <= x <= (2 ** bits) - 2:
             return x
-
-
-class _MACParams(tuple):
-    """
-    L{_MACParams} represents the parameters necessary to compute SSH MAC
-    (Message Authenticate Codes).
-
-    L{_MACParams} is a L{tuple} subclass to maintain compatibility with older
-    versions of the code.  The elements of a L{_MACParams} are::
-
-        0. The digest object used for the MAC
-        1. The inner pad ("ipad") string
-        2. The outer pad ("opad") string
-        3. The size of the digest produced by the digest object
-
-    L{_MACParams} is also an object lesson in why tuples are a bad type for
-    public APIs.
-
-    @ivar key: The HMAC key which will be used.
-    """
-
-
 
 class SSHTransportBase(protocol.Protocol):
     """
@@ -1382,6 +1359,7 @@ class SSHCiphers:
     @ivar inMAc: see outMAC, but for the incoming MAC.
     """
 
+
     cipherMap = {
         '3des-cbc':('DES3', 24, 0),
         'blowfish-cbc':('Blowfish', 16,0 ),
@@ -1473,16 +1451,10 @@ class SSHCiphers:
         if not mod:
             return (None, '', '', 0)
         ds = mod().digest_size
-
-        # Truncation here appears to contravene RFC 2104, section 2.  However,
-        # implementing the hashing behavior prescribed by the RFC breaks
-        # interoperability with OpenSSH (at least version 5.5p1).
-        key = key[:ds] + ('\x00' * (64 - ds))
-        i = string.translate(key, hmac.trans_36)
-        o = string.translate(key, hmac.trans_5C)
-        result = _MACParams((mod,  i, o, ds))
-        result.key = key
-        return result
+        key = key[:ds] + '\x00' * (64 - ds)
+        i = XOR.new('\x36').encrypt(key)
+        o = XOR.new('\x5c').encrypt(key)
+        return mod, i, o, ds
 
 
     def encrypt(self, blocks):
@@ -1518,7 +1490,10 @@ class SSHCiphers:
         if not self.outMAC[0]:
             return ''
         data = struct.pack('>L', seqid) + data
-        return hmac.HMAC(self.outMAC.key, data, self.outMAC[0]).digest()
+        mod, i, o, ds = self.outMAC
+        inner = mod(i + data)
+        outer = mod(o + inner.digest())
+        return outer.digest()
 
 
     def verify(self, seqid, data, mac):
@@ -1537,8 +1512,11 @@ class SSHCiphers:
         if not self.inMAC[0]:
             return mac == ''
         data = struct.pack('>L', seqid) + data
-        outer = hmac.HMAC(self.inMAC.key, data, self.inMAC[0]).digest()
-        return mac == outer
+        mod, i, o, ds = self.inMAC
+        inner = mod(i + data)
+        outer = mod(o + inner.digest())
+        return mac == outer.digest()
+
 
 
 class _Counter:

@@ -6,7 +6,7 @@
 Logging and metrics infrastructure.
 """
 
-from __future__ import division, absolute_import
+from __future__ import division
 
 import sys
 import time
@@ -16,12 +16,8 @@ import logging
 
 from zope.interface import Interface
 
-from twisted.python.compat import unicode, _PY3
-from twisted.python import context
-from twisted.python import _reflectpy3 as reflect
-from twisted.python import util
-from twisted.python import failure
-from twisted.python.threadable import synchronize
+from twisted.python import util, context, reflect
+
 
 
 class ILogContext:
@@ -93,6 +89,11 @@ def callWithLogger(logger, func, *args, **kw):
 
 
 
+_keepErrors = 0
+_keptErrors = []
+_ignoreErrors = []
+
+
 def err(_stuff=None, _why=None, **kw):
     """
     Write a failure to the log.
@@ -116,6 +117,20 @@ def err(_stuff=None, _why=None, **kw):
     if _stuff is None:
         _stuff = failure.Failure()
     if isinstance(_stuff, failure.Failure):
+        if _keepErrors:
+            if _ignoreErrors:
+                keep = 0
+                for err in _ignoreErrors:
+                    r = _stuff.check(err)
+                    if r:
+                        keep = 0
+                        break
+                    else:
+                        keep = 1
+                if keep:
+                    _keptErrors.append(_stuff)
+            else:
+                _keptErrors.append(_stuff)
         msg(failure=_stuff, why=_why, isError=1, **kw)
     elif isinstance(_stuff, Exception):
         msg(failure=failure.Failure(_stuff), why=_why, isError=1, **kw)
@@ -136,7 +151,6 @@ class Logger:
         be called more times than the number of output lines.
         """
         return '-'
-
 
 
 class LogPublisher:
@@ -170,23 +184,23 @@ class LogPublisher:
         """
         Log a new message.
 
-        The message should be a native string, i.e. bytes on Python 2 and
-        Unicode on Python 3. For compatibility with both use the native string
-        syntax, for example::
+        For example::
 
         >>> log.msg('Hello, world.')
 
-        You MUST avoid passing in Unicode on Python 2, and the form::
+        In particular, you MUST avoid the forms::
 
+        >>> log.msg(u'Hello, world.')
         >>> log.msg('Hello ', 'world.')
 
-        This form only works (sometimes) by accident.
+        These forms work (sometimes) by accident and will be disabled
+        entirely in the future.
         """
         actualEventDict = (context.get(ILogContext) or {}).copy()
         actualEventDict.update(kw)
         actualEventDict['message'] = message
         actualEventDict['time'] = time.time()
-        for i in range(len(self.observers) - 1, -1, -1):
+        for i in xrange(len(self.observers) - 1, -1, -1):
             try:
                 self.observers[i](actualEventDict)
             except KeyboardInterrupt:
@@ -245,7 +259,6 @@ class LogPublisher:
             else:
                 _oldshowwarning(message, category, filename, lineno, file, line)
 
-synchronize(LogPublisher)
 
 
 
@@ -257,7 +270,6 @@ except NameError:
     removeObserver = theLogPublisher.removeObserver
     msg = theLogPublisher.msg
     showwarning = theLogPublisher.showwarning
-
 
 
 def _safeFormat(fmtString, fmtDict):
@@ -332,7 +344,6 @@ class FileLogObserver:
         self.write = f.write
         self.flush = f.flush
 
-
     def getTimezoneOffset(self, when):
         """
         Return the current local timezone offset from UTC.
@@ -347,7 +358,6 @@ class FileLogObserver:
         offset = datetime.utcfromtimestamp(when) - datetime.fromtimestamp(when)
         return offset.days * (60 * 60 * 24) + offset.seconds
 
-
     def formatTime(self, when):
         """
         Format the given UTC value as a string representing that time in the
@@ -356,7 +366,7 @@ class FileLogObserver:
         By default it's formatted as a ISO8601-like string (ISO8601 date and
         ISO8601 time separated by a space). It can be customized using the
         C{timeFormat} attribute, which will be used as input for the underlying
-        L{datetime.datetime.strftime} call.
+        C{time.strftime} call.
 
         @type when: C{int}
         @param when: POSIX (ie, UTC) timestamp for which to find the offset.
@@ -364,7 +374,7 @@ class FileLogObserver:
         @rtype: C{str}
         """
         if self.timeFormat is not None:
-            return datetime.fromtimestamp(when).strftime(self.timeFormat)
+            return time.strftime(self.timeFormat, time.localtime(when))
 
         tzOffset = -self.getTimezoneOffset(when)
         when = datetime.utcfromtimestamp(when + tzOffset)
@@ -477,7 +487,7 @@ class StdioOnnaStick:
             encoding = sys.getdefaultencoding()
         self.encoding = encoding
         self.buf = ''
-  
+
     def close(self):
         pass
 
@@ -496,7 +506,7 @@ class StdioOnnaStick:
     tell = read
 
     def write(self, data):
-        if not _PY3 and isinstance(data, unicode):
+        if isinstance(data, unicode):
             data = data.encode(self.encoding)
         d = (self.buf + data).split('\n')
         self.buf = d[-1]
@@ -506,7 +516,7 @@ class StdioOnnaStick:
 
     def writelines(self, lines):
         for line in lines:
-            if not _PY3 and isinstance(line, unicode):
+            if isinstance(line, unicode):
                 line = line.encode(self.encoding)
             msg(line, printed=1, isError=self.isError)
 
@@ -602,6 +612,11 @@ class DefaultObserver:
     def stop(self):
         removeObserver(self._emit)
 
+
+# Some more sibling imports, at the bottom and unqualified to avoid
+# unresolvable circularity
+import threadable, failure
+threadable.synchronize(LogPublisher)
 
 
 try:

@@ -10,11 +10,8 @@ See the L{twisted.trial.test.test_tests} module docstring for details about how
 this code is arranged.
 """
 
-from __future__ import division, absolute_import
-
 import warnings
 
-from twisted.python.compat import _PY3
 from twisted.trial import unittest, util
 
 
@@ -55,43 +52,7 @@ class SuppressionMixin(EmitMixin):
 
 
 
-class SetUpSuppressionMixin(object):
-    def setUp(self):
-        self._emit()
-
-
-
-class TearDownSuppressionMixin(object):
-    def tearDown(self):
-        self._emit()
-
-
-
-class TestSuppression2Mixin(EmitMixin):
-    def testSuppressModule(self):
-        self._emit()
-
-
-
-suppress = [util.suppress(message=MODULE_WARNING_MSG)]
-
-
 class SynchronousTestSuppression(SuppressionMixin, unittest.SynchronousTestCase):
-    pass
-
-
-
-class SynchronousTestSetUpSuppression(SetUpSuppressionMixin, SynchronousTestSuppression):
-    pass
-
-
-
-class SynchronousTestTearDownSuppression(TearDownSuppressionMixin, SynchronousTestSuppression):
-    pass
-
-
-
-class SynchronousTestSuppression2(TestSuppression2Mixin, unittest.SynchronousTestCase):
     pass
 
 
@@ -101,7 +62,29 @@ class AsynchronousTestSuppression(SuppressionMixin, unittest.TestCase):
 
 
 
+class SetUpSuppressionMixin(object):
+    def setUp(self):
+        self._emit()
+
+
+
+class SynchronousTestSetUpSuppression(SetUpSuppressionMixin, SynchronousTestSuppression):
+    pass
+
+
+
 class AsynchronousTestSetUpSuppression(SetUpSuppressionMixin, AsynchronousTestSuppression):
+    pass
+
+
+
+class TearDownSuppressionMixin(object):
+    def tearDown(self):
+        self._emit()
+
+
+
+class SynchronousTestTearDownSuppression(TearDownSuppressionMixin, SynchronousTestSuppression):
     pass
 
 
@@ -111,5 +94,19 @@ class AsynchronousTestTearDownSuppression(TearDownSuppressionMixin, Asynchronous
 
 
 
+class TestSuppression2Mixin(EmitMixin):
+    def testSuppressModule(self):
+        self._emit()
+
+
+
+class SynchronousTestSuppression2(TestSuppression2Mixin, unittest.SynchronousTestCase):
+    pass
+
+
+
 class AsynchronousTestSuppression2(TestSuppression2Mixin, unittest.TestCase):
     pass
+
+
+suppress = [util.suppress(message=MODULE_WARNING_MSG)]

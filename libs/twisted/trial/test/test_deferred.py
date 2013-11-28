@@ -1,25 +1,14 @@
-# Copyright (c) Twisted Matrix Laboratories.
-# See LICENSE for details.
-
-"""
-Tests for returning Deferreds from a TestCase.
-"""
-
-from __future__ import division, absolute_import
-
-import unittest as pyunit
-
 from twisted.internet import defer
-from twisted.trial import unittest, reporter
-from twisted.trial import util
+from twisted.trial import unittest
+from twisted.trial import runner, reporter, util
 from twisted.trial.test import detests
 
 
 class TestSetUp(unittest.TestCase):
     def _loadSuite(self, klass):
-        loader = pyunit.TestLoader()
+        loader = runner.TestLoader()
         r = reporter.TestResult()
-        s = loader.loadTestsFromTestCase(klass)
+        s = loader.loadClass(klass)
         return r, s
 
     def test_success(self):
@@ -79,9 +68,9 @@ class TestNeverFire(unittest.TestCase):
         util.DEFAULT_TIMEOUT_DURATION = self._oldTimeout
 
     def _loadSuite(self, klass):
-        loader = pyunit.TestLoader()
+        loader = runner.TestLoader()
         r = reporter.TestResult()
-        s = loader.loadTestsFromTestCase(klass)
+        s = loader.loadClass(klass)
         return r, s
 
     def test_setUp(self):
@@ -160,7 +149,6 @@ class TestDeferred(TestTester):
         self.failUnless(result.wasSuccessful(), result.errors)
 
 
-
 class TestTimeout(TestTester):
     def getTest(self, name):
         return detests.TimeoutTests(name)
@@ -213,8 +201,8 @@ class TestTimeout(TestTester):
         self._wasTimeout(detests.TimeoutTests.timedOut)
 
     def test_classTimeout(self):
-        loader = pyunit.TestLoader()
-        suite = loader.loadTestsFromTestCase(detests.TestClassTimeoutAttribute)
+        loader = runner.TestLoader()
+        suite = loader.loadClass(detests.TestClassTimeoutAttribute)
         result = reporter.TestResult()
         suite.run(result)
         self.assertEqual(len(result.errors), 1)
@@ -230,7 +218,3 @@ class TestTimeout(TestTester):
             call.cancel()
         self.failIf(result.wasSuccessful())
         self._wasTimeout(result.errors[0][1])
-
-
-# The test loader erroneously attempts to run this:
-del TestTester

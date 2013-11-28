@@ -21,9 +21,11 @@ except ImportError:
     crypt = None
 
 try:
-    from twisted.cred import pamauth
+    from twisted.cred.pamauth import callIntoPAM
 except ImportError:
     pamauth = None
+else:
+    from twisted.cred import pamauth
 
 
 class ITestable(Interface):
@@ -295,7 +297,15 @@ class PluggableAuthenticationModulesTest(unittest.TestCase):
         Replace L{pamauth.callIntoPAM} with a dummy implementation with
         easily-controlled behavior.
         """
-        self.patch(pamauth, 'callIntoPAM', self.callIntoPAM)
+        self._oldCallIntoPAM = pamauth.callIntoPAM
+        pamauth.callIntoPAM = self.callIntoPAM
+
+
+    def tearDown(self):
+        """
+        Restore the original value of L{pamauth.callIntoPAM}.
+        """
+        pamauth.callIntoPAM = self._oldCallIntoPAM
 
 
     def callIntoPAM(self, service, user, conv):

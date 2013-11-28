@@ -24,7 +24,7 @@ They are as follows::
   TCPServer, TCPClient,
   UNIXServer, UNIXClient,
   SSLServer, SSLClient,
-  UDPServer,
+  UDPServer, UDPClient,
   UNIXDatagramServer, UNIXDatagramClient,
   MulticastServer
 
@@ -37,9 +37,9 @@ C{TCPServer(8080, server.Site(r))}.  See the documentation for the
 reactor.listen/connect* methods for more information.
 """
 
+import warnings
+
 from twisted.python import log
-from twisted.python.deprecate import deprecatedModuleAttribute
-from twisted.python.versions import Version
 from twisted.application import service
 from twisted.internet import task
 
@@ -191,13 +191,13 @@ _doc={
 'Client':
 """Connect to %(tran)s
 
-Call reactor.connect%(tran)s when the service starts, with the
+Call reactor.connect%(method)s when the service starts, with the
 arguments given to the constructor.
 """,
 'Server':
 """Serve %(tran)s clients
 
-Call reactor.listen%(tran)s when the service starts, with the
+Call reactor.listen%(method)s when the service starts, with the
 arguments given to the constructor. When the service stops,
 stop listening. See twisted.internet.interfaces for documentation
 on arguments to the reactor method.
@@ -210,56 +210,70 @@ for tran in 'TCP UNIX SSL UDP UNIXDatagram Multicast'.split():
         if tran == "Multicast" and side == "Client":
             continue
         base = globals()['_Abstract'+side]
-        doc = _doc[side] % vars()
+        method = {'Generic': 'With'}.get(tran, tran)
+        doc = _doc[side]%vars()
         klass = types.ClassType(tran+side, (base,),
-                                {'method': tran, '__doc__': doc})
+                                {'method': method, '__doc__': doc})
         globals()[tran+side] = klass
 
 
 
-deprecatedModuleAttribute(
-        Version("Twisted", 13, 1, 0),
-        "It relies upon IReactorUDP.connectUDP "
-        "which was removed in Twisted 10. "
-        "Use twisted.application.internet.UDPServer instead.",
-        "twisted.application.internet", "UDPClient")
+class GenericServer(_AbstractServer):
+    """
+    Serve Generic clients
+
+    Call reactor.listenWith when the service starts, with the arguments given to
+    the constructor. When the service stops, stop listening. See
+    twisted.internet.interfaces for documentation on arguments to the reactor
+    method.
+
+    This service is deprecated (because reactor.listenWith is deprecated).
+    """
+    method = 'With'
+
+    def __init__(self, *args, **kwargs):
+        warnings.warn(
+            'GenericServer was deprecated in Twisted 10.1.',
+            category=DeprecationWarning,
+            stacklevel=2)
+        _AbstractServer.__init__(self, *args, **kwargs)
+
+
+
+class GenericClient(_AbstractClient):
+    """
+    Connect to Generic.
+
+    Call reactor.connectWith when the service starts, with the arguments given
+    to the constructor.
+
+    This service is deprecated (because reactor.connectWith is deprecated).
+    """
+    method = 'With'
+
+    def __init__(self, *args, **kwargs):
+        warnings.warn(
+            'GenericClient was deprecated in Twisted 10.1.',
+            category=DeprecationWarning,
+            stacklevel=2)
+        _AbstractClient.__init__(self, *args, **kwargs)
 
 
 
 class TimerService(_VolatileDataService):
-    """
-    Service to periodically call a function
+
+    """Service to periodically call a function
 
     Every C{step} seconds call the given function with the given arguments.
     The service starts the calls when it starts, and cancels them
     when it stops.
-
-    @ivar clock: Source of time. This defaults to L{None} which is
-        causes L{twisted.internet.reactor} to be used.
-        Feel free to set this to something else, but it probably ought to be
-        set *before* calling L{startService}.
-    @type clock: L{IReactorTime<twisted.internet.interfaces.IReactorTime>}
-
-    @ivar call: Function and arguments to call periodically.
-    @type call: L{tuple} of C{(callable, args, kwargs)}
     """
 
-    volatile = ['_loop', '_loopFinshed']
+    volatile = ['_loop']
 
     def __init__(self, step, callable, *args, **kwargs):
-        """
-        @param step: The number of seconds between calls.
-        @type step: L{float}
-
-        @param callable: Function to call
-        @type callable: L{callable}
-
-        @param args: Positional arguments to pass to function
-        @param kwargs: Keyword arguments to pass to function
-        """
         self.step = step
         self.call = (callable, args, kwargs)
-        self.clock = None
 
     def startService(self):
         service.Service.startService(self)
@@ -269,9 +283,7 @@ class TimerService(_VolatileDataService):
         # LoopingCall were a _VolatileDataService, we wouldn't need to do
         # this.
         self._loop = task.LoopingCall(callable, *args, **kwargs)
-        self._loop.clock = _maybeGlobalReactor(self.clock)
-        self._loopFinished = self._loop.start(self.step, now=True)
-        self._loopFinished.addErrback(self._failed)
+        self._loop.start(self.step, now=True).addErrback(self._failed)
 
     def _failed(self, why):
         # make a note that the LoopingCall is no longer looping, so we don't
@@ -281,18 +293,9 @@ class TimerService(_VolatileDataService):
         log.err(why)
 
     def stopService(self):
-        """
-        Stop the service.
-
-        @rtype: L{Deferred<defer.Deferred>}
-        @return: a L{Deferred<defer.Deferred>} which is fired when the
-            currently running call (if any) is finished.
-        """
         if self._loop.running:
             self._loop.stop()
-        self._loopFinished.addCallback(lambda _:
-                service.Service.stopService(self))
-        return self._loopFinished
+        return service.Service.stopService(self)
 
 
 
@@ -401,5 +404,5 @@ class StreamServerEndpointService(service.Service, object):
 __all__ = (['TimerService', 'CooperatorService', 'MulticastServer',
             'StreamServerEndpointService'] +
            [tran+side
-            for tran in 'TCP UNIX SSL UDP UNIXDatagram'.split()
+            for tran in 'Generic TCP UNIX SSL UDP UNIXDatagram'.split()
             for side in 'Server Client'.split()])

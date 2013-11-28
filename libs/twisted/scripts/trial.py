@@ -4,7 +4,7 @@
 # See LICENSE for details.
 
 
-import sys, os, random, gc, pdb, time, warnings
+import sys, os, random, gc, time, warnings
 
 from twisted.internet import defer
 from twisted.application import app
@@ -12,6 +12,7 @@ from twisted.python import usage, reflect, failure
 from twisted.python.filepath import FilePath
 from twisted import plugin
 from twisted.python.util import spewer
+from twisted.python.compat import set
 from twisted.trial import runner, itrial, reporter
 
 
@@ -92,12 +93,7 @@ def _reporterAction():
     return usage.CompleteList([p.longOpt for p in
                                plugin.getPlugins(itrial.IReporter)])
 
-
-
-class _BasicOptions(object):
-    """
-    Basic options shared between trial and its local workers.
-    """
+class Options(usage.Options, app.ReactorSelectionMixin):
     synopsis = """%s [options] [[file|package|module|TestCase|testmethod]...]
     """ % (os.path.basename(sys.argv[0]),)
 
@@ -105,21 +101,28 @@ class _BasicOptions(object):
                 "from modules, packages and files listed on the command line.")
 
     optFlags = [["help", "h"],
-                ["no-recurse", "N", "Don't recurse into packages"],
-                ['help-reporters', None,
-                 "Help on available output plugins (reporters)"],
                 ["rterrors", "e", "realtime errors, print out tracebacks as "
                  "soon as they occur"],
-                ["unclean-warnings", None,
-                 "Turn dirty reactor errors into warnings"],
+                ["debug", "b", "Run tests in the Python debugger. Will load "
+                 "'.pdbrc' from current directory if it exists."],
+                ["debug-stacktraces", "B", "Report Deferred creation and "
+                 "callback stack traces"],
+                ["nopm", None, "don't automatically jump into debugger for "
+                 "postmorteming of exceptions"],
+                ["dry-run", 'n', "do everything but run the tests"],
                 ["force-gc", None, "Have Trial run gc.collect() before and "
                  "after each test case."],
-                ["exitfirst", "x",
-                 "Exit after the first non-successful result (cannot be "
-                 "specified along with --jobs)."],
+                ["profile", None, "Run tests under the Python profiler"],
+                ["unclean-warnings", None,
+                 "Turn dirty reactor errors into warnings"],
+                ["until-failure", "u", "Repeat test until it fails"],
+                ["no-recurse", "N", "Don't recurse into packages"],
+                ['help-reporters', None,
+                 "Help on available output plugins (reporters)"]
                 ]
 
     optParameters = [
+        ["logfile", "l", "test.log", "log file name"],
         ["random", "z", None,
          "Run tests in random order using the specified seed"],
         ['temp-directory', None, '_trial_temp',
@@ -129,7 +132,8 @@ class _BasicOptions(object):
          'more info.']]
 
     compData = usage.Completions(
-        optActions={"reporter": _reporterAction,
+        optActions={"tbformat": usage.CompleteList(["plain", "emacs", "cgitb"]),
+                    "reporter": _reporterAction,
                     "logfile": usage.CompleteFiles(descr="log file name"),
                     "random": usage.Completer(descr="random seed")},
         extraActions=[usage.CompleteFiles(
@@ -141,7 +145,7 @@ class _BasicOptions(object):
     tracer = None
 
     def __init__(self):
-        self['tests'] = []
+        self['tests'] = set()
         usage.Options.__init__(self)
 
 
@@ -164,12 +168,11 @@ class _BasicOptions(object):
         import trace
         self.tracer = trace.Trace(count=1, trace=0)
         sys.settrace(self.tracer.globaltrace)
-        self['coverage'] = True
 
 
     def opt_testmodule(self, filename):
         """
-        Filename to grep for test cases (-*- test-case-name).
+        Filename to grep for test cases (-*- test-case-name)
         """
         # If the filename passed to this parameter looks like a test module
         # we just add that to the test suite.
@@ -186,9 +189,9 @@ class _BasicOptions(object):
             return
         filename = os.path.abspath(filename)
         if isTestFile(filename):
-            self['tests'].append(filename)
+            self['tests'].add(filename)
         else:
-            self['tests'].extend(getTestModules(filename))
+            self['tests'].update(getTestModules(filename))
 
 
     def opt_spew(self):
@@ -214,7 +217,6 @@ class _BasicOptions(object):
         """
         Disable the garbage collector
         """
-        self["disablegc"] = True
         gc.disable()
 
 
@@ -240,8 +242,6 @@ class _BasicOptions(object):
         except (TypeError, ValueError):
             raise usage.UsageError(
                 "argument to recursionlimit must be an integer")
-        else:
-            self["recursionlimit"] = int(arg)
 
 
     def opt_random(self, option):
@@ -262,7 +262,6 @@ class _BasicOptions(object):
         """
         Fake the lack of the specified modules, separated with commas.
         """
-        self["without-module"] = option
         for module in option.split(","):
             if module in sys.modules:
                 warnings.warn("Module '%s' already imported, "
@@ -272,7 +271,7 @@ class _BasicOptions(object):
 
 
     def parseArgs(self, *args):
-        self['tests'].extend(args)
+        self['tests'].update(args)
 
 
     def _loadReporterByName(self, name):
@@ -290,102 +289,12 @@ class _BasicOptions(object):
         # application-defined plugins muck up reactor selecting by importing
         # t.i.reactor and causing the default to be installed.
         self['reporter'] = self._loadReporterByName(self['reporter'])
+
         if 'tbformat' not in self:
             self['tbformat'] = 'default'
-
-
-
-class Options(_BasicOptions, usage.Options, app.ReactorSelectionMixin):
-    """
-    Options to the trial command line tool.
-
-    @ivar _workerFlags: List of flags which are accepted by trial distributed
-        workers. This is used by C{_getWorkerArguments} to build the command
-        line arguments.
-    @type _workerFlags: C{list}
-
-    @ivar _workerParameters: List of parameter which are accepted by trial
-        distrubuted workers. This is used by C{_getWorkerArguments} to build
-        the command line arguments.
-    @type _workerParameters: C{list}
-    """
-
-    optFlags = [
-                ["debug", "b", "Run tests in a debugger. If that debugger is "
-                 "pdb, will load '.pdbrc' from current directory if it exists."
-                ],
-                ["debug-stacktraces", "B", "Report Deferred creation and "
-                 "callback stack traces"],
-                ["nopm", None, "don't automatically jump into debugger for "
-                 "postmorteming of exceptions"],
-                ["dry-run", 'n', "do everything but run the tests"],
-                ["profile", None, "Run tests under the Python profiler"],
-                ["until-failure", "u", "Repeat test until it fails"],
-                ]
-
-    optParameters = [
-        ["debugger", None, "pdb", "the fully qualified name of a debugger to "
-         "use if --debug is passed"],
-        ["logfile", "l", "test.log", "log file name"],
-        ["jobs", "j", None, "Number of local workers to run"]
-        ]
-
-    compData = usage.Completions(
-        optActions = {
-            "tbformat": usage.CompleteList(["plain", "emacs", "cgitb"]),
-            "reporter": _reporterAction,
-            },
-        )
-
-    _workerFlags = ["disablegc", "force-gc", "coverage"]
-    _workerParameters = ["recursionlimit", "reactor", "without-module"]
-
-    fallbackReporter = reporter.TreeReporter
-    extra = None
-    tracer = None
-
-
-    def opt_jobs(self, number):
-        """
-        Number of local workers to run, a strictly positive integer.
-        """
-        try:
-            number = int(number)
-        except ValueError:
-            raise usage.UsageError(
-                "Expecting integer argument to jobs, got '%s'" % number)
-        if number <= 0:
-            raise usage.UsageError(
-                "Argument to jobs must be a strictly positive integer")
-        self["jobs"] = number
-
-
-    def _getWorkerArguments(self):
-        """
-        Return a list of options to pass to distributed workers.
-        """
-        args = []
-        for option in self._workerFlags:
-            if self.get(option) is not None:
-                if self[option]:
-                    args.append("--%s" % (option,))
-        for option in self._workerParameters:
-            if self.get(option) is not None:
-                args.extend(["--%s" % (option,), str(self[option])])
-        return args
-
-
-    def postOptions(self):
-        _BasicOptions.postOptions(self)
-        if self['jobs']:
-            conflicts = ['debug', 'profile', 'debug-stacktraces', 'exitfirst']
-            for option in conflicts:
-                if self[option]:
-                    raise usage.UsageError(
-                        "You can't specify --%s when using --jobs" % option)
         if self['nopm']:
             if not self['debug']:
-                raise usage.UsageError("You must specify --debug when using "
+                raise usage.UsageError("you must specify --debug when using "
                                        "--nopm ")
             failure.DO_POST_MORTEM = False
 
@@ -419,81 +328,22 @@ def _getLoader(config):
     return loader
 
 
-def _wrappedPdb():
-    """
-    Wrap an instance of C{pdb.Pdb} with readline support and load any .rcs.
-
-    """
-
-    dbg = pdb.Pdb()
-    try:
-        import readline
-    except ImportError:
-        print "readline module not available"
-        sys.exc_clear()
-    for path in ('.pdbrc', 'pdbrc'):
-        if os.path.exists(path):
-            try:
-                rcFile = file(path, 'r')
-            except IOError:
-                sys.exc_clear()
-            else:
-                dbg.rcLines.extend(rcFile.readlines())
-    return dbg
-
-
-class _DebuggerNotFound(Exception):
-    """
-    A debugger import failed.
-
-    Used to allow translating these errors into usage error messages.
-
-    """
-
-
 
 def _makeRunner(config):
-    """
-    Return a trial runner class set up with the parameters extracted from
-    C{config}.
-
-    @return: A trial runner instance.
-    @rtype: L{runner.TrialRunner} or C{DistTrialRunner} depending on the
-        configuration.
-    """
-    cls = runner.TrialRunner
-    args = {'reporterFactory': config['reporter'],
-            'tracebackFormat': config['tbformat'],
-            'realTimeErrors': config['rterrors'],
-            'uncleanWarnings': config['unclean-warnings'],
-            'logfile': config['logfile'],
-            'workingDirectory': config['temp-directory']}
+    mode = None
+    if config['debug']:
+        mode = runner.TrialRunner.DEBUG
     if config['dry-run']:
-        args['mode'] = runner.TrialRunner.DRY_RUN
-    elif config['jobs']:
-        from twisted.trial._dist.disttrial import DistTrialRunner
-        cls = DistTrialRunner
-        args['workerNumber'] = config['jobs']
-        args['workerArguments'] = config._getWorkerArguments()
-    else:
-        if config['debug']:
-            args['mode'] = runner.TrialRunner.DEBUG
-            debugger = config['debugger']
-
-            if debugger != 'pdb':
-                try:
-                    args['debugger'] = reflect.namedAny(debugger)
-                except reflect.ModuleNotFound:
-                    raise _DebuggerNotFound(
-                        '%r debugger could not be found.' % (debugger,))
-            else:
-                args['debugger'] = _wrappedPdb()
-
-        args['exitFirst'] = config['exitfirst']
-        args['profile'] = config['profile']
-        args['forceGarbageCollection'] = config['force-gc']
-
-    return cls(**args)
+        mode = runner.TrialRunner.DRY_RUN
+    return runner.TrialRunner(config['reporter'],
+                              mode=mode,
+                              profile=config['profile'],
+                              logfile=config['logfile'],
+                              tracebackFormat=config['tbformat'],
+                              realTimeErrors=config['rterrors'],
+                              uncleanWarnings=config['unclean-warnings'],
+                              workingDirectory=config['temp-directory'],
+                              forceGarbageCollection=config['force-gc'])
 
 
 
@@ -506,12 +356,7 @@ def run():
     except usage.error, ue:
         raise SystemExit, "%s: %s" % (sys.argv[0], ue)
     _initialDebugSetup(config)
-
-    try:
-        trialRunner = _makeRunner(config)
-    except _DebuggerNotFound as e:
-        raise SystemExit('%s: %s' % (sys.argv[0], str(e)))
-
+    trialRunner = _makeRunner(config)
     suite = _getSuite(config)
     if config['until-failure']:
         test_result = trialRunner.runUntilFailure(suite)
@@ -523,3 +368,4 @@ def run():
         results.write_results(show_missing=1, summary=False,
                               coverdir=config.coverdir().path)
     sys.exit(not test_result.wasSuccessful())
+

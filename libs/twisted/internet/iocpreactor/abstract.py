@@ -384,8 +384,8 @@ class FileHandle(_ConsumerMixin, _LogOwner):
     # producer interface implementation
 
     def resumeProducing(self):
-        if self.connected and not self.disconnecting:
-            self.startReading()
+        assert self.connected and not self.disconnecting
+        self.startReading()
 
 
     def pauseProducing(self):

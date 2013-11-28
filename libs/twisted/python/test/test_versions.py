@@ -1,24 +1,18 @@
 # Copyright (c) Twisted Matrix Laboratories.
 # See LICENSE for details.
 
-"""
-Tests for L{twisted.python.versions}.
-"""
-
-from __future__ import division, absolute_import
-
 import sys
-import operator
-from io import BytesIO
+from cStringIO import StringIO
 
 from twisted.python.versions import getVersionString, IncomparableVersions
 from twisted.python.versions import Version, _inf
 from twisted.python.filepath import FilePath
 
-from twisted.trial.unittest import SynchronousTestCase as TestCase
+from twisted.trial import unittest
 
 
-VERSION_4_ENTRIES = b"""\
+
+VERSION_4_ENTRIES = """\
 <?xml version="1.0" encoding="utf-8"?>
 <wc-entries
    xmlns="svn:">
@@ -37,7 +31,7 @@ VERSION_4_ENTRIES = b"""\
 
 
 
-VERSION_8_ENTRIES = b"""\
+VERSION_8_ENTRIES = """\
 8
 
 dir
@@ -46,7 +40,7 @@ svn+ssh://svn.twistedmatrix.com/svn/Twisted/trunk
 """
 
 
-VERSION_9_ENTRIES = b"""\
+VERSION_9_ENTRIES = """\
 9
 
 dir
@@ -55,7 +49,7 @@ svn+ssh://svn.twistedmatrix.com/svn/Twisted/trunk
 """
 
 
-VERSION_10_ENTRIES = b"""\
+VERSION_10_ENTRIES = """\
 10
 
 dir
@@ -64,7 +58,7 @@ svn+ssh://svn.twistedmatrix.com/svn/Twisted/trunk
 """
 
 
-class VersionsTest(TestCase):
+class VersionsTest(unittest.TestCase):
 
     def test_versionComparison(self):
         """
@@ -72,13 +66,22 @@ class VersionsTest(TestCase):
         """
         va = Version("dummy", 1, 0, 0)
         vb = Version("dummy", 0, 1, 0)
-        self.assertTrue(va > vb)
-        self.assertTrue(vb < va)
-        self.assertTrue(va >= vb)
-        self.assertTrue(vb <= va)
-        self.assertTrue(va != vb)
-        self.assertTrue(vb == Version("dummy", 0, 1, 0))
-        self.assertTrue(vb == vb)
+        self.failUnless(va > vb)
+        self.failUnless(vb < va)
+        self.failUnless(va >= vb)
+        self.failUnless(vb <= va)
+        self.failUnless(va != vb)
+        self.failUnless(vb == Version("dummy", 0, 1, 0))
+        self.failUnless(vb == vb)
+
+        # BREAK IT DOWN@!!
+        self.failIf(va < vb)
+        self.failIf(vb > va)
+        self.failIf(va <= vb)
+        self.failIf(vb >= va)
+        self.failIf(va == vb)
+        self.failIf(vb != Version("dummy", 0, 1, 0))
+        self.failIf(vb != vb)
 
 
     def test_comparingPrereleasesWithReleases(self):
@@ -99,12 +102,8 @@ class VersionsTest(TestCase):
         va = Version("whatever", 1, 0, 0, prerelease=1)
         vb = Version("whatever", 1, 0, 0, prerelease=2)
         self.assertTrue(va < vb)
-        self.assertTrue(vb > va)
-        self.assertTrue(va <= vb)
-        self.assertTrue(vb >= va)
-        self.assertTrue(va != vb)
-        self.assertTrue(vb == Version("whatever", 1, 0, 0, prerelease=2))
-        self.assertTrue(va == va)
+        self.assertFalse(va > vb)
+        self.assertNotEqual(va, vb)
 
 
     def test_infComparison(self):
@@ -116,24 +115,11 @@ class VersionsTest(TestCase):
         self.assertEqual(_inf, _inf)
 
 
-    def test_disallowBuggyComparisons(self):
-        """
-        The package names of the Version objects need to be the same,
-        """
+    def testDontAllowBuggyComparisons(self):
         self.assertRaises(IncomparableVersions,
-                          operator.eq,
+                          cmp,
                           Version("dummy", 1, 0, 0),
                           Version("dumym", 1, 0, 0))
-
-
-    def test_notImplementedComparisons(self):
-        """
-        Comparing a L{Version} to some other object type results in
-        C{NotImplemented}.
-        """
-        va = Version("dummy", 1, 0, 0)
-        vb = ("dummy", 1, 0, 0) # a tuple is not a Version object
-        self.assertEqual(va.__cmp__(vb), NotImplemented)
 
 
     def test_repr(self):
@@ -181,7 +167,7 @@ class VersionsTest(TestCase):
         """
         version = Version("dummy", 1, 0, 0)
         self.assertEqual(
-            version._parseSVNEntries_4(BytesIO(VERSION_4_ENTRIES)), b'18211')
+            version._parseSVNEntries_4(StringIO(VERSION_4_ENTRIES)), '18211')
 
 
     def test_goodSVNEntries_8(self):
@@ -190,25 +176,25 @@ class VersionsTest(TestCase):
         """
         version = Version("dummy", 1, 0, 0)
         self.assertEqual(
-            version._parseSVNEntries_8(BytesIO(VERSION_8_ENTRIES)), b'22715')
-
-
+            version._parseSVNEntries_8(StringIO(VERSION_8_ENTRIES)), '22715')
+        
+        
     def test_goodSVNEntries_9(self):
         """
         Version should be able to parse an SVN format 9 entries file.
         """
         version = Version("dummy", 1, 0, 0)
         self.assertEqual(
-            version._parseSVNEntries_9(BytesIO(VERSION_9_ENTRIES)), b'22715')
-
-
+            version._parseSVNEntries_9(StringIO(VERSION_9_ENTRIES)), '22715')
+        
+        
     def test_goodSVNEntriesTenPlus(self):
         """
         Version should be able to parse an SVN format 10 entries file.
         """
         version = Version("dummy", 1, 0, 0)
         self.assertEqual(
-            version._parseSVNEntriesTenPlus(BytesIO(VERSION_10_ENTRIES)), b'22715')
+            version._parseSVNEntriesTenPlus(StringIO(VERSION_10_ENTRIES)), '22715')
 
 
     def test_getVersionString(self):
@@ -245,13 +231,10 @@ class VersionsTest(TestCase):
 
 
 
-class FormatDiscoveryTests(TestCase):
+class FormatDiscoveryTests(unittest.TestCase):
     """
     Tests which discover the parsing method based on the imported module name.
     """
-    def mktemp(self):
-        return TestCase.mktemp(self).encode("utf-8")
-
 
     def setUp(self):
         """
@@ -259,13 +242,13 @@ class FormatDiscoveryTests(TestCase):
         """
         self.entry = FilePath(self.mktemp())
         self.preTestModules = sys.modules.copy()
-        sys.path.append(self.entry.path.decode('utf-8'))
-        pkg = self.entry.child(b"twisted_python_versions_package")
+        sys.path.append(self.entry.path)
+        pkg = self.entry.child("twisted_python_versions_package")
         pkg.makedirs()
-        pkg.child(b"__init__.py").setContent(
-            b"from twisted.python.versions import Version\n"
-            b"version = Version('twisted_python_versions_package', 1, 0, 0)\n")
-        self.svnEntries = pkg.child(b".svn")
+        pkg.child("__init__.py").setContent(
+            "from twisted.python.versions import Version\n"
+            "version = Version('twisted_python_versions_package', 1, 0, 0)\n")
+        self.svnEntries = pkg.child(".svn")
         self.svnEntries.makedirs()
 
 
@@ -275,7 +258,7 @@ class FormatDiscoveryTests(TestCase):
         """
         sys.modules.clear()
         sys.modules.update(self.preTestModules)
-        sys.path.remove(self.entry.path.decode('utf-8'))
+        sys.path.remove(self.entry.path)
 
 
     def checkSVNFormat(self, formatVersion, entriesText, expectedRevision):
@@ -283,8 +266,8 @@ class FormatDiscoveryTests(TestCase):
         Check for the given revision being detected after setting the SVN
         entries text and format version of the test directory structure.
         """
-        self.svnEntries.child(b"format").setContent(formatVersion + b"\n")
-        self.svnEntries.child(b"entries").setContent(entriesText)
+        self.svnEntries.child("format").setContent(formatVersion+"\n")
+        self.svnEntries.child("entries").setContent(entriesText)
         self.assertEqual(self.getVersion()._getSVNVersion(), expectedRevision)
 
 
@@ -301,7 +284,7 @@ class FormatDiscoveryTests(TestCase):
         """
         Verify that version 4 format file will be properly detected and parsed.
         """
-        self.checkSVNFormat(b"4", VERSION_4_ENTRIES, b'18211')
+        self.checkSVNFormat("4", VERSION_4_ENTRIES, '18211')
 
 
     def test_detectVersion8(self):
@@ -309,25 +292,17 @@ class FormatDiscoveryTests(TestCase):
         Verify that version 8 format files will be properly detected and
         parsed.
         """
-        self.checkSVNFormat(b"8", VERSION_8_ENTRIES, b'22715')
-
-
+        self.checkSVNFormat("8", VERSION_8_ENTRIES, '22715')
+        
+    
     def test_detectVersion9(self):
         """
         Verify that version 9 format files will be properly detected and
         parsed.
         """
-        self.checkSVNFormat(b"9", VERSION_9_ENTRIES, b'22715')
-
-
-    def test_unparseableEntries(self):
-        """
-        Verify that the result is C{b"Unknown"} for an apparently supported
-        version for which parsing of the entries file fails.
-        """
-        self.checkSVNFormat(b"4", b"some unsupported stuff", b"Unknown")
-
-
+        self.checkSVNFormat("9", VERSION_9_ENTRIES, '22715')
+        
+        
     def test_detectVersion10(self):
         """
         Verify that version 10 format files will be properly detected and
@@ -337,25 +312,12 @@ class FormatDiscoveryTests(TestCase):
         I{format} file and B{only} has the version information on the first
         line of the I{entries} file.
         """
-        self.svnEntries.child(b"entries").setContent(VERSION_10_ENTRIES)
-        self.assertEqual(self.getVersion()._getSVNVersion(), b'22715')
+        self.svnEntries.child("entries").setContent(VERSION_10_ENTRIES)
+        self.assertEqual(self.getVersion()._getSVNVersion(), '22715')
 
 
     def test_detectUnknownVersion(self):
         """
         Verify that a new version of SVN will result in the revision 'Unknown'.
         """
-        self.checkSVNFormat(b"some-random-new-version", b"ooga booga!", b'Unknown')
-
-
-    def test_getVersionStringWithRevision(self):
-        """
-        L{getVersionString} includes the discovered revision number.
-        """
-        self.svnEntries.child(b"format").setContent(b"9\n")
-        self.svnEntries.child(b"entries").setContent(VERSION_10_ENTRIES)
-        version = getVersionString(self.getVersion())
-        self.assertEqual(
-            "twisted_python_versions_package 1.0.0+r22715",
-            version)
-        self.assertTrue(isinstance(version, type("")))
+        self.checkSVNFormat("some-random-new-version", "ooga booga!", 'Unknown')

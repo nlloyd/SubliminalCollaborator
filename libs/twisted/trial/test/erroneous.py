@@ -10,7 +10,7 @@ See the L{twisted.trial.test.test_tests} module docstring for details about how
 this code is arranged.
 """
 
-from __future__ import division, absolute_import
+from __future__ import division
 
 from twisted.trial import unittest, util
 from twisted.internet import reactor, protocol, defer
@@ -23,7 +23,7 @@ class FoolishError(Exception):
 
 class FailureInSetUpMixin(object):
     def setUp(self):
-        raise FoolishError("I am a broken setUp method")
+        raise FoolishError, "I am a broken setUp method"
 
     def test_noop(self):
         pass
@@ -44,7 +44,7 @@ class AsynchronousTestFailureInSetUp(
 
 class FailureInTearDownMixin(object):
     def tearDown(self):
-        raise FoolishError("I am a broken tearDown method")
+        raise FoolishError, "I am a broken tearDown method"
 
     def test_noop(self):
         pass
@@ -64,44 +64,23 @@ class AsynchronousTestFailureInTearDown(
 
 
 class TestRegularFail(unittest.SynchronousTestCase):
-
     def test_fail(self):
         self.fail("I fail")
-
 
     def test_subfail(self):
         self.subroutine()
 
-
     def subroutine(self):
         self.fail("I fail inside")
 
-
-
-class TestAsynchronousFail(unittest.TestCase):
-    """
-    Test failures for L{unittest.TestCase} based classes.
-    """
-
+class TestFailureInDeferredChain(unittest.TestCase):
     def test_fail(self):
-        """
-        A test which fails in the callback of the returned L{defer.Deferred}.
-        """
         d = defer.Deferred()
         d.addCallback(self._later)
         reactor.callLater(0, d.callback, None)
         return d
-
-
     def _later(self, res):
         self.fail("I fail later")
-
-
-    def test_exception(self):
-        """
-        A test which raises an exception synchronously.
-        """
-        raise Exception("I fail")
 
 
 
@@ -157,7 +136,7 @@ class DelayedCall(unittest.TestCase):
 class ReactorCleanupTests(unittest.TestCase):
     def test_leftoverPendingCalls(self):
         def _():
-            print('foo!')
+            print 'foo!'
         reactor.callLater(10000.0, _)
 
 class SocketOpenTest(unittest.TestCase):

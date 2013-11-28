@@ -3,8 +3,7 @@
 # See LICENSE for details.
 
 
-"""
-Mail support for twisted python.
+"""Mail support for twisted python.
 """
 
 # Twisted imports
@@ -12,7 +11,9 @@ from twisted.internet import defer
 from twisted.application import service, internet
 from twisted.python import util
 from twisted.python import log
-from twisted.cred.portal import Portal
+
+from twisted import cred
+import twisted.cred.portal
 
 # Sibling imports
 from twisted.mail import protocols, smtp
@@ -23,9 +24,8 @@ from zope.interface import implements, Interface
 
 
 class DomainWithDefaultDict:
-    """
-    Simulate a dictionary with a default value for non-existing keys.
-    """
+    '''Simulate a dictionary with a default value for non-existing keys.
+    '''
     def __init__(self, domains, default):
         self.domains = domains
         self.default = default
@@ -114,18 +114,14 @@ class DomainWithDefaultDict:
     def setdefault(self, key, default):
         return self.domains.setdefault(key, default)
 
-
-
 class IDomain(Interface):
-    """
-    An email domain.
-    """
+    """An email domain."""
 
     def exists(user):
         """
         Check whether or not the specified user exists in this domain.
 
-        @type user: L{smtp.User}
+        @type user: C{twisted.protocols.smtp.User}
         @param user: The user to check
 
         @rtype: No-argument callable
@@ -134,25 +130,26 @@ class IDomain(Interface):
         This will be called and the returned object used to deliver the
         message when it arrives.
 
-        @raise twisted.mail.smtp.SMTPBadRcpt: Raised if the given
+        @raise twisted.protocols.smtp.SMTPBadRcpt: Raised if the given
         user does not exist in this domain.
         """
 
     def addUser(user, password):
-        """
-        Add a username/password to this domain.
+        """Add a username/password to this domain."""
+
+    def startMessage(user):
+        """Create and return a new message to be delivered to the given user.
+
+        DEPRECATED.  Implement validateTo() correctly instead.
         """
 
     def getCredentialsCheckers():
-        """
-        Return a list of ICredentialsChecker implementors for this domain.
+        """Return a list of ICredentialsChecker implementors for this domain.
         """
 
 class IAliasableDomain(IDomain):
-
     def setAliasGroup(aliases):
-        """
-        Set the group of defined aliases for this domain
+        """Set the group of defined aliases for this domain
 
         @type aliases: C{dict}
         @param aliases: Mapping of domain names to objects implementing
@@ -163,7 +160,7 @@ class IAliasableDomain(IDomain):
         """
         Check whether or not the specified user exists in this domain.
 
-        @type user: L{smtp.User}
+        @type user: C{twisted.protocols.smtp.User}
         @param user: The user to check
 
         @type memo: C{dict}
@@ -177,13 +174,12 @@ class IAliasableDomain(IDomain):
         This will be called and the returned object used to deliver the
         message when it arrives.
 
-        @raise twisted.mail.smtp.SMTPBadRcpt: Raised if the given
+        @raise twisted.protocols.smtp.SMTPBadRcpt: Raised if the given
         user does not exist in this domain.
         """
 
 class BounceDomain:
-    """
-    A domain in which no user exists.
+    """A domain in which no user exists.
 
     This can be used to block off certain domains.
     """
@@ -193,23 +189,25 @@ class BounceDomain:
     def exists(self, user):
         raise smtp.SMTPBadRcpt(user)
 
-
     def willRelay(self, user, protocol):
         return False
-
 
     def addUser(self, user, password):
         pass
 
+    def startMessage(self, user):
+        """
+        No code should ever call this function.
+        """
+        raise NotImplementedError(
+                "No code should ever call this method for any reason")
 
     def getCredentialsCheckers(self):
         return []
 
 
 class FileMessage:
-    """
-    A file we can write an email too.
-    """
+    """A file we can write an email too."""
 
     implements(smtp.IMessage)
 
@@ -232,9 +230,7 @@ class FileMessage:
 
 
 class MailService(service.MultiService):
-    """
-    An email service.
-    """
+    """An email service."""
 
     queue = None
     domains = None
@@ -250,7 +246,7 @@ class MailService(service.MultiService):
 
         self.monitor = FileMonitoringService()
         self.monitor.setServiceParent(self)
-        self.smtpPortal = Portal(self)
+        self.smtpPortal = cred.portal.Portal(self)
 
     def getPOP3Factory(self):
         return protocols.POP3Factory(self)
@@ -262,7 +258,7 @@ class MailService(service.MultiService):
         return protocols.ESMTPFactory(self, self.smtpPortal)
 
     def addDomain(self, name, domain):
-        portal = Portal(domain)
+        portal = cred.portal.Portal(domain)
         map(portal.registerChecker, domain.getCredentialsCheckers())
         self.domains[name] = domain
         self.portals[name] = portal
@@ -270,9 +266,7 @@ class MailService(service.MultiService):
             domain.setAliasGroup(self.aliases)
 
     def setQueue(self, queue):
-        """
-        Set the queue for outgoing emails.
-        """
+        """Set the queue for outgoing emails."""
         self.queue = queue
 
     def requestAvatar(self, avatarId, mind, *interfaces):

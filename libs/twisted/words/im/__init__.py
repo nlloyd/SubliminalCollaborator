@@ -2,7 +2,5 @@
 # See LICENSE for details.
 
 
-"""
-Instance Messenger, Pan-protocol chat client.
-"""
+"""Instance Messenger, Pan-protocol chat client."""
 

@@ -1,14 +1,13 @@
-from __future__ import division, absolute_import
+from __future__ import division
 
-import unittest
-
+from twisted.trial import unittest
 from twisted.internet import defer
 
 # Used in test_tests.TestUnhandledDeferred
 
 class TestBleeding(unittest.TestCase):
     """This test creates an unhandled Deferred and leaves it in a cycle.
-
+    
     The Deferred is left in a cycle so that the garbage collector won't pick it
     up immediately.  We were having some problems where unhandled Deferreds in
     one test were failing random other tests. (See #1507, #1213)

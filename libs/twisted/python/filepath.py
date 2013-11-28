@@ -6,12 +6,10 @@
 Object-oriented filesystem path representation.
 """
 
-from __future__ import division, absolute_import
-
 import os
 import errno
+import random
 import base64
-from hashlib import sha1
 
 from os.path import isabs, exists, normpath, abspath, splitext
 from os.path import basename, dirname
@@ -24,14 +22,13 @@ from stat import S_IRUSR, S_IWUSR, S_IXUSR
 from stat import S_IRGRP, S_IWGRP, S_IXGRP
 from stat import S_IROTH, S_IWOTH, S_IXOTH
 
-from zope.interface import Interface, Attribute, implementer
 
 # Please keep this as light as possible on other Twisted imports; many, many
 # things import this module, and it would be good if it could easily be
 # modified for inclusion in the standard library.  --glyph
 
-from twisted.python.compat import comparable, cmp
 from twisted.python.runtime import platform
+from twisted.python.hashlib import sha1
 
 from twisted.python.win32 import ERROR_FILE_NOT_FOUND, ERROR_PATH_NOT_FOUND
 from twisted.python.win32 import ERROR_INVALID_NAME, ERROR_DIRECTORY, O_BINARY
@@ -39,6 +36,7 @@ from twisted.python.win32 import WindowsError
 
 from twisted.python.util import FancyEqMixin
 
+from zope.interface import Interface, Attribute, implements
 
 _CREATE_FLAGS = (os.O_EXCL |
                  os.O_CREAT |
@@ -48,22 +46,40 @@ _CREATE_FLAGS = (os.O_EXCL |
 
 def _stub_islink(path):
     """
-    Always return C{False} if the operating system does not support symlinks.
+    Always return 'false' if the operating system does not support symlinks.
 
-    @param path: A path string.
+    @param path: a path string.
     @type path: L{str}
-
-    @return: C{False}
-    @rtype: L{bool}
+    @return: false
     """
     return False
 
 
+def _stub_urandom(n):
+    """
+    Provide random data in versions of Python prior to 2.4.  This is an
+    effectively compatible replacement for 'os.urandom'.
+
+    @type n: L{int}
+    @param n: the number of bytes of data to return
+    @return: C{n} bytes of random data.
+    @rtype: str
+    """
+    randomData = [random.randrange(256) for n in xrange(n)]
+    return ''.join(map(chr, randomData))
+
+
+def _stub_armor(s):
+    """
+    ASCII-armor for random data.  This uses a hex encoding, although we will
+    prefer url-safe base64 encoding for features in this module if it is
+    available.
+    """
+    return s.encode('hex')
+
 islink = getattr(os.path, 'islink', _stub_islink)
-randomBytes = os.urandom
-armor = base64.urlsafe_b64encode
-
-
+randomBytes = getattr(os, 'urandom', _stub_urandom)
+armor = getattr(base64, 'urlsafe_b64encode', _stub_armor)
 
 class IFilePath(Interface):
     """
@@ -110,8 +126,7 @@ class IFilePath(Interface):
     def open(mode="r"):
         """
         Opens this file path with the given mode.
-
-        @return: a file-like object.
+        @return: a file-like-object.
         @raise Exception: if this file path cannot be opened.
         """
 
@@ -122,8 +137,6 @@ class IFilePath(Interface):
 
     def getsize():
         """
-        Retrieve the size of this file in bytes.
-
         @return: the size of the file at this file path in bytes.
         @raise Exception: if the size cannot be obtained.
         """
@@ -133,7 +146,7 @@ class IFilePath(Interface):
         Retrieve the time of last access from this file.
 
         @return: a number of seconds from the epoch.
-        @rtype: L{float}
+        @rtype: float
         """
 
     def getStatusChangeTime():
@@ -141,7 +154,7 @@ class IFilePath(Interface):
         Retrieve the time of the last status change for this file.
 
         @return: a number of seconds from the epoch.
-        @rtype: L{float}
+        @rtype: float
         """
 
     def getAccessTime():
@@ -149,49 +162,36 @@ class IFilePath(Interface):
         Retrieve the time that this file was last accessed.
 
         @return: a number of seconds from the epoch.
-        @rtype: L{float}
+        @rtype: float
         """
 
     def exists():
         """
-        Check if this file path exists.
-
         @return: C{True} if the file at this file path exists, C{False}
             otherwise.
-        @rtype: L{bool}
         """
 
     def isdir():
         """
-        Check if this file path refers to a directory.
-
         @return: C{True} if the file at this file path is a directory, C{False}
             otherwise.
         """
 
     def isfile():
         """
-        Check if this file path refers to a regular file.
-
         @return: C{True} if the file at this file path is a regular file,
             C{False} otherwise.
         """
 
     def children():
         """
-        List the children of this path object.
-
         @return: a sequence of the children of the directory at this file path.
         @raise Exception: if the file at this file path is not a directory.
         """
 
     def basename():
         """
-        Retrieve the final component of the file path's path (everything
-        after the final path separator).
-
         @return: the base name of this file path.
-        @rtype: L{str}
         """
 
     def parent():
@@ -202,17 +202,15 @@ class IFilePath(Interface):
     def sibling(name):
         """
         A file path for the directory containing the file at this file path.
-
         @param name: the name of a sibling of this path. C{name} must be a direct
             sibling of this path and may not contain a path separator.
 
         @return: a sibling file path of this one.
         """
 
-
 class InsecurePath(Exception):
     """
-    Error that is raised when the path provided to L{FilePath} is invalid.
+    Error that is raised when the path provided to FilePath is invalid.
     """
 
 
@@ -234,7 +232,7 @@ class UnlistableError(OSError):
     while still being catchable as an independent type.
 
     @ivar originalException: the actual original exception instance, either an
-        L{OSError} or a L{WindowsError}.
+    L{OSError} or a L{WindowsError}.
     """
     def __init__(self, originalException):
         """
@@ -261,10 +259,7 @@ class _WindowsUnlistableError(UnlistableError, WindowsError):
 
 def _secureEnoughString():
     """
-    Compute a string usable as a new, temporary filename.
-
-    @return: A pseudorandom, 16 byte string for use in secure filenames.
-    @rtype: C{bytes}
+    Create a pseudorandom, 16-character string for use in secure filenames.
     """
     return armor(sha1(randomBytes(64)).digest())[:16]
 
@@ -272,18 +267,14 @@ def _secureEnoughString():
 
 class AbstractFilePath(object):
     """
-    Abstract implementation of an L{IFilePath}; must be completed by a
-    subclass.
+    Abstract implementation of an IFilePath; must be completed by a subclass.
 
     This class primarily exists to provide common implementations of certain
-    methods in L{IFilePath}. It is *not* a required parent class for
-    L{IFilePath} implementations, just a useful starting point.
+    methods in IFilePath. It is *not* a required parent class for IFilePath
+    implementations, just a useful starting point.
     """
 
     def getContent(self):
-        """
-        Retrieve the file-like object for this file path.
-        """
         fp = self.open()
         try:
             return fp.read()
@@ -293,8 +284,6 @@ class AbstractFilePath(object):
 
     def parents(self):
         """
-        Retrieve an iterator of all the ancestors of this path.
-
         @return: an iterator of all the ancestors of this path, from the most
         recent (its immediate parent) to the root of its filesystem.
         """
@@ -320,11 +309,12 @@ class AbstractFilePath(object):
         to this path not existing or not being a directory, the more specific
         OSError subclass L{UnlistableError} is raised instead.
 
-        @return: an iterable of all currently-existing children of this object.
+        @return: an iterable of all currently-existing children of this object
+        accessible with L{_PathHelper.child}.
         """
         try:
             subnames = self.listdir()
-        except WindowsError as winErrObj:
+        except WindowsError, winErrObj:
             # WindowsError is an OSError subclass, so if not for this clause
             # the OSError clause below would be handling these.  Windows error
             # codes aren't the same as POSIX error codes, so we need to handle
@@ -354,7 +344,7 @@ class AbstractFilePath(object):
                                 ERROR_DIRECTORY):
                 raise
             raise _WindowsUnlistableError(winErrObj)
-        except OSError as ose:
+        except OSError, ose:
             if ose.errno not in (errno.ENOENT, errno.ENOTDIR):
                 # Other possible errors here, according to linux manpages:
                 # EACCES, EMIFLE, ENFILE, ENOMEM.  None of these seem like the
@@ -366,13 +356,12 @@ class AbstractFilePath(object):
     def walk(self, descend=None):
         """
         Yield myself, then each of my children, and each of those children's
-        children in turn.
-
-        The optional argument C{descend} is a predicate that takes a FilePath,
-        and determines whether or not that FilePath is traversed/descended into.
-        It will be called with each path for which C{isdir} returns C{True}.  If
-        C{descend} is not specified, all directories will be traversed
-        (including symbolic links which refer to directories).
+        children in turn.  The optional argument C{descend} is a predicate that
+        takes a FilePath, and determines whether or not that FilePath is
+        traversed/descended into.  It will be called with each path for which
+        C{isdir} returns C{True}.  If C{descend} is not specified, all
+        directories will be traversed (including symbolic links which refer to
+        directories).
 
         @param descend: A one-argument callable that will return True for
             FilePaths that should be traversed, False otherwise.
@@ -400,9 +389,8 @@ class AbstractFilePath(object):
         basename of C{path}.
 
         @param path: The basename of the L{FilePath} to return.
-        @type path: L{str}
+        @type path: C{str}
 
-        @return: The sibling path.
         @rtype: L{FilePath}
         """
         return self.parent().child(path)
@@ -412,7 +400,7 @@ class AbstractFilePath(object):
         """
         Retrieve a child or child's child of this path.
 
-        @param segments: A sequence of path segments as L{str} instances.
+        @param segments: A sequence of path segments as C{str} instances.
 
         @return: A L{FilePath} constructed by looking up the C{segments[0]}
             child of this path, the C{segments[1]} child of that path, and so
@@ -460,7 +448,7 @@ class AbstractFilePath(object):
     # new in 8.0
     def __hash__(self):
         """
-        Hash the same as another L{FilePath} with the same path as mine.
+        Hash the same as another FilePath with the same path as mine.
         """
         return hash((self.__class__, self.path))
 
@@ -522,9 +510,6 @@ class RWX(FancyEqMixin, object):
         Returns a short string representing the permission bits.  Looks like
         part of what is printed by command line utilities such as 'ls -l'
         (e.g. 'rwx')
-
-        @return: The shorthand string.
-        @rtype: L{str}
         """
         returnval = ['r', 'w', 'x']
         i = 0
@@ -574,17 +559,12 @@ class Permissions(FancyEqMixin, object):
         Returns a short string representing the permission bits.  Looks like
         what is printed by command line utilities such as 'ls -l'
         (e.g. 'rwx-wx--x')
-
-        @return: The shorthand string.
-        @rtype: L{str}
         """
         return "".join(
             [x.shorthand() for x in (self.user, self.group, self.other)])
 
 
 
-@comparable
-@implementer(IFilePath)
 class FilePath(AbstractFilePath):
     """
     I am a path on the filesystem that only permits 'downwards' access.
@@ -609,13 +589,11 @@ class FilePath(AbstractFilePath):
     Greater-than-second precision is only available in Windows on Python2.5 and
     later.
 
-    On both Python 2 and Python 3, paths can only be bytes.
-
-    @type alwaysCreate: L{bool}
+    @type alwaysCreate: C{bool}
     @ivar alwaysCreate: When opening this file, only succeed if the file does
         not already exist.
 
-    @type path: L{bytes}
+    @type path: C{str}
     @ivar path: The path from which 'downward' traversal is permitted.
 
     @ivar statinfo: The currently cached status information about the file on
@@ -630,13 +608,15 @@ class FilePath(AbstractFilePath):
         attribute.  Instead, use the methods on L{FilePath} which give you
         information about it, like C{getsize()}, C{isdir()},
         C{getModificationTime()}, and so on.
-    @type statinfo: L{int} or L{types.NoneType} or L{os.stat_result}
+    @type statinfo: C{int} or L{types.NoneType} or L{os.stat_result}
     """
+
+    implements(IFilePath)
 
     statinfo = None
     path = None
 
-    sep = slash.encode("ascii")
+    sep = slash
 
     def __init__(self, path, alwaysCreate=False):
         """
@@ -664,15 +644,12 @@ class FilePath(AbstractFilePath):
 
         @param path: The base name of the new L{FilePath}.  If this contains
             directory separators or parent references it will be rejected.
-        @type path: L{bytes}
+        @type path: C{str}
 
         @raise InsecurePath: If the result of combining this path with C{path}
             would result in a path which is not a direct child of this path.
-
-        @return: The child path.
-        @rtype: L{FilePath}
         """
-        if platform.isWindows() and path.count(b":"):
+        if platform.isWindows() and path.count(":"):
             # Catch paths like C:blah that don't have a slash
             raise InsecurePath("%r contains a colon." % (path,))
         norm = normpath(path)
@@ -686,33 +663,23 @@ class FilePath(AbstractFilePath):
 
     def preauthChild(self, path):
         """
-        Use me if C{path} might have slashes in it, but you know they're safe.
+        Use me if `path' might have slashes in it, but you know they're safe.
 
-        @param path: A relative path (ie, a path not starting with C{"/"}) which
-            will be interpreted as a child or descendant of this path.
-        @type path: L{bytes}
-
-        @return: The child path.
-        @rtype: L{FilePath}
+        (NOT slashes at the beginning. It still needs to be a _child_).
         """
         newpath = abspath(joinpath(self.path, normpath(path)))
         if not newpath.startswith(self.path):
             raise InsecurePath("%s is not a child of %s" % (newpath, self.path))
         return self.clonePath(newpath)
 
-
     def childSearchPreauth(self, *paths):
-        """
-        Return my first existing child with a name in C{paths}.
+        """Return my first existing child with a name in 'paths'.
 
-        C{paths} is expected to be a list of *pre-secured* path fragments;
-        in most cases this will be specified by a system administrator and not
-        an arbitrary user.
+        paths is expected to be a list of *pre-secured* path fragments; in most
+        cases this will be specified by a system administrator and not an
+        arbitrary user.
 
-        If no appropriately-named children exist, this will return C{None}.
-
-        @return: C{None} or the child path.
-        @rtype: L{types.NoneType} or L{FilePath}
+        If no appropriately-named children exist, this will return None.
         """
         p = self.path
         for child in paths:
@@ -720,26 +687,24 @@ class FilePath(AbstractFilePath):
             if exists(jp):
                 return self.clonePath(jp)
 
-
     def siblingExtensionSearch(self, *exts):
-        """
-        Attempt to return a path with my name, given multiple possible
+        """Attempt to return a path with my name, given multiple possible
         extensions.
 
-        Each extension in C{exts} will be tested and the first path which
-        exists will be returned.  If no path exists, C{None} will be returned.
-        If C{''} is in C{exts}, then if the file referred to by this path
-        exists, C{self} will be returned.
+        Each extension in exts will be tested and the first path which exists
+        will be returned.  If no path exists, None will be returned.  If '' is
+        in exts, then if the file referred to by this path exists, 'self' will
+        be returned.
 
         The extension '*' has a magic meaning, which means "any path that
-        begins with C{self.path + '.'} is acceptable".
+        begins with self.path+'.' is acceptable".
         """
         p = self.path
         for ext in exts:
             if not ext and self.exists():
                 return self
-            if ext == b'*':
-                basedot = basename(p) + b'.'
+            if ext == '*':
+                basedot = basename(p)+'.'
                 for fn in listdir(dirname(p)):
                     if fn.startswith(basedot):
                         return self.clonePath(joinpath(dirname(p), fn))
@@ -750,20 +715,17 @@ class FilePath(AbstractFilePath):
 
     def realpath(self):
         """
-        Returns the absolute target as a L{FilePath} if self is a link, self
-        otherwise.
-
-        The absolute link is the ultimate file or directory the
+        Returns the absolute target as a FilePath if self is a link, self
+        otherwise.  The absolute link is the ultimate file or directory the
         link refers to (for instance, if the link refers to another link, and
         another...).  If the filesystem does not support symlinks, or
-        if the link is cyclical, raises a L{LinkError}.
+        if the link is cyclical, raises a LinkError.
 
         Behaves like L{os.path.realpath} in that it does not resolve link
         names in the middle (ex. /x/y/z, y is a link to w - realpath on z
         will return /x/y/z, not /x/w/z).
 
-        @return: L{FilePath} of the target path.
-        @rtype: L{FilePath}
+        @return: FilePath of the target path
         @raises LinkError: if links are not supported or links are cyclical.
         """
         if self.islink():
@@ -775,29 +737,18 @@ class FilePath(AbstractFilePath):
 
 
     def siblingExtension(self, ext):
-        """
-        Attempt to return a path with my name, given the extension at C{ext}.
-
-        @param ext: File-extension to search for.
-        @type ext: L{str}
-
-        @return: The sibling path.
-        @rtype: L{FilePath}
-        """
-        return self.clonePath(self.path + ext)
+        return self.clonePath(self.path+ext)
 
 
     def linkTo(self, linkFilePath):
         """
         Creates a symlink to self to at the path in the L{FilePath}
-        C{linkFilePath}.
-
-        Only works on posix systems due to its dependence on
-        L{os.symlink}.  Propagates L{OSError}s up from L{os.symlink} if
+        C{linkFilePath}.  Only works on posix systems due to its dependence on
+        C{os.symlink}.  Propagates C{OSError}s up from C{os.symlink} if
         C{linkFilePath.parent()} does not exist, or C{linkFilePath} already
         exists.
 
-        @param linkFilePath: a FilePath representing the link to be created.
+        @param linkFilePath: a FilePath representing the link to be created
         @type linkFilePath: L{FilePath}
         """
         os.symlink(self.path, linkFilePath.path)
@@ -809,14 +760,14 @@ class FilePath(AbstractFilePath):
         C{True}.
 
         In all cases the file is opened in binary mode, so it is not necessary
-        to include C{"b"} in C{mode}.
+        to include C{b} in C{mode}.
 
-        @param mode: The mode to open the file in.  Default is C{"r"}.
-        @type mode: L{str}
-        @raises AssertionError: If C{"a"} is included in the mode and
+        @param mode: The mode to open the file in.  Default is C{r}.
+        @type mode: C{str}
+        @raises AssertionError: If C{a} is included in the mode and
             C{alwaysCreate} is C{True}.
-        @rtype: L{file}
-        @return: An open L{file} object.
+        @rtype: C{file}
+        @return: An open C{file} object.
         """
         if self.alwaysCreate:
             assert 'a' not in mode, ("Appending not supported when "
@@ -835,10 +786,10 @@ class FilePath(AbstractFilePath):
         after you know the filesystem may have changed, call this method.
 
         @param reraise: a boolean.  If true, re-raise exceptions from
-            L{os.stat}; otherwise, mark this path as not existing, and remove
-            any cached stat information.
+        L{os.stat}; otherwise, mark this path as not existing, and remove any
+        cached stat information.
 
-        @raise Exception: If C{reraise} is C{True} and an exception occurs while
+        @raise Exception: is C{reraise} is C{True} and an exception occurs while
             reloading metadata.
         """
         try:
@@ -861,23 +812,16 @@ class FilePath(AbstractFilePath):
     def chmod(self, mode):
         """
         Changes the permissions on self, if possible.  Propagates errors from
-        L{os.chmod} up.
+        C{os.chmod} up.
 
         @param mode: integer representing the new permissions desired (same as
             the command line chmod)
-        @type mode: L{int}
+        @type mode: C{int}
         """
         os.chmod(self.path, mode)
 
 
     def getsize(self):
-        """
-        Retrieve the size of this file in bytes.
-
-        @return: The size of the file at this file path in bytes.
-        @raise Exception: if the size cannot be obtained.
-        @rtype: L{int}
-        """
         st = self.statinfo
         if not st:
             self.restat()
@@ -890,7 +834,7 @@ class FilePath(AbstractFilePath):
         Retrieve the time of last access from this file.
 
         @return: a number of seconds from the epoch.
-        @rtype: L{float}
+        @rtype: float
         """
         st = self.statinfo
         if not st:
@@ -904,7 +848,7 @@ class FilePath(AbstractFilePath):
         Retrieve the time of the last status change for this file.
 
         @return: a number of seconds from the epoch.
-        @rtype: L{float}
+        @rtype: float
         """
         st = self.statinfo
         if not st:
@@ -918,7 +862,7 @@ class FilePath(AbstractFilePath):
         Retrieve the time that this file was last accessed.
 
         @return: a number of seconds from the epoch.
-        @rtype: L{float}
+        @rtype: float
         """
         st = self.statinfo
         if not st:
@@ -932,10 +876,10 @@ class FilePath(AbstractFilePath):
         Retrieve the file serial number, also called inode number, which
         distinguishes this file from all other files on the same device.
 
-        @raise NotImplementedError: if the platform is Windows, since the
-            inode number would be a dummy value for all files in Windows
+        @raise: NotImplementedError if the platform is Windows, since the
+                inode number would be a dummy value for all files in Windows
         @return: a number representing the file serial number
-        @rtype: L{int}
+        @rtype: C{long}
         @since: 11.0
         """
         if platform.isWindows():
@@ -945,7 +889,7 @@ class FilePath(AbstractFilePath):
         if not st:
             self.restat()
             st = self.statinfo
-        return st.st_ino
+        return long(st.st_ino)
 
 
     def getDevice(self):
@@ -954,10 +898,11 @@ class FilePath(AbstractFilePath):
         number together uniquely identify the file, but the device number is
         not necessarily consistent across reboots or system crashes.
 
-        @raise NotImplementedError: if the platform is Windows, since the device
-            number would be 0 for all partitions on a Windows platform
+        @raise: NotImplementedError if the platform is Windows, since the
+                device number would be 0 for all partitions on a Windows
+                platform
         @return: a number representing the device
-        @rtype: L{int}
+        @rtype: C{long}
         @since: 11.0
         """
         if platform.isWindows():
@@ -967,23 +912,22 @@ class FilePath(AbstractFilePath):
         if not st:
             self.restat()
             st = self.statinfo
-        return st.st_dev
+        return long(st.st_dev)
 
 
     def getNumberOfHardLinks(self):
         """
-        Retrieves the number of hard links to the file.
+        Retrieves the number of hard links to the file.  This count keeps
+        track of how many directories have entries for this file.  If the
+        count is ever decremented to zero then the file itself is discarded
+        as soon as no process still holds it open.  Symbolic links are not
+        counted in the total.
 
-        This count keeps track of how many directories have entries for this
-        file. If the count is ever decremented to zero then the file itself is
-        discarded as soon as no process still holds it open.  Symbolic links
-        are not counted in the total.
-
-        @raise NotImplementedError: if the platform is Windows, since Windows
-            doesn't maintain a link count for directories, and L{os.stat} does
-            not set C{st_nlink} on Windows anyway.
+        @raise: NotImplementedError if the platform is Windows, since Windows
+                doesn't maintain a link count for directories, and os.stat
+                does not set st_nlink on Windows anyway.
         @return: the number of hard links to the file
-        @rtype: L{int}
+        @rtype: C{int}
         @since: 11.0
         """
         if platform.isWindows():
@@ -993,17 +937,17 @@ class FilePath(AbstractFilePath):
         if not st:
             self.restat()
             st = self.statinfo
-        return st.st_nlink
+        return int(st.st_nlink)
 
 
     def getUserID(self):
         """
         Returns the user ID of the file's owner.
 
-        @raise NotImplementedError: if the platform is Windows, since the UID
-            is always 0 on Windows
+        @raise: NotImplementedError if the platform is Windows, since the UID
+                is always 0 on Windows
         @return: the user ID of the file's owner
-        @rtype: L{int}
+        @rtype: C{int}
         @since: 11.0
         """
         if platform.isWindows():
@@ -1013,17 +957,17 @@ class FilePath(AbstractFilePath):
         if not st:
             self.restat()
             st = self.statinfo
-        return st.st_uid
+        return int(st.st_uid)
 
 
     def getGroupID(self):
         """
         Returns the group ID of the file.
 
-        @raise NotImplementedError: if the platform is Windows, since the GID
-            is always 0 on windows
+        @raise: NotImplementedError if the platform is Windows, since the GID
+                is always 0 on windows
         @return: the group ID of the file
-        @rtype: L{int}
+        @rtype: C{int}
         @since: 11.0
         """
         if platform.isWindows():
@@ -1033,13 +977,13 @@ class FilePath(AbstractFilePath):
         if not st:
             self.restat()
             st = self.statinfo
-        return st.st_gid
+        return int(st.st_gid)
 
 
     def getPermissions(self):
         """
         Returns the permissions of the file.  Should also work on Windows,
-        however, those permissions may not be what is expected in Windows.
+        however, those permissions may not what is expected in Windows.
 
         @return: the permissions for the file
         @rtype: L{Permissions}
@@ -1058,7 +1002,7 @@ class FilePath(AbstractFilePath):
 
         @return: C{True} if the stats of C{path} can be retrieved successfully,
             C{False} in the other cases.
-        @rtype: L{bool}
+        @rtype: C{bool}
         """
         if self.statinfo:
             return True
@@ -1072,11 +1016,8 @@ class FilePath(AbstractFilePath):
 
     def isdir(self):
         """
-        Check if this L{FilePath} refers to a directory.
-
         @return: C{True} if this L{FilePath} refers to a directory, C{False}
             otherwise.
-        @rtype: L{bool}
         """
         st = self.statinfo
         if not st:
@@ -1089,11 +1030,8 @@ class FilePath(AbstractFilePath):
 
     def isfile(self):
         """
-        Check if this file path refers to a regular file.
-
         @return: C{True} if this L{FilePath} points to a regular file (not a
             directory, socket, named pipe, etc), C{False} otherwise.
-        @rtype: L{bool}
         """
         st = self.statinfo
         if not st:
@@ -1109,7 +1047,7 @@ class FilePath(AbstractFilePath):
         Returns whether the underlying path is a block device.
 
         @return: C{True} if it is a block device, C{False} otherwise
-        @rtype: L{bool}
+        @rtype: C{bool}
         @since: 11.1
         """
         st = self.statinfo
@@ -1126,7 +1064,7 @@ class FilePath(AbstractFilePath):
         Returns whether the underlying path is a socket.
 
         @return: C{True} if it is a socket, C{False} otherwise
-        @rtype: L{bool}
+        @rtype: C{bool}
         @since: 11.1
         """
         st = self.statinfo
@@ -1140,11 +1078,7 @@ class FilePath(AbstractFilePath):
 
     def islink(self):
         """
-        Check if this L{FilePath} points to a symbolic link.
-
-        @return: C{True} if this L{FilePath} points to a symbolic link,
-            C{False} otherwise.
-        @rtype: L{bool}
+        @return: C{True} if this L{FilePath} points to a symbolic link.
         """
         # We can't use cached stat results here, because that is the stat of
         # the destination - (see #1773) which in *every case* but this one is
@@ -1155,12 +1089,7 @@ class FilePath(AbstractFilePath):
 
     def isabs(self):
         """
-        Check if this L{FilePath} refers to an absolute path.
-
-        This always returns C{True}.
-
         @return: C{True}, always.
-        @rtype: L{bool}
         """
         return isabs(self.path)
 
@@ -1169,25 +1098,20 @@ class FilePath(AbstractFilePath):
         """
         List the base names of the direct children of this L{FilePath}.
 
-        @return: A L{list} of L{bytes} giving the names of the contents of the
+        @return: a C{list} of C{str} giving the names of the contents of the
             directory this L{FilePath} refers to.  These names are relative to
             this L{FilePath}.
-        @rtype: L{list}
 
-        @raise: Anything the platform L{os.listdir} implementation might raise
-            (typically L{OSError}).
+        @raise: Anything the platform C{os.listdir} implementation might raise
+            (typically OSError).
         """
         return listdir(self.path)
 
 
     def splitext(self):
         """
-        Split the file path into a pair C{(root, ext)} such that
-        C{root + ext == path}.
-
-        @return: Tuple where the first item is the filename and second item is
-            the file extension. See Python docs for L{os.path.splitext}.
-        @rtype: L{tuple}
+        @return: tuple where the first item is the filename and second item is
+            the file extension. See Python docs for C{os.path.splitext}
         """
         return splitext(self.path)
 
@@ -1230,66 +1154,49 @@ class FilePath(AbstractFilePath):
     def makedirs(self):
         """
         Create all directories not yet existing in C{path} segments, using
-        L{os.makedirs}.
-
-        @return: C{None}
+        C{os.makedirs}.
         """
         return os.makedirs(self.path)
 
 
     def globChildren(self, pattern):
         """
-        Assuming I am representing a directory, return a list of FilePaths
-        representing my children that match the given pattern.
-
-        @param pattern: A glob pattern to use to match child paths.
-        @type pattern: L{bytes}
-
-        @return: A L{list} of matching children.
-        @rtype: L{list}
+        Assuming I am representing a directory, return a list of
+        FilePaths representing my children that match the given
+        pattern.
         """
         import glob
-        path = self.path[-1] == b'/' and self.path + pattern or self.sep.join(
-            [self.path, pattern])
+        path = self.path[-1] == '/' and self.path + pattern or self.sep.join([self.path, pattern])
         return map(self.clonePath, glob.glob(path))
 
 
     def basename(self):
         """
-        Retrieve the final component of the file path's path (everything
-        after the final path separator).
-
-        @return: The final component of the L{FilePath}'s path (Everything
-            after the final path separator).
-        @rtype: L{bytes}
+        @return: The final component of the L{FilePath}'s path (Everything after
+            the final path separator).
+        @rtype: C{str}
         """
         return basename(self.path)
 
 
     def dirname(self):
         """
-        Retrieve all of the components of the L{FilePath}'s path except the
-        last one (everything up to the final path separator).
-
-        @return: All of the components of the L{FilePath}'s path except the
-            last one (everything up to the final path separator).
-        @rtype: L{bytes}
+        @return: All of the components of the L{FilePath}'s path except the last
+            one (everything up to the final path separator).
+        @rtype: C{str}
         """
         return dirname(self.path)
 
 
     def parent(self):
         """
-        A file path for the directory containing the file at this file path.
-
         @return: A L{FilePath} representing the path which directly contains
             this L{FilePath}.
-        @rtype: L{FilePath}
         """
         return self.clonePath(self.dirname())
 
 
-    def setContent(self, content, ext=b'.new'):
+    def setContent(self, content, ext='.new'):
         """
         Replace the file at this path with a new file that contains the given
         bytes, trying to avoid data-loss in the meanwhile.
@@ -1326,14 +1233,15 @@ class FilePath(AbstractFilePath):
         same time.
 
         @param content: The desired contents of the file at this path.
-        @type content: L{bytes}
+
+        @type content: L{str}
 
         @param ext: An extension to append to the temporary filename used to
             store the bytes while they are being written.  This can be used to
             make sure that temporary files can be identified by their suffix,
             for cleanup in case of crashes.
 
-        @type ext: L{bytes}
+        @type ext: C{str}
         """
         sib = self.temporarySibling(ext)
         f = sib.open('w')
@@ -1364,23 +1272,12 @@ class FilePath(AbstractFilePath):
 
 
     def requireCreate(self, val=1):
-        """
-        Sets the C{alwaysCreate} variable.
-
-        @param val: C{True} or C{False}, indicating whether opening this path
-            will be required to create the file or not.
-        @type val: L{bool}
-
-        @return: C{None}
-        """
         self.alwaysCreate = val
 
 
     def create(self):
         """
         Exclusively create a file, only if this file previously did not exist.
-
-        @return: A file-like object opened from this path.
         """
         fdint = os.open(self.path, _CREATE_FLAGS)
 
@@ -1391,7 +1288,7 @@ class FilePath(AbstractFilePath):
         return os.fdopen(fdint, 'w+b')
 
 
-    def temporarySibling(self, extension=b""):
+    def temporarySibling(self, extension=""):
         """
         Construct a path referring to a sibling of this path.
 
@@ -1404,7 +1301,7 @@ class FilePath(AbstractFilePath):
             that if you want an extension with a '.' you must include the '.'
             yourself.)
 
-        @type extension: L{bytes}
+        @type extension: C{str}
 
         @return: a path object with the given extension suffix, C{alwaysCreate}
             set to True.
@@ -1501,9 +1398,7 @@ class FilePath(AbstractFilePath):
     def moveTo(self, destination, followLinks=True):
         """
         Move self to destination - basically renaming self to whatever
-        destination is named.
-
-        If destination is an already-existing directory,
+        destination is named.  If destination is an already-existing directory,
         moves all children to destination if destination is empty.  If
         destination is a non-empty directory, or destination is a file, an
         OSError will be raised.
@@ -1519,7 +1414,7 @@ class FilePath(AbstractFilePath):
         """
         try:
             os.rename(self.path, destination.path)
-        except OSError as ose:
+        except OSError, ose:
             if ose.errno == errno.EXDEV:
                 # man 2 rename, ubuntu linux 5.10 "breezy":
 

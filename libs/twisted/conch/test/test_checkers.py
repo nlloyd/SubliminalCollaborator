@@ -128,6 +128,7 @@ class HelperTests(TestCase):
 
         self.mockos.euid = 2345
         self.mockos.egid = 1234
+        self.patch(checkers, 'os', self.mockos)
         self.patch(util, 'os', self.mockos)
 
         self.assertEquals(
@@ -146,6 +147,7 @@ class HelperTests(TestCase):
         userdb.addUser('bob', 'passphrase', 1, 2, 3, 4, 5, 6, 7)
         self.patch(checkers, 'spwd', None)
         self.patch(checkers, 'shadow', userdb)
+        self.patch(checkers, 'os', self.mockos)
         self.patch(util, 'os', self.mockos)
 
         self.mockos.euid = 2345
@@ -164,6 +166,7 @@ class HelperTests(TestCase):
         """
         self.patch(checkers, 'spwd', None)
         self.patch(checkers, 'shadow', None)
+        self.patch(checkers, 'os', self.mockos)
 
         self.assertIdentical(checkers._shadowGetByName('bob'), None)
         self.assertEquals(self.mockos.seteuidCalls, [])
@@ -186,6 +189,7 @@ class SSHPublicKeyDatabaseTestCase(TestCase):
         self.mockos = MockOS()
         self.mockos.path = FilePath(self.mktemp())
         self.mockos.path.makedirs()
+        self.patch(checkers, 'os', self.mockos)
         self.patch(util, 'os', self.mockos)
         self.sshDir = self.mockos.path.child('.ssh')
         self.sshDir.makedirs()
@@ -246,6 +250,7 @@ class SSHPublicKeyDatabaseTestCase(TestCase):
         self.mockos.euid = 2345
         self.mockos.egid = 1234
         self.patch(self.mockos, "seteuid", seteuid)
+        self.patch(checkers, 'os', self.mockos)
         self.patch(util, 'os', self.mockos)
         user = UsernamePassword("user", "password")
         user.blob = "foobar"
@@ -473,6 +478,7 @@ class UNIXPasswordDatabaseTests(TestCase):
         self.patch(checkers, 'spwd', spwd)
 
         mockos = MockOS()
+        self.patch(checkers, 'os', mockos)
         self.patch(util, 'os', mockos)
 
         mockos.euid = 2345

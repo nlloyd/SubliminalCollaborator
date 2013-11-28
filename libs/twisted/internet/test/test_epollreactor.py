@@ -5,8 +5,6 @@
 Tests for L{twisted.internet.epollreactor}.
 """
 
-from __future__ import division, absolute_import
-
 from twisted.trial.unittest import TestCase
 try:
     from twisted.internet.epollreactor import _ContinuousPolling

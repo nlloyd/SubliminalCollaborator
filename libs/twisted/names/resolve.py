@@ -1,20 +1,20 @@
 # Copyright (c) Twisted Matrix Laboratories.
 # See LICENSE for details.
 
+
 """
 Lookup a name using multiple resolvers.
 
 Future Plans: This needs someway to specify which resolver answered
 the query, or someway to specify (authority|ttl|cache behavior|more?)
+
+@author: Jp Calderone
 """
 
-from __future__ import division, absolute_import
-
-from zope.interface import implementer
-
 from twisted.internet import defer, interfaces
-from twisted.names import dns, common
-
+from twisted.names import dns
+from zope.interface import implements
+import common
 
 class FailureHandler:
     def __init__(self, resolver, query, timeout):
@@ -29,12 +29,12 @@ class FailureHandler:
         return self.resolver(self.query, self.timeout)
 
 
-
-@implementer(interfaces.IResolver)
 class ResolverChain(common.ResolverBase):
-    """
-    Lookup an address using multiple C{IResolver}s
-    """
+    """Lookup an address using multiple C{IResolver}s"""
+
+    implements(interfaces.IResolver)
+
+
     def __init__(self, resolvers):
         common.ResolverBase.__init__(self)
         self.resolvers = resolvers

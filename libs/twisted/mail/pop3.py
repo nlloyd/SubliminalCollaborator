@@ -14,7 +14,6 @@ Post-office Protocol version 3
 import base64
 import binascii
 import warnings
-from hashlib import md5
 
 from zope.interface import implements, Interface
 
@@ -25,6 +24,7 @@ from twisted.internet import task
 from twisted.internet import defer
 from twisted.internet import interfaces
 from twisted.python import log
+from twisted.python.hashlib import md5
 
 from twisted import cred
 import twisted.cred.error

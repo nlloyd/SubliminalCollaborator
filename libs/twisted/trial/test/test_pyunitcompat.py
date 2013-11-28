@@ -1,22 +1,25 @@
 # Copyright (c) Twisted Matrix Laboratories.
 # See LICENSE for details.
-
-from __future__ import division, absolute_import
+#
+# Maintainer: Jonathan Lange
+from __future__ import division
 
 import sys
 import traceback
 
-from zope.interface import implementer
+from zope.interface import implements
 
-from twisted.python.compat import _PY3
+from twisted.python import reflect
 from twisted.python.failure import Failure
-from twisted.trial.unittest import SynchronousTestCase, PyUnitResultAdapter
+from twisted.trial import util
+from twisted.trial.unittest import TestCase, PyUnitResultAdapter
 from twisted.trial.itrial import IReporter, ITestCase
+from twisted.trial.test import erroneous
 
-import unittest as pyunit
+pyunit = __import__('unittest')
 
 
-class TestPyUnitTestCase(SynchronousTestCase):
+class TestPyUnitTestCase(TestCase):
 
     class PyUnitTest(pyunit.TestCase):
 
@@ -29,6 +32,20 @@ class TestPyUnitTestCase(SynchronousTestCase):
         self.test = ITestCase(self.original)
 
 
+    def test_visit(self):
+        """
+        Trial assumes that test cases implement visit().
+        """
+        log = []
+        def visitor(test):
+            log.append(test)
+        self.test.visit(visitor)
+        self.assertEqual(log, [self.test])
+    test_visit.suppress = [
+        util.suppress(category=DeprecationWarning,
+                      message="Test visitors deprecated in Twisted 8.0")]
+
+
     def test_callable(self):
         """
         Tests must be callable in order to be used with Python's unittest.py.
@@ -36,43 +53,19 @@ class TestPyUnitTestCase(SynchronousTestCase):
         self.assertTrue(callable(self.test),
                         "%r is not callable." % (self.test,))
 
-# Remove this when we port twisted.trial._synctest to Python 3:
-if _PY3:
-    del TestPyUnitTestCase
 
-
-
-class TestPyUnitResult(SynchronousTestCase):
+class TestPyUnitResult(TestCase):
     """
     Tests to show that PyUnitResultAdapter wraps TestResult objects from the
     standard library 'unittest' module in such a way as to make them usable and
     useful from Trial.
     """
 
-    # Once erroneous is ported to Python 3 this can be replaced with
-    # erroneous.ErrorTest:
-    class ErrorTest(SynchronousTestCase):
-        """
-        A test case which has a L{test_foo} which will raise an error.
-
-        @ivar ran: boolean indicating whether L{test_foo} has been run.
-        """
-        ran = False
-
-        def test_foo(self):
-            """
-            Set C{self.ran} to True and raise a C{ZeroDivisionError}
-            """
-            self.ran = True
-            1/0
-
-
     def test_dontUseAdapterWhenReporterProvidesIReporter(self):
         """
         The L{PyUnitResultAdapter} is only used when the result passed to
         C{run} does *not* provide L{IReporter}.
         """
-        @implementer(IReporter)
         class StubReporter(object):
             """
             A reporter which records data about calls made to it.
@@ -80,6 +73,8 @@ class TestPyUnitResult(SynchronousTestCase):
             @ivar errors: Errors passed to L{addError}.
             @ivar failures: Failures passed to L{addFailure}.
             """
+
+            implements(IReporter)
 
             def __init__(self):
                 self.errors = []
@@ -101,14 +96,14 @@ class TestPyUnitResult(SynchronousTestCase):
                 """
                 self.errors.append(error)
 
-        test = self.ErrorTest("test_foo")
+        test = erroneous.ErrorTest("test_foo")
         result = StubReporter()
         test.run(result)
         self.assertIsInstance(result.errors[0], Failure)
 
 
     def test_success(self):
-        class SuccessTest(SynchronousTestCase):
+        class SuccessTest(TestCase):
             ran = False
             def test_foo(s):
                 s.ran = True
@@ -121,7 +116,7 @@ class TestPyUnitResult(SynchronousTestCase):
         self.failUnless(result.wasSuccessful())
 
     def test_failure(self):
-        class FailureTest(SynchronousTestCase):
+        class FailureTest(TestCase):
             ran = False
             def test_foo(s):
                 s.ran = True
@@ -136,7 +131,7 @@ class TestPyUnitResult(SynchronousTestCase):
         self.failIf(result.wasSuccessful())
 
     def test_error(self):
-        test = self.ErrorTest('test_foo')
+        test = erroneous.ErrorTest('test_foo')
         result = pyunit.TestResult()
         test.run(result)
 
@@ -146,7 +141,7 @@ class TestPyUnitResult(SynchronousTestCase):
         self.failIf(result.wasSuccessful())
 
     def test_setUpError(self):
-        class ErrorTest(SynchronousTestCase):
+        class ErrorTest(TestCase):
             ran = False
             def setUp(self):
                 1/0
@@ -182,7 +177,7 @@ class TestPyUnitResult(SynchronousTestCase):
         """
         As test_tracebackFromFailure, but covering more code.
         """
-        class ErrorTest(SynchronousTestCase):
+        class ErrorTest(TestCase):
             exc_info = None
             def test_foo(self):
                 try:
@@ -225,63 +220,3 @@ class TestPyUnitResult(SynchronousTestCase):
         result.addError(self, f)
         self.assertEqual(pyresult.errors[0][1],
                          ''.join(traceback.format_exception(*exc_info)))
-
-
-    def test_trialSkip(self):
-        """
-        Skips using trial's skipping functionality are reported as skips in
-        the L{pyunit.TestResult}.
-        """
-        class SkipTest(SynchronousTestCase):
-            def test_skip(self):
-                1/0
-            test_skip.skip = "Let's skip!"
-
-        test = SkipTest('test_skip')
-        result = pyunit.TestResult()
-        test.run(result)
-        self.assertEqual(result.skipped, [(test, "Let's skip!")])
-
-
-    def test_pyunitSkip(self):
-        """
-        Skips using pyunit's skipping functionality are reported as skips in
-        the L{pyunit.TestResult}.
-        """
-        class SkipTest(SynchronousTestCase):
-            @pyunit.skip("skippy")
-            def test_skip(self):
-                1/0
-
-        test = SkipTest('test_skip')
-        result = pyunit.TestResult()
-        test.run(result)
-        self.assertEqual(result.skipped, [(test, "skippy")])
-
-
-    def test_skip26(self):
-        """
-        On Python 2.6, pyunit doesn't support skipping, so it gets added as a
-        failure to the L{pyunit.TestResult}.
-        """
-        class SkipTest(SynchronousTestCase):
-            def test_skip(self):
-                1/0
-            test_skip.skip = "Let's skip!"
-
-        test = SkipTest('test_skip')
-        result = pyunit.TestResult()
-        test.run(result)
-        self.assertEqual(len(result.failures), 1)
-        test2, reason = result.failures[0]
-        self.assertIdentical(test, test2)
-        self.assertIn("UnsupportedTrialFeature", reason)
-
-    if sys.version_info[:2] < (2, 7):
-        message = "pyunit doesn't support skipping in Python 2.6"
-        test_trialSkip.skip = message
-        test_pyunitSkip.skip = message
-        del message
-    else:
-        test_skip26.skip = "This test is only relevant to Python 2.6"
-

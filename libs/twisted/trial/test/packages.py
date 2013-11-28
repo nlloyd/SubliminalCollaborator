@@ -1,21 +1,10 @@
-# Copyright (c) Twisted Matrix Laboratories.
-# See LICENSE for details.
-#
-
-"""
-Classes and functions used by L{twisted.trial.test.test_util}
-and L{twisted.trial.test.test_loader}.
-"""
-
-from __future__ import division, absolute_import
-
 import sys, os
 from twisted.trial import unittest
 
 testModule = """
 from twisted.trial import unittest
 
-class FooTest(unittest.SynchronousTestCase):
+class FooTest(unittest.TestCase):
     def testFoo(self):
         pass
 """
@@ -32,7 +21,7 @@ Do NOT change the names the tests in this module.
 import unittest as pyunit
 from twisted.trial import unittest
 
-class FooTest(unittest.SynchronousTestCase):
+class FooTest(unittest.TestCase):
     def test_foo(self):
         pass
 
@@ -53,7 +42,7 @@ class NotATest(object):
         pass
 
 
-class AlphabetTest(unittest.SynchronousTestCase):
+class AlphabetTest(unittest.TestCase):
     def test_a(self):
         pass
 
@@ -73,19 +62,19 @@ Do NOT change the names the tests in this module.
 from twisted.trial import unittest
 
 class X(object):
-
+    
     def test_foo(self):
         pass
 
-class A(unittest.SynchronousTestCase, X):
+class A(unittest.TestCase, X):
     pass
 
-class B(unittest.SynchronousTestCase, X):
+class B(unittest.TestCase, X):
     pass
 
 """
 
-class PackageTest(unittest.SynchronousTestCase):
+class PackageTest(unittest.TestCase):
     files = [
         ('badpackage/__init__.py', 'frotz\n'),
         ('badpackage/test_module.py', ''),
@@ -106,7 +95,6 @@ class PackageTest(unittest.SynchronousTestCase):
         ('inheritancepackage/test_x.py', testInheritanceSample),
         ]
 
-
     def _toModuleName(self, filename):
         name = os.path.splitext(filename)[0]
         segs = name.split('/')
@@ -114,13 +102,8 @@ class PackageTest(unittest.SynchronousTestCase):
             segs = segs[:-1]
         return '.'.join(segs)
 
-
     def getModules(self):
-        """
-        Return matching module names for files listed in C{self.files}.
-        """
-        return [self._toModuleName(filename) for (filename, code) in self.files]
-
+        return map(self._toModuleName, zip(*self.files)[0])
 
     def cleanUpModules(self):
         modules = self.getModules()
@@ -132,7 +115,6 @@ class PackageTest(unittest.SynchronousTestCase):
             except KeyError:
                 pass
 
-
     def createFiles(self, files, parentDir='.'):
         for filename, contents in self.files:
             filename = os.path.join(parentDir, filename)
@@ -141,12 +123,10 @@ class PackageTest(unittest.SynchronousTestCase):
             fd.write(contents)
             fd.close()
 
-
     def _createDirectory(self, filename):
         directory = os.path.dirname(filename)
         if not os.path.exists(directory):
             os.makedirs(directory)
-
 
     def setUp(self, parentDir=None):
         if parentDir is None:
@@ -154,11 +134,8 @@ class PackageTest(unittest.SynchronousTestCase):
         self.parent = parentDir
         self.createFiles(self.files, parentDir)
 
-
     def tearDown(self):
         self.cleanUpModules()
-
-
 
 class SysPathManglingTest(PackageTest):
     def setUp(self, parent=None):
@@ -170,11 +147,9 @@ class SysPathManglingTest(PackageTest):
         self.newPath.append(self.parent)
         self.mangleSysPath(self.newPath)
 
-
     def tearDown(self):
         PackageTest.tearDown(self)
         self.mangleSysPath(self.oldPath)
-
 
     def mangleSysPath(self, pathVar):
         sys.path[:] = pathVar

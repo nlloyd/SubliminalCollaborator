@@ -5,18 +5,15 @@
 Address objects for network connections.
 """
 
-from __future__ import division, absolute_import
-
 import warnings, os
 
-from zope.interface import implementer
+from zope.interface import implements
 
 from twisted.internet.interfaces import IAddress
-from twisted.python.util import FancyEqMixin
+from twisted.python import util
 
 
-@implementer(IAddress)
-class _IPAddress(FancyEqMixin, object):
+class _IPAddress(object, util.FancyEqMixin):
     """
     An L{_IPAddress} represents the address of an IP socket endpoint, providing
     common behavior for IPv4 and IPv6.
@@ -31,6 +28,8 @@ class _IPAddress(FancyEqMixin, object):
     @ivar port: An integer representing the port number.
     @type port: C{int}
     """
+
+    implements(IAddress)
 
     compareAttributes = ('type', 'host', 'port')
 
@@ -80,22 +79,15 @@ class IPv6Address(_IPAddress):
 
 
 
-@implementer(IAddress)
-class _ProcessAddress(object):
-    """
-    An L{interfaces.IAddress} provider for process transports.
-    """
-
-
-
-@implementer(IAddress)
-class UNIXAddress(FancyEqMixin, object):
+class UNIXAddress(object, util.FancyEqMixin):
     """
     Object representing a UNIX socket endpoint.
 
     @ivar name: The filename associated with this socket.
     @type name: C{str}
     """
+
+    implements(IAddress)
 
     compareAttributes = ('name', )
 
@@ -109,7 +101,7 @@ class UNIXAddress(FancyEqMixin, object):
     if getattr(os.path, 'samefile', None) is not None:
         def __eq__(self, other):
             """
-            Overriding C{FancyEqMixin} to ensure the os level samefile
+            overriding L{util.FancyEqMixin} to ensure the os level samefile
             check is done if the name attributes do not match.
             """
             res = super(UNIXAddress, self).__eq__(other)

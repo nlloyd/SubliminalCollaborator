@@ -6,33 +6,29 @@
 An API for storing HTTP header names and values.
 """
 
-from __future__ import division, absolute_import
 
-from collections import MutableMapping
-
-from twisted.python.compat import comparable, cmp
+from UserDict import DictMixin
 
 
 def _dashCapitalize(name):
     """
-    Return a byte string which is capitalized using '-' as a word separator.
+    Return a string which is capitalized using '-' as a word separator.
 
     @param name: The name of the header to capitalize.
-    @type name: C{bytes}
+    @type name: str
 
     @return: The given header capitalized using '-' as a word separator.
-    @rtype: C{bytes}
+    @rtype: str
     """
-    return b'-'.join([word.capitalize() for word in name.split(b'-')])
+    return '-'.join([word.capitalize() for word in name.split('-')])
 
 
 
-class _DictHeaders(MutableMapping):
+class _DictHeaders(DictMixin):
     """
     A C{dict}-like wrapper around L{Headers} to provide backwards compatibility
-    for L{twisted.web.http.Request.received_headers} and
-    L{twisted.web.http.Request.headers} which used to be plain C{dict}
-    instances.
+    for L{Request.received_headers} and L{Request.headers} which used to be
+    plain C{dict} instances.
 
     @type _headers: L{Headers}
     @ivar _headers: The real header storage object.
@@ -67,23 +63,13 @@ class _DictHeaders(MutableMapping):
             raise KeyError(key)
 
 
-    def __iter__(self):
+    def keys(self):
         """
-        Return an iterator of the lowercase name of each header present.
+        Return a list of all header names.
         """
-        for k, v in self._headers.getAllRawHeaders():
-            yield k.lower()
+        return [k.lower() for k, v in self._headers.getAllRawHeaders()]
 
 
-    def __len__(self):
-        """
-        Return the number of distinct headers present.
-        """
-        # XXX Too many _
-        return len(self._headers._rawHeaders)
-
-
-    # Extra methods that MutableMapping doesn't care about but that we do.
     def copy(self):
         """
         Return a C{dict} mapping each header name to the last corresponding
@@ -92,16 +78,48 @@ class _DictHeaders(MutableMapping):
         return dict(self.items())
 
 
-    def has_key(self, key):
+    # Python 2.3 DictMixin.setdefault is defined so as not to have a default
+    # for the value parameter.  This is necessary to make this setdefault look
+    # like dict.setdefault on Python 2.3. -exarkun
+    def setdefault(self, name, value=None):
         """
-        Return C{True} if C{key} is a header in this collection, C{False}
-        otherwise.
+        Retrieve the last value for the given header name.  If there are no
+        values present for that header, set the value to C{value} and return
+        that instead.  Note that C{None} is the default for C{value} for
+        backwards compatibility, but header values may only be of type C{str}.
         """
-        return key in self
+        return DictMixin.setdefault(self, name, value)
+
+
+    # The remaining methods are only for efficiency.  The same behavior
+    # should remain even if they are removed.  For details, see
+    # <http://docs.python.org/lib/module-UserDict.html>.
+    # -exarkun
+    def __contains__(self, name):
+        """
+        Return C{True} if the named header is present, C{False} otherwise.
+        """
+        return self._headers.getRawHeaders(name) is not None
+
+
+    def __iter__(self):
+        """
+        Return an iterator of the lowercase name of each header present.
+        """
+        for k, v in self._headers.getAllRawHeaders():
+            yield k.lower()
+
+
+    def iteritems(self):
+        """
+        Return an iterable of two-tuples of each lower-case header name and the
+        last value for that header.
+        """
+        for k, v in self._headers.getAllRawHeaders():
+            yield k.lower(), v[-1]
 
 
 
-@comparable
 class Headers(object):
     """
     This class stores the HTTP headers as both a parsed representation
@@ -111,22 +129,22 @@ class Headers(object):
     @cvar _caseMappings: A C{dict} that maps lowercase header names
         to their canonicalized representation.
 
-    @ivar _rawHeaders: A C{dict} mapping header names as C{bytes} to C{lists} of
-        header values as C{bytes}.
+    @ivar _rawHeaders: A C{dict} mapping header names as C{str} to C{lists} of
+        header values as C{str}.
     """
     _caseMappings = {
-        b'content-md5': b'Content-MD5',
-        b'dnt': b'DNT',
-        b'etag': b'ETag',
-        b'p3p': b'P3P',
-        b'te': b'TE',
-        b'www-authenticate': b'WWW-Authenticate',
-        b'x-xss-protection': b'X-XSS-Protection'}
+        'content-md5': 'Content-MD5',
+        'dnt': 'DNT',
+        'etag': 'ETag',
+        'p3p': 'P3P',
+        'te': 'TE',
+        'www-authenticate': 'WWW-Authenticate',
+        'x-xss-protection': 'X-XSS-Protection'}
 
     def __init__(self, rawHeaders=None):
         self._rawHeaders = {}
         if rawHeaders is not None:
-            for name, values in rawHeaders.items():
+            for name, values in rawHeaders.iteritems():
                 self.setRawHeaders(name, values[:])
 
 
@@ -143,9 +161,7 @@ class Headers(object):
         the same raw headers.
         """
         if isinstance(other, Headers):
-            return cmp(
-                sorted(self._rawHeaders.items()),
-                sorted(other._rawHeaders.items()))
+            return cmp(self._rawHeaders, other._rawHeaders)
         return NotImplemented
 
 
@@ -160,7 +176,7 @@ class Headers(object):
         """
         Check for the existence of a given header.
 
-        @type name: C{bytes}
+        @type name: C{str}
         @param name: The name of the HTTP header to check for.
 
         @rtype: C{bool}
@@ -173,7 +189,7 @@ class Headers(object):
         """
         Remove the named header from this header object.
 
-        @type name: C{bytes}
+        @type name: C{str}
         @param name: The name of the HTTP header to remove.
 
         @return: C{None}
@@ -185,7 +201,7 @@ class Headers(object):
         """
         Sets the raw representation of the given header.
 
-        @type name: C{bytes}
+        @type name: C{str}
         @param name: The name of the HTTP header to set the values for.
 
         @type values: C{list}
@@ -204,10 +220,10 @@ class Headers(object):
         """
         Add a new raw value for the given header.
 
-        @type name: C{bytes}
+        @type name: C{str}
         @param name: The name of the header for which to set the value.
 
-        @type value: C{bytes}
+        @type value: C{str}
         @param value: The value to set for the named header.
         """
         values = self.getRawHeaders(name)
@@ -222,7 +238,7 @@ class Headers(object):
         Returns a list of headers matching the given name as the raw string
         given.
 
-        @type name: C{bytes}
+        @type name: C{str}
         @param name: The name of the HTTP header to get the values of.
 
         @param default: The value to return if no header with the given C{name}
@@ -240,7 +256,7 @@ class Headers(object):
         object, as strings.  The keys are capitalized in canonical
         capitalization.
         """
-        for k, v in self._rawHeaders.items():
+        for k, v in self._rawHeaders.iteritems():
             yield self._canonicalNameCaps(k), v
 
 
@@ -248,11 +264,11 @@ class Headers(object):
         """
         Return the canonical name for the given header.
 
-        @type name: C{bytes}
+        @type name: C{str}
         @param name: The all-lowercase header name to capitalize in its
             canonical form.
 
-        @rtype: C{bytes}
+        @rtype: C{str}
         @return: The canonical name of the header.
         """
         return self._caseMappings.get(name, _dashCapitalize(name))

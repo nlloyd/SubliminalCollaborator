@@ -6,19 +6,10 @@
 Cryptographically secure random implementation, with fallback on normal random.
 """
 
-from __future__ import division, absolute_import
-
-import warnings, os, random, string
-
-from twisted.python.compat import _PY3
+# System imports
+import warnings, os, random
 
 getrandbits = getattr(random, 'getrandbits', None)
-
-if _PY3:
-    _fromhex = bytes.fromhex
-else:
-    def _fromhex(hexBytes):
-        return hexBytes.decode('hex')
 
 
 class SecureRandomNotAvailable(RuntimeError):
@@ -56,7 +47,7 @@ class RandomFactory(object):
         """
         try:
             return os.urandom(nbytes)
-        except (AttributeError, NotImplementedError) as e:
+        except (AttributeError, NotImplementedError), e:
             raise SourceNotAvailable(e)
 
 
@@ -96,28 +87,18 @@ class RandomFactory(object):
         if self.getrandbits is not None:
             n = self.getrandbits(nbytes * 8)
             hexBytes = ("%%0%dx" % (nbytes * 2)) % n
-            return _fromhex(hexBytes)
+            return hexBytes.decode('hex')
         raise SourceNotAvailable("random.getrandbits is not available")
 
 
-    if _PY3:
-        _maketrans = bytes.maketrans
-        def _randModule(self, nbytes):
-            """
-            Wrapper around the C{random} module.
-            """
-            return b"".join([
-                    bytes([random.choice(self._BYTES)]) for i in range(nbytes)])
-    else:
-        _maketrans = string.maketrans
-        def _randModule(self, nbytes):
-            """
-            Wrapper around the C{random} module.
-            """
-            return b"".join([
-                    random.choice(self._BYTES) for i in range(nbytes)])
-
-    _BYTES = _maketrans(b'', b'')
+    def _randRange(self, nbytes):
+        """
+        Wrapper around C{random.randrange}.
+        """
+        bytes = ""
+        for i in xrange(nbytes):
+            bytes += chr(random.randrange(0, 255))
+        return bytes
 
 
     def insecureRandom(self, nbytes):
@@ -130,7 +111,7 @@ class RandomFactory(object):
         @return: a string of random bytes.
         @rtype: C{str}
         """
-        for src in ("_randBits", "_randModule"):
+        for src in ("_randBits", "_randRange"):
             try:
                 return getattr(self, src)(nbytes)
             except SourceNotAvailable:

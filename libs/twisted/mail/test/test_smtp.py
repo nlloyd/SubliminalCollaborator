@@ -5,7 +5,7 @@
 Test cases for twisted.mail.smtp module.
 """
 
-from zope.interface import implements, directlyProvides
+from zope.interface import implements
 
 from twisted.python.util import LineLog
 from twisted.trial import unittest, util
@@ -32,9 +32,7 @@ from twisted.mail import imap4
 try:
     from twisted.test.ssl_helpers import ClientTLSContext, ServerTLSContext
 except ImportError:
-    sslSkip = "OpenSSL not present"
-else:
-    sslSkip = None
+    ClientTLSContext = ServerTLSContext = None
 
 import re
 
@@ -116,8 +114,12 @@ class DummyDomain(object):
 
     def exists(self, user):
         if user.dest.local in self.messages:
-            return defer.succeed(lambda: DummyMessage(self, user))
+            return defer.succeed(lambda: self.startMessage(user))
         return defer.fail(smtp.SMTPBadRcpt(user))
+
+
+    def startMessage(self, user):
+        return DummyMessage(self, user)
 
 
 
@@ -275,16 +277,16 @@ class SMTPClientTestCase(unittest.TestCase, LoopbackMixin):
         L{smtp.SMTPClient.timeoutConnection} calls the C{sendError} hook with a
         fatal L{SMTPTimeoutError} with the current line log.
         """
-        errors = []
+        error = []
         client = MySMTPClient()
-        client.sendError = errors.append
+        client.sendError = error.append
         client.makeConnection(StringTransport())
         client.lineReceived("220 hello")
         client.timeoutConnection()
-        self.assertIsInstance(errors[0], smtp.SMTPTimeoutError)
-        self.assertTrue(errors[0].isFatal)
+        self.assertIsInstance(error[0], smtp.SMTPTimeoutError)
+        self.assertTrue(error[0].isFatal)
         self.assertEqual(
-            str(errors[0]),
+            str(error[0]),
             "Timeout waiting for SMTP server response\n"
             "<<< 220 hello\n"
             ">>> HELO foo.baz\n")
@@ -407,15 +409,15 @@ class DummyProto:
         self.dummyMixinBase.connectionMade(self)
         self.message = {}
 
+    def startMessage(self, users):
+        return DummySMTPMessage(self, users)
 
     def receivedHeader(*spam):
         return None
 
-
     def validateTo(self, user):
         self.delivery = SimpleDelivery(None)
-        return lambda: DummySMTPMessage(self, [user])
-
+        return lambda: self.startMessage([user])
 
     def validateFrom(self, helo, origin):
         return origin
@@ -726,12 +728,7 @@ class NoticeTLSClient(MyESMTPClient):
         MyESMTPClient.esmtpState_starttls(self, code, resp)
         self.tls = True
 
-
-
 class TLSTestCase(unittest.TestCase, LoopbackMixin):
-    if sslSkip is not None:
-        skip = sslSkip
-
     def testTLS(self):
         clientCTX = ClientTLSContext()
         serverCTX = ServerTLSContext()
@@ -745,11 +742,13 @@ class TLSTestCase(unittest.TestCase, LoopbackMixin):
 
         return self.loopback(server, client).addCallback(check)
 
+if ClientTLSContext is None:
+    for case in (TLSTestCase,):
+        case.skip = "OpenSSL not present"
+
 if not interfaces.IReactorSSL.providedBy(reactor):
     for case in (TLSTestCase,):
         case.skip = "Reactor doesn't support SSL"
-
-
 
 class EmptyLineTestCase(unittest.TestCase):
     def test_emptyLineSyntaxError(self):
@@ -1519,161 +1518,3 @@ class SenderMixinSentMailTests(unittest.TestCase):
         client.sentMail(199, "Test response", 1, addresses, client.log)
 
         return onDone
-
-
-
-class SSLTestCase(unittest.TestCase):
-    """
-    Tests for the TLS negotiation done by L{smtp.ESMTPClient}.
-    """
-    if sslSkip is not None:
-        skip = sslSkip
-
-    SERVER_GREETING = "220 localhost NO UCE NO UBE NO RELAY PROBES ESMTP\r\n"
-    EHLO_RESPONSE = "250-localhost Hello 127.0.0.1, nice to meet you\r\n"
-
-    def setUp(self):
-        self.clientProtocol = smtp.ESMTPClient(
-            "testpassword", ClientTLSContext(), "testuser")
-        self.clientProtocol.requireTransportSecurity = True
-        self.clientProtocol.getMailFrom = lambda: "test@example.org"
-
-
-    def _requireTransportSecurityOverSSLTest(self, capabilities):
-        """
-        Verify that when L{smtp.ESMTPClient} connects to a server over a
-        transport providing L{ISSLTransport}, C{requireTransportSecurity} is
-        C{True}, and it is presented with the given capabilities, it will try
-        to send its mail and not first attempt to negotiate TLS using the
-        I{STARTTLS} protocol action.
-
-        @param capabilities: Bytes to include in the test server's capability
-            response.  These must be formatted exactly as required by the
-            protocol, including a line which ends the capability response.
-        @type param: L{bytes}
-
-        @raise: C{self.failException} if the behavior of C{self.clientProtocol}
-            is not as described.
-        """
-        transport = StringTransport()
-        directlyProvides(transport, interfaces.ISSLTransport)
-        self.clientProtocol.makeConnection(transport)
-
-        # Get the handshake out of the way
-        self.clientProtocol.dataReceived(self.SERVER_GREETING)
-        transport.clear()
-
-        # Tell the client about the server's capabilities
-        self.clientProtocol.dataReceived(self.EHLO_RESPONSE + capabilities)
-
-        # The client should now try to send a message - without first trying to
-        # negotiate TLS, since the transport is already secure.
-        self.assertEqual(
-            b"MAIL FROM:<test@example.org>\r\n",
-            transport.value())
-
-
-    def test_requireTransportSecurityOverSSL(self):
-        """
-        When C{requireTransportSecurity} is C{True} and the client is connected
-        over an SSL transport, mail may be delivered.
-        """
-        self._requireTransportSecurityOverSSLTest(b"250 AUTH LOGIN\r\n")
-
-
-    def test_requireTransportSecurityTLSOffered(self):
-        """
-        When C{requireTransportSecurity} is C{True} and the client is connected
-        over a non-SSL transport, if the server offers the I{STARTTLS}
-        extension, it is used before mail is delivered.
-        """
-        transport = StringTransport()
-        self.clientProtocol.makeConnection(transport)
-
-        # Get the handshake out of the way
-        self.clientProtocol.dataReceived(self.SERVER_GREETING)
-        transport.clear()
-
-        # Tell the client about the server's capabilities - including STARTTLS
-        self.clientProtocol.dataReceived(
-            self.EHLO_RESPONSE +
-            "250-AUTH LOGIN\r\n"
-            "250 STARTTLS\r\n")
-
-        # The client should try to start TLS before sending the message.
-        self.assertEqual("STARTTLS\r\n", transport.value())
-
-
-    def test_requireTransportSecurityTLSOfferedOverSSL(self):
-        """
-        When C{requireTransportSecurity} is C{True} and the client is connected
-        over an SSL transport, if the server offers the I{STARTTLS}
-        extension, it is not used before mail is delivered.
-        """
-        self._requireTransportSecurityOverSSLTest(
-            b"250-AUTH LOGIN\r\n"
-            b"250 STARTTLS\r\n")
-
-
-    def test_requireTransportSecurityTLSNotOffered(self):
-        """
-        When C{requireTransportSecurity} is C{True} and the client is connected
-        over a non-SSL transport, if the server does not offer the I{STARTTLS}
-        extension, mail is not delivered.
-        """
-        transport = StringTransport()
-        self.clientProtocol.makeConnection(transport)
-
-        # Get the handshake out of the way
-        self.clientProtocol.dataReceived(self.SERVER_GREETING)
-        transport.clear()
-
-        # Tell the client about the server's capabilities - excluding STARTTLS
-        self.clientProtocol.dataReceived(
-            self.EHLO_RESPONSE +
-            "250 AUTH LOGIN\r\n")
-
-        # The client give up
-        self.assertEqual("QUIT\r\n", transport.value())
-
-
-    def test_esmtpClientTlsModeDeprecationGet(self):
-        """
-        L{smtp.ESMTPClient.tlsMode} is deprecated.
-        """
-        val = self.clientProtocol.tlsMode
-        del val
-        warningsShown = self.flushWarnings(
-            offendingFunctions=[self.test_esmtpClientTlsModeDeprecationGet])
-        self.assertEqual(len(warningsShown), 1)
-        self.assertIdentical(
-            warningsShown[0]['category'], DeprecationWarning)
-        self.assertEqual(
-            warningsShown[0]['message'],
-            "tlsMode attribute of twisted.mail.smtp.ESMTPClient "
-            "is deprecated since Twisted 13.0")
-
-
-    def test_esmtpClientTlsModeDeprecationGetAttributeError(self):
-        """
-        L{smtp.ESMTPClient.__getattr__} raises an attribute error for other
-        attribute names which do not exist.
-        """
-        self.assertRaises(
-            AttributeError, lambda: self.clientProtocol.doesNotExist)
-
-
-    def test_esmtpClientTlsModeDeprecationSet(self):
-        """
-        L{smtp.ESMTPClient.tlsMode} is deprecated.
-        """
-        self.clientProtocol.tlsMode = False
-        warningsShown = self.flushWarnings(
-            offendingFunctions=[self.test_esmtpClientTlsModeDeprecationSet])
-        self.assertEqual(len(warningsShown), 1)
-        self.assertIdentical(
-            warningsShown[0]['category'], DeprecationWarning)
-        self.assertEqual(
-            warningsShown[0]['message'],
-            "tlsMode attribute of twisted.mail.smtp.ESMTPClient "
-            "is deprecated since Twisted 13.0")

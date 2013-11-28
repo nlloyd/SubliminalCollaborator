@@ -5,12 +5,9 @@
 Tests for L{twisted.protocols.tls}.
 """
 
-from __future__ import division, absolute_import
-
 from zope.interface.verify import verifyObject
 from zope.interface import Interface, directlyProvides
 
-from twisted.python.compat import intToBytes, iterbytes
 try:
     from twisted.protocols.tls import TLSMemoryBIOProtocol, TLSMemoryBIOFactory
     from twisted.protocols.tls import _PullToPush, _ProducerMembrane
@@ -21,11 +18,9 @@ else:
     # Otherwise, the pyOpenSSL dependency must be satisfied, so all these
     # imports will work.
     from OpenSSL.crypto import X509Type
-    from OpenSSL.SSL import (TLSv1_METHOD, Error, Context, ConnectionType,
-                             WantReadError)
-    from twisted.internet.ssl import PrivateCertificate
-    from twisted.test.ssl_helpers import (ClientTLSContext, ServerTLSContext,
-                                          certPath)
+    from OpenSSL.SSL import TLSv1_METHOD, Error, Context, ConnectionType, WantReadError
+    from twisted.internet.ssl import ClientContextFactory, PrivateCertificate
+    from twisted.internet.ssl import DefaultOpenSSLContextFactory
 
 from twisted.python.filepath import FilePath
 from twisted.python.failure import Failure
@@ -39,6 +34,7 @@ from twisted.internet.task import TaskStopped
 from twisted.protocols.loopback import loopbackAsync, collapsingPumpPolicy
 from twisted.trial.unittest import TestCase
 from twisted.test.test_tcp import ConnectionLostNotifyingProtocol
+from twisted.test.test_ssl import certPath
 from twisted.test.proto_helpers import StringTransport
 
 
@@ -132,9 +128,9 @@ def buildTLSProtocol(server=False, transport=None):
     clientFactory.protocol = lambda: clientProtocol
 
     if server:
-        contextFactory = ServerTLSContext()
+        contextFactory = DefaultOpenSSLContextFactory(certPath, certPath)
     else:
-        contextFactory = ClientTLSContext()
+        contextFactory = ClientContextFactory()
     wrapperFactory = TLSMemoryBIOFactory(
         contextFactory, not server, clientFactory)
     sslProtocol = wrapperFactory.buildProtocol(None)
@@ -156,7 +152,7 @@ class TLSMemoryBIOFactoryTests(TestCase):
         L{TLSMemoryBIOFactory.doStart} and L{TLSMemoryBIOFactory.doStop} do
         not log any messages.
         """
-        contextFactory = ServerTLSContext()
+        contextFactory = DefaultOpenSSLContextFactory(certPath, certPath)
 
         logs = []
         logger = logs.append
@@ -178,7 +174,7 @@ class TLSMemoryBIOFactoryTests(TestCase):
         with a short string (C{"TLS"}) indicating the wrapping, rather than its
         full class name.
         """
-        contextFactory = ServerTLSContext()
+        contextFactory = DefaultOpenSSLContextFactory(certPath, certPath)
         factory = TLSMemoryBIOFactory(contextFactory, False, ServerFactory())
         self.assertEqual("ServerFactory (TLS)", factory.logPrefix())
 
@@ -191,7 +187,7 @@ class TLSMemoryBIOFactoryTests(TestCase):
         class NoFactory(object):
             pass
 
-        contextFactory = ServerTLSContext()
+        contextFactory = DefaultOpenSSLContextFactory(certPath, certPath)
         factory = TLSMemoryBIOFactory(contextFactory, False, NoFactory())
         self.assertEqual("NoFactory (TLS)", factory.logPrefix())
 
@@ -226,7 +222,7 @@ class TLSMemoryBIOTests(TestCase):
                 pass
 
         clientFactory = ClientFactory()
-        contextFactory = ClientTLSContext()
+        contextFactory = ClientContextFactory()
         wrapperFactory = TLSMemoryBIOFactory(
             contextFactory, True, clientFactory)
 
@@ -253,7 +249,7 @@ class TLSMemoryBIOTests(TestCase):
         L{ISystemHandle} and return the underlying socket instead.
         """
         factory = ClientFactory()
-        contextFactory = ClientTLSContext()
+        contextFactory = ClientContextFactory()
         wrapperFactory = TLSMemoryBIOFactory(contextFactory, True, factory)
         proto = TLSMemoryBIOProtocol(wrapperFactory, Protocol())
         transport = StringTransport()
@@ -270,7 +266,7 @@ class TLSMemoryBIOTests(TestCase):
         clientFactory = ClientFactory()
         clientFactory.protocol = lambda: clientProtocol
 
-        contextFactory = ClientTLSContext()
+        contextFactory = ClientContextFactory()
         wrapperFactory = TLSMemoryBIOFactory(
             contextFactory, True, clientFactory)
         sslProtocol = wrapperFactory.buildProtocol(None)
@@ -299,7 +295,7 @@ class TLSMemoryBIOTests(TestCase):
         serverFactory = ServerFactory()
         serverFactory.protocol = Protocol
 
-        serverContextFactory = ServerTLSContext()
+        serverContextFactory = DefaultOpenSSLContextFactory(certPath, certPath)
         wrapperFactory = TLSMemoryBIOFactory(
             serverContextFactory, False, serverFactory)
         sslServerProtocol = wrapperFactory.buildProtocol(None)
@@ -390,7 +386,7 @@ class TLSMemoryBIOTests(TestCase):
         serverFactory = ServerFactory()
         serverFactory.protocol = Protocol
 
-        serverContextFactory = ServerTLSContext()
+        serverContextFactory = DefaultOpenSSLContextFactory(certPath, certPath)
         wrapperFactory = TLSMemoryBIOFactory(
             serverContextFactory, False, serverFactory)
         sslServerProtocol = wrapperFactory.buildProtocol(None)
@@ -404,7 +400,7 @@ class TLSMemoryBIOTests(TestCase):
             self.assertIsInstance(cert, X509Type)
             self.assertEqual(
                 cert.digest('md5'),
-                b'9B:A4:AB:43:10:BE:82:AE:94:3E:6B:91:F2:F3:40:E8')
+                '9B:A4:AB:43:10:BE:82:AE:94:3E:6B:91:F2:F3:40:E8')
         handshakeDeferred.addCallback(cbHandshook)
         return handshakeDeferred
 
@@ -415,7 +411,7 @@ class TLSMemoryBIOTests(TestCase):
         complete are received by the protocol on the other side of the
         connection once the handshake succeeds.
         """
-        bytes = b"some bytes"
+        bytes = "some bytes"
 
         clientProtocol = Protocol()
         clientFactory = ClientFactory()
@@ -431,7 +427,7 @@ class TLSMemoryBIOTests(TestCase):
         serverFactory = ServerFactory()
         serverFactory.protocol = lambda: serverProtocol
 
-        serverContextFactory = ServerTLSContext()
+        serverContextFactory = DefaultOpenSSLContextFactory(certPath, certPath)
         wrapperFactory = TLSMemoryBIOFactory(
             serverContextFactory, False, serverFactory)
         sslServerProtocol = wrapperFactory.buildProtocol(None)
@@ -449,7 +445,7 @@ class TLSMemoryBIOTests(TestCase):
         # Once the connection is lost, make sure the server received the
         # expected bytes.
         def cbDisconnected(ignored):
-            self.assertEqual(b"".join(serverProtocol.received), bytes)
+            self.assertEqual("".join(serverProtocol.received), bytes)
         handshakeDeferred.addCallback(cbDisconnected)
 
         return handshakeDeferred
@@ -473,7 +469,7 @@ class TLSMemoryBIOTests(TestCase):
         serverFactory = ServerFactory()
         serverFactory.protocol = lambda: serverProtocol
 
-        serverContextFactory = ServerTLSContext()
+        serverContextFactory = DefaultOpenSSLContextFactory(certPath, certPath)
         wrapperFactory = TLSMemoryBIOFactory(
             serverContextFactory, False, serverFactory)
         sslServerProtocol = wrapperFactory.buildProtocol(None)
@@ -483,7 +479,7 @@ class TLSMemoryBIOTests(TestCase):
         # Wait for the connection to end, then make sure the server received
         # the bytes sent by the client.
         def cbConnectionDone(ignored):
-            self.assertEqual(b"".join(serverProtocol.received), bytes)
+            self.assertEqual("".join(serverProtocol.received), bytes)
         connectionDeferred.addCallback(cbConnectionDone)
         return connectionDeferred
 
@@ -494,7 +490,7 @@ class TLSMemoryBIOTests(TestCase):
         complete are received by the protocol on the other side of the
         connection once the handshake succeeds.
         """
-        bytes = b"some bytes"
+        bytes = "some bytes"
 
         class SimpleSendingProtocol(Protocol):
             def connectionMade(self):
@@ -508,10 +504,10 @@ class TLSMemoryBIOTests(TestCase):
         Bytes written to L{TLSMemoryBIOProtocol} with C{writeSequence} are
         received by the protocol on the other side of the connection.
         """
-        bytes = b"some bytes"
+        bytes = "some bytes"
         class SimpleSendingProtocol(Protocol):
             def connectionMade(self):
-                self.transport.writeSequence(list(iterbytes(bytes)))
+                self.transport.writeSequence(list(bytes))
 
         return self.writeBeforeHandshakeTest(SimpleSendingProtocol, bytes)
 
@@ -522,32 +518,14 @@ class TLSMemoryBIOTests(TestCase):
         called are not transmitted (unless there is a registered producer,
         which will be tested elsewhere).
         """
-        bytes = b"some bytes"
+        bytes = "some bytes"
         class SimpleSendingProtocol(Protocol):
             def connectionMade(self):
                 self.transport.write(bytes)
                 self.transport.loseConnection()
-                self.transport.write(b"hello")
-                self.transport.writeSequence([b"world"])
+                self.transport.write("hello")
+                self.transport.writeSequence(["world"])
         return self.writeBeforeHandshakeTest(SimpleSendingProtocol, bytes)
-
-
-    def test_writeUnicodeRaisesTypeError(self):
-        """
-        Writing C{unicode} to L{TLSMemoryBIOProtocol} throws a C{TypeError}.
-        """
-        notBytes = u"hello"
-        result = []
-        class SimpleSendingProtocol(Protocol):
-            def connectionMade(self):
-                try:
-                    self.transport.write(notBytes)
-                except TypeError:
-                    result.append(True)
-                self.transport.write(b"bytes")
-                self.transport.loseConnection()
-        d = self.writeBeforeHandshakeTest(SimpleSendingProtocol, b"bytes")
-        return d.addCallback(lambda ign: self.assertEqual(result, [True]))
 
 
     def test_multipleWrites(self):
@@ -556,7 +534,7 @@ class TLSMemoryBIOTests(TestCase):
         the underlying transport, all of the application bytes from each
         message are delivered to the application-level protocol.
         """
-        bytes = [b'a', b'b', b'c', b'd', b'e', b'f', b'g', b'h', b'i']
+        bytes = [str(i) for i in range(10)]
         class SimpleSendingProtocol(Protocol):
             def connectionMade(self):
                 for b in bytes:
@@ -574,7 +552,7 @@ class TLSMemoryBIOTests(TestCase):
         serverFactory = ServerFactory()
         serverFactory.protocol = lambda: serverProtocol
 
-        serverContextFactory = ServerTLSContext()
+        serverContextFactory = DefaultOpenSSLContextFactory(certPath, certPath)
         wrapperFactory = TLSMemoryBIOFactory(
             serverContextFactory, False, serverFactory)
         sslServerProtocol = wrapperFactory.buildProtocol(None)
@@ -584,7 +562,7 @@ class TLSMemoryBIOTests(TestCase):
         # Wait for the connection to end, then make sure the server received
         # the bytes sent by the client.
         def cbConnectionDone(ignored):
-            self.assertEqual(b"".join(serverProtocol.received), b''.join(bytes))
+            self.assertEqual("".join(serverProtocol.received), ''.join(bytes))
         connectionDeferred.addCallback(cbConnectionDone)
         return connectionDeferred
 
@@ -595,7 +573,7 @@ class TLSMemoryBIOTests(TestCase):
         trailing part of it which cannot be send immediately is buffered and
         sent later.
         """
-        bytes = b"some bytes"
+        bytes = "some bytes"
         factor = 8192
         class SimpleSendingProtocol(Protocol):
             def connectionMade(self):
@@ -613,7 +591,7 @@ class TLSMemoryBIOTests(TestCase):
         serverFactory = ServerFactory()
         serverFactory.protocol = lambda: serverProtocol
 
-        serverContextFactory = ServerTLSContext()
+        serverContextFactory = DefaultOpenSSLContextFactory(certPath, certPath)
         wrapperFactory = TLSMemoryBIOFactory(
             serverContextFactory, False, serverFactory)
         sslServerProtocol = wrapperFactory.buildProtocol(None)
@@ -623,7 +601,7 @@ class TLSMemoryBIOTests(TestCase):
         # Wait for the connection to end, then make sure the server received
         # the bytes sent by the client.
         def cbConnectionDone(ignored):
-            self.assertEqual(b"".join(serverProtocol.received), bytes * factor)
+            self.assertEqual("".join(serverProtocol.received), bytes * factor)
         connectionDeferred.addCallback(cbConnectionDone)
         return connectionDeferred
 
@@ -690,13 +668,13 @@ class TLSMemoryBIOTests(TestCase):
         serverFactory = ServerFactory()
         serverFactory.protocol = lambda: serverProtocol
 
-        serverContextFactory = ServerTLSContext()
+        serverContextFactory = DefaultOpenSSLContextFactory(certPath, certPath)
         wrapperFactory = TLSMemoryBIOFactory(
             serverContextFactory, False, serverFactory)
         sslServerProtocol = wrapperFactory.buildProtocol(None)
 
         loopbackAsync(sslServerProtocol, sslClientProtocol)
-        chunkOfBytes = b"123456890" * 100000
+        chunkOfBytes = "123456890" * 100000
 
         # Wait for the handshake before dropping the connection.
         def cbHandshake(ignored):
@@ -716,13 +694,12 @@ class TLSMemoryBIOTests(TestCase):
         # Wait for the connection to end, then make sure the client and server
         # weren't notified of a handshake failure that would cause the test to
         # fail.
-        def cbConnectionDone(result):
-            (clientProtocol, serverProtocol) = result
+        def cbConnectionDone((clientProtocol, serverProtocol)):
             clientProtocol.lostConnectionReason.trap(ConnectionDone)
             serverProtocol.lostConnectionReason.trap(ConnectionDone)
 
             # The server should have received all bytes sent by the client:
-            self.assertEqual(b"".join(serverProtocol.data), chunkOfBytes)
+            self.assertEqual("".join(serverProtocol.data), chunkOfBytes)
 
             # The server should have closed its underlying transport, in
             # addition to whatever it did to shut down the TLS layer.
@@ -745,7 +722,7 @@ class TLSMemoryBIOTests(TestCase):
             disconnected = None
             def connectionLost(self, reason):
                 self.disconnected = reason
-        wrapperFactory = TLSMemoryBIOFactory(ClientTLSContext(),
+        wrapperFactory = TLSMemoryBIOFactory(ClientContextFactory(),
                                              True, ClientFactory())
         protocol = LostProtocol()
         tlsProtocol = TLSMemoryBIOProtocol(wrapperFactory, protocol)
@@ -771,7 +748,7 @@ class TLSMemoryBIOTests(TestCase):
         If TLSMemoryBIOProtocol.loseConnection is called multiple times, all
         but the first call have no effect.
         """
-        wrapperFactory = TLSMemoryBIOFactory(ClientTLSContext(),
+        wrapperFactory = TLSMemoryBIOFactory(ClientContextFactory(),
                                              True, ClientFactory())
         tlsProtocol = TLSMemoryBIOProtocol(wrapperFactory, Protocol())
         transport = StringTransport()
@@ -809,7 +786,7 @@ class TLSMemoryBIOTests(TestCase):
         # Write data, then disconnect *underlying* transport, resulting in an
         # unexpected TLS disconnect:
         def handshakeDone(ign):
-            tlsClient.write(b"hello")
+            tlsClient.write("hello")
             tlsClient.transport.loseConnection()
         handshakeDeferred.addCallback(handshakeDone)
 
@@ -842,7 +819,7 @@ class TLSMemoryBIOTests(TestCase):
 
         # Write some data:
         def handshakeDone(ign):
-            tlsClient.write(b"hello")
+            tlsClient.write("hello")
         handshakeDeferred.addCallback(handshakeDone)
 
         # Failed writer should be disconnected with SSL error:
@@ -900,8 +877,8 @@ class TLSProducerTests(TestCase):
                 serverTLSProtocol.transport.clear()
             if not serverData and not clientData:
                 break
-        self.assertEqual(tlsProtocol.transport.value(), b"")
-        self.assertEqual(serverTLSProtocol.transport.value(), b"")
+        self.assertEqual(tlsProtocol.transport.value(), "")
+        self.assertEqual(serverTLSProtocol.transport.value(), "")
 
 
     def test_streamingProducerPausedInNormalMode(self):
@@ -948,7 +925,7 @@ class TLSProducerTests(TestCase):
         # indicating that until bytes are read for the handshake, more bytes
         # cannot be written. Thus writing bytes before the handshake should
         # cause the producer to be paused:
-        clientProtocol.transport.write(b"hello")
+        clientProtocol.transport.write("hello")
         self.assertEqual(producer.producerState, 'paused')
         self.assertEqual(producer.producerHistory, ['pause'])
         self.assertEqual(tlsProtocol._producer._producerPaused, True)
@@ -964,7 +941,7 @@ class TLSProducerTests(TestCase):
         # Write to TLS transport, triggering WantReadError; this should cause
         # the producer to be paused. We use a large chunk of data to make sure
         # large writes don't trigger multiple pauses:
-        clientProtocol.transport.write(b"hello world" * 320000)
+        clientProtocol.transport.write("hello world" * 320000)
         self.assertEqual(producer.producerHistory, ['pause'])
 
         # Now deliver bytes that will fix the WantRead condition; this should
@@ -1018,7 +995,7 @@ class TLSProducerTests(TestCase):
             pass
 
         # Now write, then lose connection:
-        clientProtocol.transport.write(b"x ")
+        clientProtocol.transport.write("x ")
         clientProtocol.transport.loseConnection()
         self.flushTwoTLSProtocols(tlsProtocol, serverTLSProtocol)
 
@@ -1029,17 +1006,17 @@ class TLSProducerTests(TestCase):
 
         # Writes from client to server should continue to go through, since we
         # haven't unregistered producer yet:
-        clientProtocol.transport.write(b"hello")
-        clientProtocol.transport.writeSequence([b" ", b"world"])
+        clientProtocol.transport.write("hello")
+        clientProtocol.transport.writeSequence([" ", "world"])
 
         # Unregister producer; this should trigger TLS shutdown:
         clientProtocol.transport.unregisterProducer()
-        self.assertNotEqual(tlsProtocol.transport.value(), b"")
+        self.assertNotEqual(tlsProtocol.transport.value(), "")
         self.assertEqual(tlsProtocol.transport.disconnecting, False)
 
         # Additional writes should not go through:
-        clientProtocol.transport.write(b"won't")
-        clientProtocol.transport.writeSequence([b"won't!"])
+        clientProtocol.transport.write("won't")
+        clientProtocol.transport.writeSequence(["won't!"])
 
         # Finish TLS close handshake:
         self.flushTwoTLSProtocols(tlsProtocol, serverTLSProtocol)
@@ -1047,7 +1024,7 @@ class TLSProducerTests(TestCase):
 
         # Bytes made it through, as long as they were written before producer
         # was unregistered:
-        self.assertEqual(b"".join(serverProtocol.received), b"x hello world")
+        self.assertEqual("".join(serverProtocol.received), "x hello world")
 
 
     def test_streamingProducerLoseConnectionWithProducer(self):
@@ -1103,7 +1080,7 @@ class TLSProducerTests(TestCase):
                 pass
 
             def bio_read(self, size):
-                return b'X'
+                return chr(ord('A') + len(self.l))
 
             def recv(self, size):
                 raise WantReadError()
@@ -1119,7 +1096,7 @@ class TLSProducerTests(TestCase):
         # WantReadError will be thrown, triggering the TLS transport's
         # producer code path.
         tlsProtocol._tlsConnection = TLSConnection()
-        clientProtocol.transport.write(b"hello")
+        clientProtocol.transport.write("hello")
         self.assertEqual(producer.producerState, 'paused')
         self.assertEqual(producer.producerHistory, ['pause'])
 
@@ -1128,7 +1105,7 @@ class TLSProducerTests(TestCase):
         tlsProtocol.transport.producer.resumeProducing()
         self.assertEqual(producer.producerState, 'producing')
         self.assertEqual(producer.producerHistory, ['pause', 'resume'])
-        tlsProtocol.dataReceived(b"hello")
+        tlsProtocol.dataReceived("hello")
         self.assertEqual(producer.producerState, 'producing')
         self.assertEqual(producer.producerHistory, ['pause', 'resume'])
 
@@ -1245,7 +1222,7 @@ class NonStreamingProducer(object):
 
     def resumeProducing(self):
         if self.counter < 10:
-            self.consumer.write(intToBytes(self.counter))
+            self.consumer.write(str(self.counter))
             self.counter += 1
             if self.counter == 10:
                 self.consumer.unregisterProducer()
@@ -1298,7 +1275,7 @@ class NonStreamingProducerTests(TestCase):
         done = nsProducer.result
         def doneStreaming(_):
             # All data was streamed, and the producer unregistered itself:
-            self.assertEqual(consumer.value(), b"0123456789")
+            self.assertEqual(consumer.value(), "0123456789")
             self.assertEqual(consumer.producer, None)
             # And the streaming wrapper stopped:
             self.assertEqual(streamingProducer._finished, True)
@@ -1405,7 +1382,7 @@ class NonStreamingProducerTests(TestCase):
         done = nsProducer.result
         def doneStreaming(_):
             # Not all data was streamed, and the producer was stopped:
-            self.assertEqual(consumer.value(), b"012")
+            self.assertEqual(consumer.value(), "012")
             self.assertEqual(nsProducer.stopped, True)
             # And the streaming wrapper stopped:
             self.assertEqual(streamingProducer._finished, True)
@@ -1450,7 +1427,7 @@ class NonStreamingProducerTests(TestCase):
         done = streamingProducer._coopTask.whenDone()
         done.addErrback(lambda reason: reason.trap(TaskStopped))
         def stopped(ign):
-            self.assertEqual(consumer.value(), b"01")
+            self.assertEqual(consumer.value(), "01")
             # Any errors from resumeProducing were logged:
             errors = self.flushLoggedErrors()
             self.assertEqual(len(errors), len(expectedExceptions))

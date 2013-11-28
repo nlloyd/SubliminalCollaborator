@@ -16,11 +16,11 @@ except ImportError:
 
 # twisted imports
 from twisted.internet.main import CONNECTION_LOST, CONNECTION_DONE
-
+from twisted.python.runtime import platformType
 
 def setNonBlocking(fd):
     """
-    Set the file description of the given file descriptor to non-blocking.
+    Make a file descriptor non-blocking.
     """
     flags = fcntl.fcntl(fd, fcntl.F_GETFL)
     flags = flags | os.O_NONBLOCK
@@ -29,7 +29,7 @@ def setNonBlocking(fd):
 
 def setBlocking(fd):
     """
-    Set the file description of the given file descriptor to blocking.
+    Make a file descriptor blocking.
     """
     flags = fcntl.fcntl(fd, fcntl.F_GETFL)
     flags = flags & ~os.O_NONBLOCK
@@ -84,7 +84,7 @@ def readFromFD(fd, callback):
     """
     try:
         output = os.read(fd, 8192)
-    except (OSError, IOError) as ioe:
+    except (OSError, IOError), ioe:
         if ioe.args[0] in (errno.EAGAIN, errno.EINTR):
             return
         else:
@@ -109,7 +109,7 @@ def writeToFD(fd, data):
     """
     try:
         return os.write(fd, data)
-    except (OSError, IOError) as io:
+    except (OSError, IOError), io:
         if io.errno in (errno.EAGAIN, errno.EINTR):
             return 0
         return CONNECTION_LOST

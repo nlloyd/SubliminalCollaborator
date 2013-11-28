@@ -5,15 +5,11 @@
 Extended thread dispatching support.
 
 For basic support see reactor threading API docs.
+
+Maintainer: Itamar Shtull-Trauring
 """
 
-from __future__ import division, absolute_import
-
-from twisted.python.compat import _PY3
-if not _PY3:
-    import Queue
-else:
-    import queue as Queue
+import Queue
 
 from twisted.python import failure
 from twisted.internet import defer

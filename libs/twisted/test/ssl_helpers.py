@@ -1,23 +1,12 @@
+
 # Copyright (c) Twisted Matrix Laboratories.
 # See LICENSE for details.
 
-"""
-Helper classes for twisted.test.test_ssl.
 
-They are in a separate module so they will not prevent test_ssl importing if
-pyOpenSSL is unavailable.
-"""
-from __future__ import division, absolute_import
-
-from twisted.python.compat import nativeString
 from twisted.internet import ssl
-from twisted.python.filepath import FilePath
+from twisted.python.util import sibpath
 
 from OpenSSL import SSL
-
-certPath = nativeString(FilePath(__file__.encode("utf-8")
-                    ).sibling(b"server.pem").path)
-
 
 class ClientTLSContext(ssl.ClientContextFactory):
     isClient = 1
@@ -26,8 +15,8 @@ class ClientTLSContext(ssl.ClientContextFactory):
 
 class ServerTLSContext:
     isClient = 0
-
-    def __init__(self, filename=certPath):
+    
+    def __init__(self, filename = sibpath(__file__, 'server.pem')):
         self.filename = filename
 
     def getContext(self):

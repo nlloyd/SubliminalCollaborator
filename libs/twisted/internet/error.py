@@ -5,8 +5,6 @@
 Exceptions and errors for use in twisted.internet modules.
 """
 
-from __future__ import division, absolute_import
-
 import socket
 
 from twisted.python import deprecate
@@ -190,18 +188,13 @@ except ImportError:
 
 def getConnectError(e):
     """Given a socket exception, return connection error."""
-    if isinstance(e, Exception):
-        args = e.args
-    else:
-        args = e
     try:
-        number, string = args
+        number, string = e
     except ValueError:
         return ConnectError(string=e)
 
     if hasattr(socket, 'gaierror') and isinstance(e, socket.gaierror):
-        # Only works in 2.2 in newer. Really that means always; #5978 covers
-        # this and other wierdnesses in this function.
+        # only works in 2.2
         klass = UnknownHostError
     else:
         klass = errnoMapping.get(number, ConnectError)
@@ -220,7 +213,7 @@ class ConnectionLost(ConnectionClosed):
     """Connection to the other side was lost in a non-clean fashion"""
 
     def __str__(self):
-        s = self.__doc__.strip().splitlines()[0]
+        s = self.__doc__
         if self.args:
             s = '%s: %s' % (s, ' '.join(self.args))
         s = '%s.' % s
@@ -327,29 +320,9 @@ class ProcessDone(ConnectionDone):
 
 
 class ProcessTerminated(ConnectionLost):
-    """
-    A process has ended with a probable error condition
+    """A process has ended with a probable error condition"""
 
-    @ivar exitCode: See L{__init__}
-    @ivar signal: See L{__init__}
-    @ivar status: See L{__init__}
-    """
     def __init__(self, exitCode=None, signal=None, status=None):
-        """
-        @param exitCode: The exit status of the process.  This is roughly like
-            the value you might pass to L{os.exit}.  This is L{None} if the
-            process exited due to a signal.
-        @type exitCode: L{int} or L{types.NoneType}
-
-        @param signal: The exit signal of the process.  This is L{None} if the
-            process did not exit due to a signal.
-        @type signal: L{int} or L{types.NoneType}
-
-        @param status: The exit code of the process.  This is a platform
-            specific combination of the exit code and the exit signal.  See
-            L{os.WIFEXITED} and related functions.
-        @type status: L{int}
-        """
         self.exitCode = exitCode
         self.signal = signal
         self.status = status
