@@ -356,7 +356,7 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
         Returns if negotiatorKeyIdx is not provided.
         Default value of None for negotiatorKeyIdx provided to avoid exceptions.
         """
-        if not negotiatorKeyIdx or (negotiatorKeyIdx < 0):
+        if negotiatorKeyIdx is None or (negotiatorKeyIdx < 0):
             # if negotiatorKeyIdx < 0 then someone changed their mind, cleanup
             if self.negotiatorKeys:
                 del self.negotiatorKeys
@@ -376,23 +376,26 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
         """
         View callback to select a peer connected through a given chat negotiator.
         """
-        if negotiator and not peerIdx:
+        if negotiator:
             self.chosenNegotiator = negotiator
-            self.chooseNegotiator.addObserver(self)
+            self.chosenNegotiator.addObserver(self)
             self.peerList = self.chosenNegotiator.listUsers()
-        if peerIdx and (peerIdx < 0):
+            sublime.active_window().show_quick_panel(self.peerList, self.choosePeer)
+        elif peerIdx is None or (peerIdx < 0):
             # if peerIdx < 0 then someone changed their mind, cleanup
+            logger.debug(peerIdx)
             if self.chosenNegotiator:
                 del self.chosenNegotiator
             if self.peerList:
                 del self.peerList
             return
-        chosenPeer = self.peerList[peerIdx]
-        chosenNegotiator = self.chosenNegotiator
-        del self.peerList
-        del self.chosenNegotiator
-        logger.debug('request to open session with %s through %s' % (chosenPeer, chosenNegotiator.getId()))
-        chosenNegotiator.negotiateSession(chosenPeer)
+        else:
+            chosenPeer = self.peerList[peerIdx]
+            chosenNegotiator = self.chosenNegotiator
+            del self.peerList
+            del self.chosenNegotiator
+            logger.debug('request to open session with %s through %s' % (chosenPeer, chosenNegotiator.getId()))
+            chosenNegotiator.negotiateSession(chosenPeer)
         # registry.registerSessionByNegotiatorAndPeer(chosenNegotiator.getId(), chosenPeer, session)
 
         

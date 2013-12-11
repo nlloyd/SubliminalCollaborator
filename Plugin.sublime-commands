@@ -7,7 +7,7 @@
     {
         "command": "collaborate",
         "caption": "Collaborate: Start New Session", 
-        "args": { "task": "startSession" }
+        "args": { "task": "openSession" }
     },
     {
         "command": "collaborate",
@@ -17,7 +17,7 @@
     {
         "command": "collaborate",
         "caption": "Collaborate: End Active Session", 
-        "args": { "task": "endSession" }
+        "args": { "task": "closeSession" }
     },
     {
         "command": "collaborate",

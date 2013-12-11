@@ -155,7 +155,7 @@ class BasicPeer(base.BasePeer, basic.Int32StringReceiver, protocol.ClientFactory
         self.state = base.STATE_CONNECTING
         self.connection = reactor.listenTCP(port, self, backlog=1, interface=ipaddress)
         self.port = self.connection.getHost().port
-        logger.info('Listening for peers at %s:%d' % (ipaddress, self.port))
+        self.logger.info('Listening for peers at %s:%d' % (ipaddress, self.port))
         return self.port
 
 
@@ -167,7 +167,7 @@ class BasicPeer(base.BasePeer, basic.Int32StringReceiver, protocol.ClientFactory
         @param host: ip address of the host Peer
         @param port: C{int} port number of the host Peer
         """
-        logger.info('Connecting to peer at %s:%d' % (host, port))
+        self.logger.info('Connecting to peer at %s:%d' % (host, port))
         self.host = host
         self.port = port
         self.peerType = base.CLIENT
@@ -189,11 +189,11 @@ class BasicPeer(base.BasePeer, basic.Int32StringReceiver, protocol.ClientFactory
         if self.transport != None:
             self.sendMessage(base.DISCONNECT)
         if self.peerType == base.SERVER:
-            logger.debug('Closing server-side connection')
+            self.logger.debug('Closing server-side connection')
             self.connection.stopListening()
             # reactor.callFromThread(self.connection.stopListening)
         elif self.peerType == base.CLIENT:
-            logger.debug('Closing client-side connection')
+            self.logger.debug('Closing client-side connection')
             self.connection.disconnect()
             # reactor.callFromThread(self.connection.disconnect)
 
@@ -203,12 +203,12 @@ class BasicPeer(base.BasePeer, basic.Int32StringReceiver, protocol.ClientFactory
         Callback method if we are disconnected.
         """
         if self.peerType == base.CLIENT:
-            logger.debug('Disconnecting from peer at %s:%d' % (self.host, self.port))
+            self.logger.debug('Disconnecting from peer at %s:%d' % (self.host, self.port))
         else:
-            logger.debug('Disconnecting from peer at %d' % self.port)
+            self.logger.debug('Disconnecting from peer at %d' % self.port)
         self.disconnect()
         self.state = base.STATE_DISCONNECTED
-        logger.info('Disconnected from peer %s' % self.sharingWithUser)
+        self.logger.info('Disconnected from peer %s' % self.sharingWithUser)
         status_bar.status_message('Stopped sharing with %s' % self.sharingWithUser)
 
 
@@ -230,10 +230,10 @@ class BasicPeer(base.BasePeer, basic.Int32StringReceiver, protocol.ClientFactory
         while not self.state == base.STATE_CONNECTED:
             time.sleep(1.0)
             if (self.state == base.STATE_DISCONNECTING) or (self.state == base.STATE_DISCONNECTED):
-                logger.error('While waiting to share view over a connection the peer was disconnected!')
+                self.logger.error('While waiting to share view over a connection the peer was disconnected!')
                 self.disconnect()
                 return
-        logger.info('Sharing view %s with %s' % (self.view.file_name(), self.sharingWithUser))
+        self.logger.info('Sharing view %s with %s' % (self.view.file_name(), self.sharingWithUser))
         self.toAck = []
         self.sendMessage(base.SHARE_VIEW, payload=('%s|%s' % (viewName, totalToSend)))
         while begin < totalToSend:
@@ -262,13 +262,13 @@ class BasicPeer(base.BasePeer, basic.Int32StringReceiver, protocol.ClientFactory
         while not self.state == base.STATE_CONNECTED:
             time.sleep(1.0)
             if (self.state == base.STATE_DISCONNECTING) or (self.state == base.STATE_DISCONNECTED):
-                logger.error('While waiting to resync view over a connection the peer was disconnected!')
+                self.logger.error('While waiting to resync view over a connection the peer was disconnected!')
                 self.disconnect()
                 return
         view_name = self.view.file_name()
         if not view_name:
             view_name = self.view.name()
-        logger.info('Resyncing view %s with %s' % (view_name, self.sharingWithUser))
+        self.logger.info('Resyncing view %s with %s' % (view_name, self.sharingWithUser))
         self.toAck = []
         self.sendMessage(base.RESHARE_VIEW, payload=str(totalToSend))
         while begin < totalToSend:
@@ -296,7 +296,7 @@ class BasicPeer(base.BasePeer, basic.Int32StringReceiver, protocol.ClientFactory
         """
         Callback method informing the peer that we have received the view.
         """
-        logger.debug('collaboration session with view started!')
+        self.logger.debug('collaboration session with view started!')
         if self.peerRecvdViewCallback:
             self.peerRecvdViewCallback(self)
 
@@ -323,10 +323,10 @@ class BasicPeer(base.BasePeer, basic.Int32StringReceiver, protocol.ClientFactory
         Request a role swap with the connected peer.
         """
         if self.view is None:
-            logger.warn('Request to swap role when no view is being shared!')
+            self.logger.warn('Request to swap role when no view is being shared!')
             return
         if self.role == base.HOST_ROLE:
-            logger.debug('Stopping ViewMonitorThread until role swap is decided')
+            self.logger.debug('Stopping ViewMonitorThread until role swap is decided')
             self.viewMonitorThread.destroy()
             self.viewMonitorThread.join()
         self.sendMessage(base.SWAP_ROLE)
@@ -337,10 +337,10 @@ class BasicPeer(base.BasePeer, basic.Int32StringReceiver, protocol.ClientFactory
         Callback method to respond to role swap requests from the connected peer.
         """
         if self.view is None:
-            logger.warn('Request from %s to swap role when no view is being shared!' % self.str())
+            self.logger.warn('Request from %s to swap role when no view is being shared!' % self.str())
             return
         if self.role == base.HOST_ROLE:
-            logger.debug('Stopping ViewMonitorThread until role swap is decided')
+            self.logger.debug('Stopping ViewMonitorThread until role swap is decided')
             self.viewMonitorThread.destroy()
             self.viewMonitorThread.join()
         message = None
@@ -367,7 +367,7 @@ class BasicPeer(base.BasePeer, basic.Int32StringReceiver, protocol.ClientFactory
             self.sendMessage(base.SWAP_ROLE_ACK)
         else:
             self.sendMessage(base.SWAP_ROLE_NACK)
-        logger.info('session %s with %s role now changed to %s' % (view_name, self.str(), self.role))
+        self.logger.info('session %s with %s role now changed to %s' % (view_name, self.str(), self.role))
         # wait for the swap to complete on the client side... 0.5 second because the message is tiny
         time.sleep(0.5)
 
@@ -390,7 +390,7 @@ class BasicPeer(base.BasePeer, basic.Int32StringReceiver, protocol.ClientFactory
             view_name = self.view.name()
             if not view_name or (len(view_name) == 0):
                 view_name = 'untitled'
-        logger.info('session %s with %s role now changed to %s' % (view_name, self.str(), self.role))
+        self.logger.info('session %s with %s role now changed to %s' % (view_name, self.str(), self.role))
 
 
     def onSwapRoleNAck(self):
@@ -451,7 +451,7 @@ class BasicPeer(base.BasePeer, basic.Int32StringReceiver, protocol.ClientFactory
         @param content: C{Array} contents of the edit (None-able)
         """
         status_bar.heartbeat_message('sharing with %s' % self.str())
-        logger.debug('sending edit: %s %s' %(base.numeric_to_symbolic[editType], content))
+        self.logger.debug('sending edit: %s %s' %(base.numeric_to_symbolic[editType], content))
         if (editType == base.EDIT_TYPE_INSERT) \
             or (editType == base.EDIT_TYPE_INSERT_SNIPPET) \
             or (editType == base.EDIT_TYPE_PASTE):
@@ -513,7 +513,7 @@ class BasicPeer(base.BasePeer, basic.Int32StringReceiver, protocol.ClientFactory
         while len(self.toDoToViewQueue) > 0:
             toDo = self.toDoToViewQueue.pop(0)
             if len(toDo) == 2:
-                logger.debug('Handling view change %s with size %d payload' % (base.numeric_to_symbolic[toDo[0]], len(toDo[1])))
+                self.logger.debug('Handling view change %s with size %d payload' % (base.numeric_to_symbolic[toDo[0]], len(toDo[1])))
                 if (toDo[0] == base.SHARE_VIEW) or (toDo[0] == base.RESHARE_VIEW):
                     self.totalNewViewSize = 0
                     if toDo[0] == base.SHARE_VIEW:
@@ -526,7 +526,7 @@ class BasicPeer(base.BasePeer, basic.Int32StringReceiver, protocol.ClientFactory
                         self.totalNewViewSize = int(payloadBits[1])
                     else:
                         # resync event, purge the old view in preparation for the fresh content
-                        logger.debug('resyncing view')
+                        self.logger.debug('resyncing view')
                         self.lastResyncdPosition = 0
                         self.totalNewViewSize = int(toDo[1])
                     self.view.set_read_only(True)
@@ -584,7 +584,7 @@ class BasicPeer(base.BasePeer, basic.Int32StringReceiver, protocol.ClientFactory
         triggered.
         """
         if self.view.size() != peerViewSize:
-            logger.info('view out of sync!')
+            self.logger.info('view out of sync!')
             self.sendMessage(base.VIEW_RESYNC)
 
 
@@ -596,14 +596,14 @@ class BasicPeer(base.BasePeer, basic.Int32StringReceiver, protocol.ClientFactory
         if self.peerType == base.CLIENT:
             if self.state == base.STATE_CONNECTING:
                 self.state = base.STATE_CONNECTED
-                logger.info('Connected to peer: %s' % self.sharingWithUser)
+                self.logger.info('Connected to peer: %s' % self.sharingWithUser)
             else:
-                logger.error('Received CONNECTED message from server-peer when in state %s' % self.state)
+                self.logger.error('Received CONNECTED message from server-peer when in state %s' % self.state)
         else:
             # client is connected, send ACK and set our state to be connected
             self.sendMessage(base.CONNECTED)
             self.state = base.STATE_CONNECTED
-            logger.info('Connected to peer: %s' % self.sharingWithUser)
+            self.logger.info('Connected to peer: %s' % self.sharingWithUser)
             self.peerConnectedCallback()
 
 
@@ -657,7 +657,7 @@ class BasicPeer(base.BasePeer, basic.Int32StringReceiver, protocol.ClientFactory
             self.toAck = None
             self.ackdChunks = None
         else:
-            logger.error('Sent %s chunks of data to peer but peer received %s chunks of data' % (self.toAck, self.ackdChunks))
+            self.logger.error('Sent %s chunks of data to peer but peer received %s chunks of data' % (self.toAck, self.ackdChunks))
             self.toAck = None
             self.ackdChunks = None
             self.sendMessage(base.BAD_VIEW_SEND)
@@ -665,7 +665,7 @@ class BasicPeer(base.BasePeer, basic.Int32StringReceiver, protocol.ClientFactory
 
 
     def recvd_SELECTION(self, messageSubType, payload):
-        # logger.debug('selection change: %s' % payload)
+        # self.logger.debug('selection change: %s' % payload)
         self.toDoToViewQueueLock.acquire()
         self.toDoToViewQueue.append((base.SELECTION, payload))
         self.toDoToViewQueueLock.release()
@@ -711,7 +711,7 @@ class BasicPeer(base.BasePeer, basic.Int32StringReceiver, protocol.ClientFactory
 
 
     def recvdUnknown(self, messageType, messageSubType, payload):
-        logger.warn('Received unknown message: %s, %s, %s' % (messageType, messageSubType, payload))
+        self.logger.warn('Received unknown message: %s, %s, %s' % (messageType, messageSubType, payload))
 
 
     def stringReceived(self, data):
@@ -720,7 +720,7 @@ class BasicPeer(base.BasePeer, basic.Int32StringReceiver, protocol.ClientFactory
         msgType = base.numeric_to_symbolic[msgTypeNum]
         msgSubType = base.numeric_to_symbolic[msgSubTypeNum]
         payload = data[self.messageHeaderSize:]
-        logger.debug('RECVD: %s-%s[%s]' % (msgType, msgSubType, payload))
+        self.logger.debug('RECVD: %s-%s[%s]' % (msgType, msgSubType, payload))
         method = getattr(self, "recvd_%s" % msgType, None)
         if method is not None:
             method(msgSubTypeNum, payload)
@@ -739,7 +739,7 @@ class BasicPeer(base.BasePeer, basic.Int32StringReceiver, protocol.ClientFactory
         else:
             status_bar.heartbeat_message('lost share session with %s' % self.str())
             # may want to reconnect, but for now lets print why
-            logger.error('Connection lost: %s - %s' % (reason.type, reason.value))
+            self.logger.error('Connection lost: %s - %s' % (reason.type, reason.value))
 
 
     #*** internet.base.BaseProtocol (via basic.Int32StringReceiver) method implementations ***#
@@ -753,9 +753,9 @@ class BasicPeer(base.BasePeer, basic.Int32StringReceiver, protocol.ClientFactory
     #*** protocol.Factory method implementations ***#
 
     def buildProtocol(self, addr):
-        logger.debug('building protocol for %s' % self.peerType)
+        self.logger.debug('building protocol for %s' % self.peerType)
         if self.peerType == base.CLIENT:
-            logger.debug('Connected to peer at %s:%d' % (self.host, self.port))
+            self.logger.debug('Connected to peer at %s:%d' % (self.host, self.port))
             self.sendMessage(base.CONNECTED)
         return self
 
@@ -770,11 +770,11 @@ class BasicPeer(base.BasePeer, basic.Int32StringReceiver, protocol.ClientFactory
         else:
             status_bar.status_message('lost share session with %s' % self.str())
             # may want to reconnect, but for now lets print why
-            logger.error('Connection lost: %s - %s' % (reason.type, reason.value))
+            self.logger.error('Connection lost: %s - %s' % (reason.type, reason.value))
 
 
     def clientConnectionFailed(self, connector, reason):
-        logger.error('Connection failed: %s - %s' % (reason.type, reason.value))
+        self.logger.error('Connection failed: %s - %s' % (reason.type, reason.value))
         registry.removeSession(session)
         self.state = base.STATE_DISCONNECTED
         if (error.ConnectionRefusedError == reason.type) or (error.TCPTimedOutError == reason.type) or (error.TimeoutError == reason.type):
@@ -786,5 +786,5 @@ class BasicPeer(base.BasePeer, basic.Int32StringReceiver, protocol.ClientFactory
     #*** helper functions ***#
 
     def sendMessage(self, messageType, messageSubType=base.EDIT_TYPE_NA, payload=''):
-        logger.debug('SEND: %s-%s[%s]' % (base.numeric_to_symbolic[messageType], base.numeric_to_symbolic[messageSubType], payload))
+        self.logger.debug('SEND: %s-%s[%s]' % (base.numeric_to_symbolic[messageType], base.numeric_to_symbolic[messageSubType], payload))
         reactor.callFromThread(self.sendString, struct.pack(self.messageHeaderFmt, base.MAGIC_NUMBER, messageType, messageSubType) + payload.encode())

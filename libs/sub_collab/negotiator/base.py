@@ -148,6 +148,7 @@ class BaseNegotiator(object):
 
 from twisted.words.protocols import irc
 from twisted.internet import reactor, protocol, error, defer
+from twisted.python import text
 
 class PatchedServerSupportedFeatures(irc.ServerSupportedFeatures):
 
@@ -238,7 +239,7 @@ class PatchedIRCClient(irc.IRCClient):
 
 
     def dcc_CHAT(self, user, channel, data):
-        data = shlex.split(data)
+        data = text.splitQuoted(data)
         if len(data) < 3:
             raise IRCBadMessage("malformed DCC CHAT request: %r" % (data,))
 

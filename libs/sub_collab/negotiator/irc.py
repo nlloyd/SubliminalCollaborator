@@ -22,7 +22,7 @@
 from zope.interface import implements
 from sub_collab.negotiator import base
 from sub_collab.peer import basic
-from sub_collab import common, event, status_bar
+from sub_collab import common, event, registry, status_bar
 from twisted.words.protocols import irc
 from twisted.internet import reactor, protocol, error, defer
 import logging, sys, socket, functools
@@ -52,6 +52,7 @@ class IRCNegotiator(base.BaseNegotiator, common.Observable, protocol.ClientFacto
     rejectedOrFailedCallback = None
 
     def __init__(self, id, config):
+        common.Observable.__init__(self)
         base.BaseNegotiator.__init__(self, id, config)
         base.PatchedIRCClient.__init__(self)
         assert config.has_key('host'), 'IRCNegotiator missing host'
@@ -66,12 +67,13 @@ class IRCNegotiator(base.BaseNegotiator, common.Observable, protocol.ClientFacto
             self.password = self.config['password'].encode()
         # @todo ssl client key
         self.channel = self.config['channel'].encode()
-        self.peerUsers = None
+        self.peerUsers = []
         self.unverifiedUsers = None
         self.connectionFailed = False
         # holder for the session currently being negotiated
         # this limits session handling to one at a time, which makes sense right now
         self.pendingSession = None
+        self.hostAddressToTryQueue = None
 
     #*** Negotiator method implementations ***#
 
@@ -102,7 +104,7 @@ class IRCNegotiator(base.BaseNegotiator, common.Observable, protocol.ClientFacto
         # also that means we have a list of peer users (even if it is an empty list)
         connected = None
         if self.clientConnection:
-            if self._registered and self.peerUsers:
+            if self._registered:
                 connected = True
         else:
             connected = False
@@ -227,9 +229,9 @@ class IRCNegotiator(base.BaseNegotiator, common.Observable, protocol.ClientFacto
     #*** irc.IRCClient method implementations ***#
 
     def connectionMade(self):
-        # base.PatchedIRCClient.connectionMade(self)
         self.logger.debug('Connection made')
-        reactor.callFromThread(base.PatchedIRCClient.connectionMade, self)
+        base.PatchedIRCClient.connectionMade(self)
+        # reactor.callFromThread(base.PatchedIRCClient.connectionMade, self)
         self.logger.info('Connected to ' + self.host)
 
 

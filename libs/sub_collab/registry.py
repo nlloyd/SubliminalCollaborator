@@ -145,7 +145,7 @@ class Registry(object):
 
     def registerSession(self, session):
         negotiatorKey = session.getParentNegotiatorKey()
-        peerUser = session.sharingWithUser()
+        peerUser = session.sharingWithUser
         if negotiatorKey in self.sessionsByUserByNegotiator:
             if peerUser in self.sessionsByUserByNegotiator[negotiatorKey]:
                 session = self.sessionsByUserByNegotiator[negotiatorKey][peerUser]
@@ -154,9 +154,9 @@ class Registry(object):
                 else:
                     self.logger.debug('attempt to register already existing session with %s but without a set view' % peerUser)
             else:
-                self.sessionsByUserByNegotiator[negotiatorKey][peerUser] = set([session])
+                self.sessionsByUserByNegotiator[negotiatorKey] = {peerUser: set([session])}
         else:
-            self.sessionsByUserByNegotiator[negotiatorKey][peerUser].add(session)
+            self.sessionsByUserByNegotiator[negotiatorKey] = {peerUser: set([session])}
 
 
     def registerSessionByViewId(self, view, session):
@@ -182,7 +182,7 @@ class Registry(object):
         Remove a session from both session registries.
         """
         negotiatorKey = session.getParentNegotiatorKey()
-        peerUser = session.sharingWithUser()
+        peerUser = session.sharingWithUser
         if negotiatorKey in self.sessionsByUserByNegotiator:
             sessionsByUser = self.sessionsByUserByNegotiator[negotiatorKey]
             if peerUser in sessionsByUser:

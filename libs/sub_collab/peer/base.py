@@ -286,9 +286,5 @@ class BasePeer(object):
         return self.parentNegotiatorKey
 
 
-    def sharingWithUser():
-        return self.sharingWithUser
-
-
     def str(self):
         return self.sharingWithUser
