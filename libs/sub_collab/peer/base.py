@@ -20,6 +20,7 @@
 #   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #   THE SOFTWARE.
 from zope.interface import Interface, implements
+from sub_collab import common
 
 
 #################################################################################
@@ -267,7 +268,7 @@ class IPeer(Interface):
         """
 
 
-class BasePeer(object):
+class BasePeer(common.Observable):
     """
     Base implementation of IPeer interface that provides a constructor
     for all subclasses to use requiring a c{str} for the peer username and
@@ -277,9 +278,12 @@ class BasePeer(object):
 
 
     def __init__(self, username, parentNegotiator):
+        common.Observable.__init__(self)
         self.sharingWithUser = username
         # just keep the id, otherwise reconfig with active sessions could result in memory leak
         self.parentNegotiatorKey = parentNegotiator.getId()
+        # inherit all observers of the parent negotiator
+        self.addAllObservers(parentNegotiator.observers)
 
 
     def getParentNegotiatorKey(self):

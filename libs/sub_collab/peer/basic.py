@@ -24,6 +24,7 @@ from sub_collab.peer import base
 from twisted.internet import reactor, protocol, error, interfaces
 from twisted.protocols import basic
 from sub_collab import registry, status_bar
+from sub_collab import event as collab_event
 import sublime
 import logging, threading, sys, socket, struct, os, re, time, functools
 
@@ -36,7 +37,7 @@ REGION_PATTERN = re.compile('(\d+), (\d+)')
 
 class ViewMonitorThread(threading.Thread):
 
-    logger = logging.getLogger('ViewMonitor')
+    logger = logging.getLogger('SubliminalCollaborator.ViewMonitor')
 
 
     def __init__(self, peer):
@@ -68,7 +69,7 @@ class ViewMonitorThread(threading.Thread):
 
 
     def run(self):
-        logger.info('Monitoring view')
+        self.logger.info('Monitoring view')
         count = 0
         # we must be the host and connected
         while (self.peer.role == base.HOST_ROLE) \
@@ -81,7 +82,8 @@ class ViewMonitorThread(threading.Thread):
                     sublime.set_timeout(self.sendViewSize, 0)
             time.sleep(0.5)
             count += 1
-        logger.info('Stopped monitoring view')
+        self.logger.info('Stopped monitoring view')
+
 
     def destroy(self):
         self.shutdown = True
@@ -95,7 +97,7 @@ class BasicPeer(base.BasePeer, basic.Int32StringReceiver, protocol.ClientFactory
     This is a direct connection with another peer endpoint for sending
     view data and events.
     """
-    logger = logging.getLogger('BasicPeer')
+    logger = logging.getLogger('SubliminalCollaborator.BasicPeer')
 
     # Message header structure in struct format:
     # '!HBB'
@@ -106,14 +108,6 @@ class BasicPeer(base.BasePeer, basic.Int32StringReceiver, protocol.ClientFactory
     # - messageSubType: see constants below, 0 in all but edit-messages
     messageHeaderFmt = '!HBB'
     messageHeaderSize = struct.calcsize(messageHeaderFmt)
-
-    # registered callback methods
-    acceptSwapRole = None
-    peerInitiatedDisconnect = None
-    # callback for the server-peer
-    peerConnectedCallback = None
-    # callback for the client-peer
-    peerRecvdViewCallback = None
 
 
     def __init__(self, username, parentNegotiator):
@@ -297,8 +291,8 @@ class BasicPeer(base.BasePeer, basic.Int32StringReceiver, protocol.ClientFactory
         Callback method informing the peer that we have received the view.
         """
         self.logger.debug('collaboration session with view started!')
-        if self.peerRecvdViewCallback:
-            self.peerRecvdViewCallback(self)
+        registry.registerSessionByViewId(self.view, self)
+        # self.notify(collab_event.RECVD_VIEW, self)
 
 
     def stopCollab(self):
@@ -353,7 +347,7 @@ class BasicPeer(base.BasePeer, basic.Int32StringReceiver, protocol.ClientFactory
             message = '%s sharing %s with you wants to host...' % (self.str(), view_name)
         else:
             message = '%s sharing %s with you wants you to host...' % (self.str(), view_name)
-        swapping_roles = self.acceptSwapRole(message)
+        swapping_roles = sublime.ok_cancel_dialog(message)
 
         if swapping_roles:
             if self.role == base.HOST_ROLE:
@@ -600,11 +594,12 @@ class BasicPeer(base.BasePeer, basic.Int32StringReceiver, protocol.ClientFactory
             else:
                 self.logger.error('Received CONNECTED message from server-peer when in state %s' % self.state)
         else:
+            ## server/initiator side of the wire...
             # client is connected, send ACK and set our state to be connected
             self.sendMessage(base.CONNECTED)
             self.state = base.STATE_CONNECTED
             self.logger.info('Connected to peer: %s' % self.sharingWithUser)
-            self.peerConnectedCallback()
+            self.notify(collab_event.ESTABLISHED_SESSION, self)
 
 
     def recvd_DISCONNECT(self, messageSubType=None, payload=''):
@@ -763,7 +758,7 @@ class BasicPeer(base.BasePeer, basic.Int32StringReceiver, protocol.ClientFactory
     #*** protocol.ClientFactory method implementations ***#
 
     def clientConnectionLost(self, connector, reason):
-        registry.removeSession(session)
+        registry.removeSession(self)
         self.state = base.STATE_DISCONNECTED
         if error.ConnectionDone == reason.type:
             self.disconnect()
@@ -775,7 +770,7 @@ class BasicPeer(base.BasePeer, basic.Int32StringReceiver, protocol.ClientFactory
 
     def clientConnectionFailed(self, connector, reason):
         self.logger.error('Connection failed: %s - %s' % (reason.type, reason.value))
-        registry.removeSession(session)
+        registry.removeSession(self)
         self.state = base.STATE_DISCONNECTED
         if (error.ConnectionRefusedError == reason.type) or (error.TCPTimedOutError == reason.type) or (error.TimeoutError == reason.type):
             if (self.peerType == base.CLIENT) and (not self.failedToInitConnectCallback == None):

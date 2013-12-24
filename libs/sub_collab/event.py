@@ -26,4 +26,8 @@ ACCEPT_SESSION            = 1
 REJECT_SESSION            = 2
 RETRY_SESSION             = 3
 ESTABLISHED_SESSION       = 4
+RECVD_VIEW                = 5
+
+#*** Session State Change Event Constants ***#
+SWAP_ROLE                 = 10
 #*******************************************#

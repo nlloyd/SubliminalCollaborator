@@ -245,11 +245,11 @@ class PatchedIRCClient(irc.IRCClient):
 
         (protocol, address, port) = data[:3]
 
-        address = dccParseAddress(address)
+        address = irc.dccParseAddress(address)
         try:
             port = int(port)
         except ValueError:
-            raise IRCBadMessage("Indecipherable port %r" % (port,))
+            raise irc.IRCBadMessage("Indecipherable port %r" % (port,))
 
         self.dccDoChat(user, channel, protocol, address, port, data)
 

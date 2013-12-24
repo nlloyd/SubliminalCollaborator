@@ -130,6 +130,10 @@ class Registry(object):
         return self.negotiators.items()
 
 
+    def iterNegotiators(self):
+        return self.negotiators.itervalues()
+
+
     def iterNegotiatorEntries(self):
         return self.negotiators.iteritems()
 
@@ -186,7 +190,7 @@ class Registry(object):
         if negotiatorKey in self.sessionsByUserByNegotiator:
             sessionsByUser = self.sessionsByUserByNegotiator[negotiatorKey]
             if peerUser in sessionsByUser:
-                sessionsByUser.discard(session)
+                sessionsByUser[peerUser].discard(session)
         if session in self.sessionsByViewId.values():
             for viewId, registeredSession in self.sessionsByViewId.items():
                 if session == registeredSession:

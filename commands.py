@@ -86,7 +86,8 @@ else:
 import sublime_plugin
 from sub_collab.negotiator import irc
 # from sub_collab.peer import base as pi
-from sub_collab import common, event, registry, status_bar
+from sub_collab import common, registry, status_bar
+from sub_collab import event as collab_event
 from sub_collab.peer import base
 from twisted.internet import reactor
 from zope.interface import implements
@@ -309,9 +310,13 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
             targetNegotiatorKey = self.chatClientKeys[clientIdx]
             if targetNegotiatorKey == '*** ALL ***':
                 connectAllChat()
+                for negotiator in registry.iterNegotiators():
+                    negotiator.addObserver(self)
             elif not registry.getNegotiator(targetNegotiatorKey).isConnected():
                 logger.info('Connecting to chat %s' % targetNegotiatorKey)
-                registry.getNegotiator(targetNegotiatorKey).connect()
+                negotiator = registry.getNegotiator(targetNegotiatorKey)
+                negotiator.addObserver(self)
+                negotiator.connect()
             else:
                 logger.info('Already connected to chat %s' % targetNegotiatorKey)
 
@@ -330,7 +335,8 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
 
 
     def update(self, event, producer, data=None):
-        if event == event.INCOMING_SESSION_REQUEST:
+        if event == collab_event.INCOMING_SESSION_REQUEST:
+            logger.debug('incoming session request: ' + str(data))
             username = data[0]
             # someone wants to collaborate with you! do you want to accept?
             acceptRequest = sublime.ok_cancel_dialog(username + ' wants to collaborate with you!')
@@ -338,6 +344,9 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
                 producer.acceptSessionRequest(data[0], data[1], data[2])
             else:
                 producer.rejectSessionRequest(data[0])
+        elif event == collab_event.ESTABLISHED_SESSION:
+            logger.debug('session established, opening view selector')
+            self.chooseView(session=producer)
 
 
     def openSession(self):
@@ -383,7 +392,6 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
             sublime.active_window().show_quick_panel(self.peerList, self.choosePeer)
         elif peerIdx is None or (peerIdx < 0):
             # if peerIdx < 0 then someone changed their mind, cleanup
-            logger.debug(peerIdx)
             if self.chosenNegotiator:
                 del self.chosenNegotiator
             if self.peerList:
@@ -398,6 +406,63 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
             chosenNegotiator.negotiateSession(chosenPeer)
         # registry.registerSessionByNegotiatorAndPeer(chosenNegotiator.getId(), chosenPeer, session)
 
+
+    def chooseView(self, viewIdx=None, session=None):
+        if session:
+            self.chosenSession = session
+            self.chosenSession.addObserver(self)
+            views = sublime.active_window().views()
+            self.viewsByName = {}
+            self.viewNames = []
+            for view in views:
+                if view.file_name() == None:
+                    name = 'no-file-name %d' % view.id()
+                    self.viewsByName[name] = view
+                    self.viewNames.append(name)
+                else:
+                    self.viewsByName[view.file_name()] = view
+                    self.viewNames.append(view.file_name())
+            sublime.active_window().show_quick_panel(self.viewNames, self.chooseView)
+        elif viewIdx is None or (viewIdx < 0):
+            # TODO perhaps send a "decided not to share anything" message out?
+            if self.chosenSession:
+                self.chosenSession.disconnect()
+                del self.chosenSession
+            if self.viewNames:
+                del self.viewNames
+            if self.viewsByName:
+                del self.viewsByName
+            return
+        else:
+            chosenViewName = self.viewNames[viewIdx]
+            chosenView = self.viewsByName[chosenViewName]
+            chosenSession = self.chosenSession
+            del self.viewNames
+            del self.viewsByName
+            del self.chosenSession
+            logger.debug('sharing %s with %s' % (chosenViewName, chosenSession,))
+            registry.registerSessionByViewId(chosenView, chosenSession)
+            chosenSession.startCollab(chosenView)
+
+
+    def closeSession(self, idx=None):
+        if idx == None:
+            self.killList = []
+            for client in sessions.keys():
+                for user in sessions[client].keys():
+                    self.killList.append('%s -> %s' % (client, user))
+            if len(self.killList) == 0:
+                self.killList = ['*** No Active Sessions ***']
+            sublime.active_window().show_quick_panel(self.killList, self.endSession)
+        elif idx > -1:
+            clientAndUser = self.killList[idx]
+            if clientAndUser == '*** No Active Sessions ***':
+                return
+            client, user = clientAndUser.split(' -> ')
+            logger.info('Closing session with user %s on chat %s' % (user, client))
+            sessionToKill = sessions[client].pop(user)
+            sessionToKill.disconnect()
+
         
 
     # def __init__(self):
@@ -409,34 +474,6 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
     #     base.BasePeer.peerRecvdViewCallback = self.addSharedView
     #     base.BasePeer.acceptSwapRole = self.acceptSwapRole
     #     status_bar.status_message('ready')
-
-
-#     def shareView(self, idx=None):
-#         if idx == None:
-#             views = sublime.active_window().views()
-#             self.viewsByName = {}
-#             self.viewNames = []
-#             for view in views:
-#                 if view.file_name() == None:
-#                     name = 'no-file-name %d' % view.id()
-#                     self.viewsByName[name] = view
-#                     self.viewNames.append(name)
-#                 else:
-#                     self.viewsByName[view.file_name()] = view
-#                     self.viewNames.append(view.file_name())
-#             sublime.active_window().show_quick_panel(self.viewNames, self.shareView)
-#         else:
-#             if idx > -1:
-#                 chosenViewName = self.viewNames[idx]
-#                 chosenView = self.viewsByName[chosenViewName]
-#                 self.newSession.startCollab(chosenView)
-#                 sessionsByViewId[chosenView.id()] = self.newSession
-#             else:
-#                 # TODO perhaps send a "decided not to share anything" message out?
-#                 self.newSession.disconnect()
-#                 self.newSession = None
-#             self.viewNames = None
-#             self.viewsByName = None
 
 #     def addSharedView(self, sessionWithView):
 #         sessionsByViewId[sessionWithView.view.id()] = sessionWithView

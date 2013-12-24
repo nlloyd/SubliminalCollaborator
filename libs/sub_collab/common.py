@@ -47,9 +47,17 @@ class Observable(object):
         if Observer.providedBy(observer):
             self.observers.add(observer)
 
+
+    def addAllObservers(self, observers):
+        for observer in observers:
+            if Observer.providedBy(observer):
+                self.observers.add(observer)
+
+
     def removeObserver(self, observer):
         self.observers.discard(observer)
 
-    def notify(event, producer, data=None):
+
+    def notify(self, event, producer, data=None):
         for observer in self.observers:
-            self.observer.update(event, producer, data)
+            observer.update(event, producer, data)
