@@ -173,7 +173,7 @@ class IRCNegotiator(base.BaseNegotiator, common.Observable, protocol.ClientFacto
         """
         if (not username in self.peerUsers) and (not username in self.unverifiedUsers):
             self.addUserToLists(username)
-        if self.hostAddressToTryQueue == None or len(self.hostAddressToTryQueue):
+        if self.hostAddressToTryQueue == None or len(self.hostAddressToTryQueue) == 0:
             self.hostAddressToTryQueue = socket.gethostbyname_ex(socket.gethostname())[2]
         ipaddress = self.hostAddressToTryQueue.pop()
         session = basic.BasicPeer(username, self)

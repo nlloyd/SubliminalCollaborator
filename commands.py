@@ -392,9 +392,9 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
             sublime.active_window().show_quick_panel(self.peerList, self.choosePeer)
         elif peerIdx is None or (peerIdx < 0):
             # if peerIdx < 0 then someone changed their mind, cleanup
-            if self.chosenNegotiator:
+            if hasattr(self, 'chosenNegotiator'):
                 del self.chosenNegotiator
-            if self.peerList:
+            if hasattr(self, 'peerList'):
                 del self.peerList
             return
         else:
@@ -428,9 +428,9 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
             if self.chosenSession:
                 self.chosenSession.disconnect()
                 del self.chosenSession
-            if self.viewNames:
+            if hasattr(self, 'viewNames'):
                 del self.viewNames
-            if self.viewsByName:
+            if hasattr(self, 'viewsByName'):
                 del self.viewsByName
             return
         else:
@@ -443,24 +443,52 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
             logger.debug('sharing %s with %s' % (chosenViewName, chosenSession,))
             registry.registerSessionByViewId(chosenView, chosenSession)
             chosenSession.startCollab(chosenView)
+            
+
+    def showSessions(self, idx=None, sessionCallback=None):
+        if idx == None:
+            self.activeSessions = registry.listSessions()
+            self.sessionList = []
+            for session in self.activeSessions:
+                sessionLabel = '%s -> %s' % (session.getParentNegotiatorKey(), session.str())
+                if hasattr(session, 'view'):
+                    if session.view.file_name():
+                        sessionLabel += ' (%s)' % os.path.basename(session.view.file_name())
+                    else:
+                        sessionLabel += ' (%s)' % session.view.name()
+                self.sessionList.append(sessionLabel)
+            if len(self.sessionList) == 0:
+                self.sessionList = ['*** No Active Sessions ***']
+            sublime.active_window().show_quick_panel(self.sessionList, self.showSessions)
+        elif (idx > -1) and (sessionCallback is not None):
+           sessionCallback(self.sessionList[idx])
+        if hasattr(self, 'activeSessions'):
+            del self.activeSessions
+        if hasattr(self, 'sessionList'):
+            del self.sessionList
 
 
     def closeSession(self, idx=None):
         if idx == None:
+            self.activeSessions = registry.listSessions()
             self.killList = []
-            for client in sessions.keys():
-                for user in sessions[client].keys():
-                    self.killList.append('%s -> %s' % (client, user))
+            for session in self.activeSessions:
+                sessionLabel = '%s -> %s' % (session.getParentNegotiatorKey(), session.str())
+                if hasattr(session, 'view'):
+                    sessionLabel += ': ' + os.path.basename(session.view.file_name())
+                self.killList.append(sessionLabel)
             if len(self.killList) == 0:
                 self.killList = ['*** No Active Sessions ***']
-            sublime.active_window().show_quick_panel(self.killList, self.endSession)
+            sublime.active_window().show_quick_panel(self.killList, self.closeSession)
         elif idx > -1:
-            clientAndUser = self.killList[idx]
-            if clientAndUser == '*** No Active Sessions ***':
+            if (len(self.killList) == 1) and (self.killList[0] == '*** No Active Sessions ***'):
                 return
-            client, user = clientAndUser.split(' -> ')
-            logger.info('Closing session with user %s on chat %s' % (user, client))
-            sessionToKill = sessions[client].pop(user)
+            logger.info('Closing session: ' + self.killList[idx])
+            sessionToKill = self.activeSessions[idx]
+            # cleanup regardless in case something goes wrong
+            del self.activeSessions
+            del self.killList
+            # now try and terminate the session
             sessionToKill.disconnect()
 
         

@@ -11,12 +11,12 @@
     },
     {
         "command": "collaborate",
-        "caption": "Collaborate: Show Active Sessions", 
+        "caption": "Collaborate: Show Sessions", 
         "args": { "task": "showSessions" }
     },
     {
         "command": "collaborate",
-        "caption": "Collaborate: End Active Session", 
+        "caption": "Collaborate: Close Session", 
         "args": { "task": "closeSession" }
     },
     {

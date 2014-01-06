@@ -89,7 +89,6 @@ class ViewMonitorThread(threading.Thread):
         self.shutdown = True
 
 
-
 # build off of the Int32StringReceiver to leverage its unprocessed buffer handling
 class BasicPeer(base.BasePeer, basic.Int32StringReceiver, protocol.ClientFactory, protocol.ServerFactory):
     """
@@ -184,12 +183,12 @@ class BasicPeer(base.BasePeer, basic.Int32StringReceiver, protocol.ClientFactory
             self.sendMessage(base.DISCONNECT)
         if self.peerType == base.SERVER:
             self.logger.debug('Closing server-side connection')
-            self.connection.stopListening()
-            # reactor.callFromThread(self.connection.stopListening)
+            # self.connection.stopListening()
+            reactor.callFromThread(self.connection.stopListening)
         elif self.peerType == base.CLIENT:
             self.logger.debug('Closing client-side connection')
-            self.connection.disconnect()
-            # reactor.callFromThread(self.connection.disconnect)
+            # self.connection.disconnect()
+            reactor.callFromThread(self.connection.disconnect)
 
 
     def onDisconnect(self):
@@ -781,5 +780,5 @@ class BasicPeer(base.BasePeer, basic.Int32StringReceiver, protocol.ClientFactory
     #*** helper functions ***#
 
     def sendMessage(self, messageType, messageSubType=base.EDIT_TYPE_NA, payload=''):
-        self.logger.debug('SEND: %s-%s[%s]' % (base.numeric_to_symbolic[messageType], base.numeric_to_symbolic[messageSubType], payload))
+        self.logger.debug('SEND: %s-%s[bytes: %d]' % (base.numeric_to_symbolic[messageType], base.numeric_to_symbolic[messageSubType], len(payload)))
         reactor.callFromThread(self.sendString, struct.pack(self.messageHeaderFmt, base.MAGIC_NUMBER, messageType, messageSubType) + payload.encode())

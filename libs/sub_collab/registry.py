@@ -37,7 +37,6 @@ class Registry(object):
         self.sessionsByUserByNegotiator = {}
         # sessions by view id
         self.sessionsByViewId = {}
-        self.sessionsLock = threading.Lock()
 
 
     def buildNegotiatorKey(self, protocol, config):
@@ -152,11 +151,14 @@ class Registry(object):
         peerUser = session.sharingWithUser
         if negotiatorKey in self.sessionsByUserByNegotiator:
             if peerUser in self.sessionsByUserByNegotiator[negotiatorKey]:
-                session = self.sessionsByUserByNegotiator[negotiatorKey][peerUser]
-                if session.view:
-                    self.logger.warn('already collaborating on %s with %s' % (session.view.file_name(), peerUser))
+                existingSessions = self.sessionsByUserByNegotiator[negotiatorKey][peerUser]
+                if session in existingSessions:
+                    if hasattr(session, 'view') and session.view:
+                        self.logger.warn('already collaborating on %s with %s' % (session.view.file_name(), peerUser))
+                    else:
+                        self.logger.debug('attempt to register already existing session with %s but without a set view' % peerUser)
                 else:
-                    self.logger.debug('attempt to register already existing session with %s but without a set view' % peerUser)
+                    existingSessions.add(session)
             else:
                 self.sessionsByUserByNegotiator[negotiatorKey] = {peerUser: set([session])}
         else:
@@ -178,6 +180,14 @@ class Registry(object):
         sessions = None
         if negotiatorKey in self.sessionsByUserByNegotiator:
             sessions = self.sessionsByUserByNegotiator[negotiatorKey].get(peerUser)
+        return sessions
+
+
+    def listSessions(self):
+        sessions = []
+        for sessionsByUser in self.sessionsByUserByNegotiator.itervalues():
+            for userSessions in sessionsByUser.itervalues():
+                sessions += userSessions
         return sessions
 
 
