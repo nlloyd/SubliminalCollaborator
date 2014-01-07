@@ -85,7 +85,7 @@ else:
 
 import sublime_plugin
 from sub_collab.negotiator import irc
-# from sub_collab.peer import base as pi
+from sub_collab.peer import base as pi
 from sub_collab import common, registry, status_bar
 from sub_collab import event as collab_event
 from sub_collab.peer import base
@@ -109,44 +109,34 @@ CONNECT_ALL_ON_STARTUP = False
 # sessions = {}
 # # sessions by view id
 # sessionsByViewId = {}
-# sessionsLock = threading.Lock()
+sessionsLock = threading.Lock()
 # global for the current active view... because sublime.active_window().active_view() ignores the console view
 globalActiveView = None
 
 
-# class SessionCleanupThread(threading.Thread):
-#     def __init__(self):
-#         threading.Thread.__init__(self)
+class SessionCleanupThread(threading.Thread):
+    def __init__(self):
+        threading.Thread.__init__(self)
 
-#     def run(self):
-#         global sessions
-#         global sessionsByViewId
-#         global sessionsLock
-#         time.sleep(5.0)
-#         # runs for as long as the reactor is running
-#         while reactor.running:
-#             sessionsLock.acquire()
-#             for sessionsKey, protocolSessions in sessions.items():
-#                 for sessionKey, session in protocolSessions.items():
-#                     if session.state == pi.STATE_DISCONNECTED:
-#                         deadSession = sessions[sessionsKey].pop(sessionKey)
-#                         logger.info('Cleaning up dead session: %s' % deadSession.str())
-#             for viewId, session in sessionsByViewId.items():
-#                 if session.state == pi.STATE_DISCONNECTED:
-#                     if session.view != None:
-#                         sublime.set_timeout(functools.partial(session.view.set_read_only, False), 0)
-#                     sessionsByViewId.pop(viewId)
-#             sessionsLock.release()
-#             for negotiatorKey, negotiator in negotiatorInstances.items():
-#                 if negotiator.isConnected() == False:
-#                     negotiatorInstances.pop(negotiatorKey)
-#                     logger.info('Cleaning up disconnected negotiator %s' % negotiatorKey)
-#             time.sleep(5.0)
+    def run(self):
+        global sessions
+        global sessionsByViewId
+        global sessionsLock
+        time.sleep(5.0)
+        # runs for as long as the reactor is running
+        while reactor.running:
+            sessionsLock.acquire()
+            for session in registry.listSessions():
+                if session.state == pi.STATE_DISCONNECTED:
+                    logger.info('Cleaning up dead session: %s' % session.str())
+                    registry.removeSession(session)
+            sessionsLock.release()
+            time.sleep(5.0)
 
 
-# if not 'SESSION_CLEANUP_THREAD' in globals():
-#     SESSION_CLEANUP_THREAD = SessionCleanupThread()
-#     SESSION_CLEANUP_THREAD.start()
+if not 'SESSION_CLEANUP_THREAD' in globals():
+    SESSION_CLEANUP_THREAD = SessionCleanupThread()
+    SESSION_CLEANUP_THREAD.start()
 
 
 def loadConfig():
@@ -404,7 +394,6 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
             del self.chosenNegotiator
             logger.debug('request to open session with %s through %s' % (chosenPeer, chosenNegotiator.getId()))
             chosenNegotiator.negotiateSession(chosenPeer)
-        # registry.registerSessionByNegotiatorAndPeer(chosenNegotiator.getId(), chosenPeer, session)
 
 
     def chooseView(self, viewIdx=None, session=None):
@@ -441,7 +430,7 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
             del self.viewsByName
             del self.chosenSession
             logger.debug('sharing %s with %s' % (chosenViewName, chosenSession,))
-            registry.registerSessionByViewId(chosenView, chosenSession)
+            registry.registerSessionByView(chosenView, chosenSession)
             chosenSession.startCollab(chosenView)
             
 
@@ -491,150 +480,88 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
             # now try and terminate the session
             sessionToKill.disconnect()
 
-        
 
-    # def __init__(self):
-    #     sublime_plugin.ApplicationCommand.__init__(self)
-    #     irc.IRCNegotiator.negotiateCallback = self.openSession
-    #     irc.IRCNegotiator.onNegotiateCallback = self.acceptSessionRequest
-    #     irc.IRCNegotiator.rejectedOrFailedCallback = self.killHostedSession
-    #     base.BasePeer.peerConnectedCallback = self.shareView
-    #     base.BasePeer.peerRecvdViewCallback = self.addSharedView
-    #     base.BasePeer.acceptSwapRole = self.acceptSwapRole
-    #     status_bar.status_message('ready')
+    def swapRole(self, session=None):
+        # if we are called with a session passed... typically as a callback from user selection
+        swapping_session = None
+        if (session is not None) and (session.state == pi.STATE_CONNECTED):
+            swapping_session = session
+        else:
+            # swap on the active view? otherwise ask for which shared view
+            view = sublime.active_window().active_view()
+            session = registry.getSessionByView(view)
+            if view and session:
+                if session.state == pi.STATE_CONNECTED:
+                    swapping_session = session
+            else:
+                self.showSessions(sessionCallback=self.swapRole)
+                return
+        swapping_session.swapRole()
 
-#     def addSharedView(self, sessionWithView):
-#         sessionsByViewId[sessionWithView.view.id()] = sessionWithView
 
-#     def acceptSessionRequest(self, deferredOnNegotiateCallback, username):
-#         # self.deferredOnNegotiateCallback = deferredOnNegotiateCallback
-#         acceptSession = sublime.ok_cancel_dialog('%s wants to collaborate with you!' % username)
-#         deferredOnNegotiateCallback.callback(acceptSession)
+    def on_selection_modified(self, view):
+        # if view.file_name():
+        # print('new selection: %s' % view.sel())
+        session = registry.getSessionByView(view)
+        if session:
+            if (session.state == pi.STATE_CONNECTED) and not session.isProxyEventPublishing:
+                logger.debug('selection: %s' % view.sel())
+                session.sendSelectionUpdate(view.sel())
 
-#     def showSessions(self, idx=None, sessionCallback=None):
-#         if idx == None:
-#             sessionList = []
-#             for client in sessions.keys():
-#                 for user in sessions[client].keys():
-#                     if sessions[client][user].state == pi.STATE_CONNECTED:
-#                         sessionList.append('%s -> %s' % (client, user))
-#             if len(sessionList) == 0:
-#                 sessionList = ['*** No Active Sessions ***']
-#             sublime.active_window().show_quick_panel(sessionList, self.showSessions)
-#         elif (idx > -1) and sessionCallback is not None:
-#             sessionList = []
-#             for client in sessions.keys():
-#                 for user in sessions[client].keys():
-#                     if sessions[client][user].state == pi.STATE_CONNECTED:
-#                         sessionList.append('%s -> %s' % (client, user))
-#             if len(sessionList) > 0:
-#                sessionCallback(sessionList[idx])
 
-#     def swapRole(self, session=None):
-#         # if we are called with a session passed... typically as a callback from user selection
-#         swapping_session = None
-#         if (session is not None) and (session.state == pi.STATE_CONNECTED):
-#             swapping_session = session
-#         else:
-#             # swap on the active view? otherwise ask for which shared view
-#             view = sublime.active_window().active_view()
-#             if view and sessionsByViewId.has_key(view.id()):
-#                 session = sessionsByViewId[view.id()]
-#                 if session.state == pi.STATE_CONNECTED:
-#                     swapping_session = session
-#             else:
-#                 self.showSessions(sessionCallback=self.swapRole)
-#                 return
-#         swapping_session.swapRole()
+    def on_modified(self, view):
+        # print(view.command_history(0, False))
+        # print(view.command_history(-1, False))
+        session = registry.getSessionByView(view)
+        if session:
+            if (session.state == pi.STATE_CONNECTED) and (session.role == pi.HOST_ROLE):
+                command = view.command_history(0, False)
+                lastCommand = session.lastViewCommand
+                session.lastViewCommand = command
+                payload = ''
+                # handle history-capturable edit commands on this view
+                if command[0] == 'insert':
+                    # because of the way the insert commands are captured in the command_history
+                    # this seems to be the most sensible way to handle this... grab latest character
+                    # inserted and send it... not most efficient but it is a start
+                    if command[0] == lastCommand[0]:
+                        chars = command[1]['characters']
+                        lastChars = lastCommand[1]['characters']
+                        if chars.startswith(lastChars):
+                            payload = chars.replace(lastChars, '', 1)
+                        else:
+                            payload = chars
+                    else:
+                        payload = command[1]['characters']
+                    session.sendEdit(pi.EDIT_TYPE_INSERT, payload)
+                elif command[0] ==  'insert_snippet':
+                    payload = command[1]['contents']
+                    session.sendEdit(pi.EDIT_TYPE_INSERT_SNIPPET, payload)
+                elif command[0] == 'left_delete':
+                    session.sendEdit(pi.EDIT_TYPE_LEFT_DELETE, payload)
+                elif command[0] == 'right_delete':
+                    session.sendEdit(pi.EDIT_TYPE_RIGHT_DELETE, payload)
+                elif command[0] == 'paste':
+                    payload = sublime.get_clipboard()
+                    session.sendEdit(pi.EDIT_TYPE_PASTE, payload)
 
-#     def acceptSwapRole(self, requestMessage):
-#         return sublime.ok_cancel_dialog(requestMessage)
 
-#     def killHostedSession(self, protocol, username):
-#         sessionsLock.acquire()
-#         if sessions[protocol].has_key(username):
-#             toKill = sessions[protocol].pop(username)
-#             logger.debug('Cleaning up hosted session with %s' % username)
-#             if not toKill.state == pi.STATE_DISCONNECTED:
-#                 toKill.state = pi.STATE_REJECT_TRIGGERED_DISCONNECTING
-#             toKill.disconnect()
-#         sessionsLock.release()
-
-#     def endSession(self, idx=None):
-#         if idx == None:
-#             self.killList = []
-#             for client in sessions.keys():
-#                 for user in sessions[client].keys():
-#                     self.killList.append('%s -> %s' % (client, user))
-#             if len(self.killList) == 0:
-#                 self.killList = ['*** No Active Sessions ***']
-#             sublime.active_window().show_quick_panel(self.killList, self.endSession)
-#         elif idx > -1:
-#             clientAndUser = self.killList[idx]
-#             if clientAndUser == '*** No Active Sessions ***':
-#                 return
-#             client, user = clientAndUser.split(' -> ')
-#             logger.info('Closing session with user %s on chat %s' % (user, client))
-#             sessionToKill = sessions[client].pop(user)
-#             sessionToKill.disconnect()
-
-#     def on_selection_modified(self, view):
-#         # if view.file_name():
-#         # print('new selection: %s' % view.sel())
-#         if sessionsByViewId.has_key(view.id()):
-#             session = sessionsByViewId[view.id()]
-#             if (session.state == pi.STATE_CONNECTED) and not session.isProxyEventPublishing:
-#                 logger.debug('selection: %s' % view.sel())
-#                 session.sendSelectionUpdate(view.sel())
-
-#     def on_modified(self, view):
-#         # print(view.command_history(0, False))
-#         # print(view.command_history(-1, False))
-#         if sessionsByViewId.has_key(view.id()):
-#             session = sessionsByViewId[view.id()]
-#             if (session.state == pi.STATE_CONNECTED) and (session.role == pi.HOST_ROLE):
-#                 command = view.command_history(0, False)
-#                 lastCommand = session.lastViewCommand
-#                 session.lastViewCommand = command
-#                 payload = ''
-#                 # handle history-capturable edit commands on this view
-#                 if command[0] == 'insert':
-#                     # because of the way the insert commands are captured in the command_history
-#                     # this seems to be the most sensible way to handle this... grab latest character
-#                     # inserted and send it... not most efficient but it is a start
-#                     if command[0] == lastCommand[0]:
-#                         chars = command[1]['characters']
-#                         lastChars = lastCommand[1]['characters']
-#                         if chars.startswith(lastChars):
-#                             payload = chars.replace(lastChars, '', 1)
-#                         else:
-#                             payload = chars
-#                     else:
-#                         payload = command[1]['characters']
-#                     session.sendEdit(pi.EDIT_TYPE_INSERT, payload)
-#                 elif command[0] ==  'insert_snippet':
-#                     payload = command[1]['contents']
-#                     session.sendEdit(pi.EDIT_TYPE_INSERT_SNIPPET, payload)
-#                 elif command[0] == 'left_delete':
-#                     session.sendEdit(pi.EDIT_TYPE_LEFT_DELETE, payload)
-#                 elif command[0] == 'right_delete':
-#                     session.sendEdit(pi.EDIT_TYPE_RIGHT_DELETE, payload)
-#                 elif command[0] == 'paste':
-#                     payload = sublime.get_clipboard()
-#                     session.sendEdit(pi.EDIT_TYPE_PASTE, payload)
-
+# ===== EditCommandProxyCommand ===== #
 
 
 # class EditCommandProxyCommand(sublime_plugin.ApplicationCommand, sublime_plugin.EventListener):
+
 
 #     def on_load(self, view):
 #         # handles initial sublime startup
 #         global globalActiveView
 #         globalActiveView = view
 
+
 #     def on_activated(self, view):
 #         global globalActiveView
 #         globalActiveView = view
+
 
 #     def run(self, real_command):
 #         global globalActiveView
@@ -642,8 +569,8 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
 #         if globalActiveView == None:
 #             logger.debug('no view to proxy commands to')
 #             return
-#         if sessionsByViewId.has_key(globalActiveView.id()):
-#             session = sessionsByViewId[globalActiveView.id()]
+#         session = registry.getSessionByView(globalActiveView)
+#         if session:
 #             session.isProxyEventPublishing = True
 #             if (session.state == pi.STATE_CONNECTED) and (session.role == pi.HOST_ROLE):
 #                 logger.debug('proxying: %s' % real_command)

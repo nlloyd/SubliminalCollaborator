@@ -165,7 +165,7 @@ class Registry(object):
             self.sessionsByUserByNegotiator[negotiatorKey] = {peerUser: set([session])}
 
 
-    def registerSessionByViewId(self, view, session):
+    def registerSessionByView(self, view, session):
         if view.id() in self.sessionsByViewId:
             self.logger.warn('already sharing view %s with %s' % (view.file_name(), session.str()))
         else:

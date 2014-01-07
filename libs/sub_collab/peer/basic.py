@@ -290,7 +290,7 @@ class BasicPeer(base.BasePeer, basic.Int32StringReceiver, protocol.ClientFactory
         Callback method informing the peer that we have received the view.
         """
         self.logger.debug('collaboration session with view started!')
-        registry.registerSessionByViewId(self.view, self)
+        registry.registerSessionByView(self.view, self)
         # self.notify(collab_event.RECVD_VIEW, self)
 
 
