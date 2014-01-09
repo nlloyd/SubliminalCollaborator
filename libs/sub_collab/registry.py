@@ -183,6 +183,10 @@ class Registry(object):
         return sessions
 
 
+    def getSessionByView(self, view):
+        return self.sessionsByViewId.get(view.id())
+
+
     def listSessions(self):
         sessions = []
         for sessionsByUser in self.sessionsByUserByNegotiator.itervalues():

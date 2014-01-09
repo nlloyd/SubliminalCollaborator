@@ -282,7 +282,7 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
                 logger.error('unknown plugin task %s' % task)
 
         except:
-            logger.error(sys.exc_info())
+            logger.error('Unexpected exception when trying to run CollaborateCommand.%s(..): %s' % (task, str(sys.exc_info()),))
 
 
     #***** plugin commands *****#
@@ -337,6 +337,9 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
         elif event == collab_event.ESTABLISHED_SESSION:
             logger.debug('session established, opening view selector')
             self.chooseView(session=producer)
+        elif event == collab_event.FAILED_SESSION:
+            pass
+            #todo error window popup
 
 
     def openSession(self):
@@ -464,10 +467,14 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
             for session in self.activeSessions:
                 sessionLabel = '%s -> %s' % (session.getParentNegotiatorKey(), session.str())
                 if hasattr(session, 'view'):
-                    sessionLabel += ': ' + os.path.basename(session.view.file_name())
+                    if session.view.file_name():
+                        sessionLabel += ' (%s)' % os.path.basename(session.view.file_name())
+                    else:
+                        sessionLabel += ' (%s)' % session.view.name()
                 self.killList.append(sessionLabel)
             if len(self.killList) == 0:
                 self.killList = ['*** No Active Sessions ***']
+            logger.debug('Listing active sessions available to close')
             sublime.active_window().show_quick_panel(self.killList, self.closeSession)
         elif idx > -1:
             if (len(self.killList) == 1) and (self.killList[0] == '*** No Active Sessions ***'):

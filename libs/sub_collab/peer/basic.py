@@ -772,8 +772,8 @@ class BasicPeer(base.BasePeer, basic.Int32StringReceiver, protocol.ClientFactory
         registry.removeSession(self)
         self.state = base.STATE_DISCONNECTED
         if (error.ConnectionRefusedError == reason.type) or (error.TCPTimedOutError == reason.type) or (error.TimeoutError == reason.type):
-            if (self.peerType == base.CLIENT) and (not self.failedToInitConnectCallback == None):
-                self.failedToInitConnectCallback(self.sharingWithUser)
+            if self.peerType == base.CLIENT:
+                self.notify(collab_event.FAILED_SESSION, self.sharingWithUser)
         self.disconnect()
 
 
