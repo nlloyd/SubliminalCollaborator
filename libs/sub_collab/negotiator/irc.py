@@ -24,7 +24,7 @@ from sub_collab.negotiator import base
 from sub_collab.peer import basic
 from sub_collab import common, event, registry, status_bar
 from twisted.words.protocols import irc
-from twisted.internet import reactor, protocol, error, defer
+from twisted.internet import reactor, ssl, protocol, error, defer
 import logging, sys, socket, functools
 import sublime
 
@@ -65,7 +65,11 @@ class IRCNegotiator(base.BaseNegotiator, common.Observable, protocol.ClientFacto
         self.nickname = self.config['username'].encode()
         if self.config.has_key('password'):
             self.password = self.config['password'].encode()
-        # @todo ssl client key
+        if self.config.has_key('useSSL'):
+            self.useSSL = self.config['useSSL']
+        else:
+            # default to false
+            self.useSSL = False
         self.channel = self.config['channel'].encode()
         self.peerUsers = []
         self.unverifiedUsers = None
@@ -91,7 +95,12 @@ class IRCNegotiator(base.BaseNegotiator, common.Observable, protocol.ClientFacto
             self.clientConnection.disconnect()
 
         status_bar.status_message('connecting to %s' % self.str())
-        self.clientConnection = reactor.connectTCP(self.host, self.port, self)
+        if self.useSSL:
+            self.logger.info('connecting to %s with ssl' % self.str())
+            self.clientConnection = reactor.connectSSL(self.host, self.port, self, ssl.ClientContextFactory())
+        else:
+            self.logger.info('connecting to %s' % self.str())
+            self.clientConnection = reactor.connectTCP(self.host, self.port, self)
 
 
     def isConnected(self):

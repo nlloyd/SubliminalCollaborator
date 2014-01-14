@@ -20,6 +20,16 @@ $accounts_config = "{
                 \"channel\": \"subliminalcollaboration\"
             }
         ],
+        \"irc\": [
+            {
+                \"host\": \"localhost\",
+                \"port\": ${ircd_ssl_port},
+                \"useSSL\": true
+                \"username\": \"vagrant_ssl\",
+                \"password\": \"${ircd_server_passwd}\",
+                \"channel\": \"subliminalcollaboration\"
+            }
+        ],
         \"connect_all_on_startup\": false
     }
 }

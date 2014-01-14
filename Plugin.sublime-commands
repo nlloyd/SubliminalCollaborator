@@ -26,6 +26,11 @@
     },
     {
         "command": "collaborate",
+        "caption": "Collaborate: Show Chat Server Connections",
+        "args": { "task": "showConnectedChats" }
+    },
+    {
+        "command": "collaborate",
         "caption": "Collaborate: Swap Roles with Peer",
         "args": { "task": "swapRole" }
     },

@@ -34,10 +34,18 @@ if libs_path not in sys.path:
 
 # need the windows select.pyd binary
 from twisted.python import runtime, log
+__file__ = os.path.normpath(os.path.abspath(__file__))
+__path__ = os.path.dirname(__file__)
 if runtime.platform.isWindows():
-    __file__ = os.path.normpath(os.path.abspath(__file__))
-    __path__ = os.path.dirname(__file__)
-    libs_path = os.path.join(__path__, 'libs', platform.architecture()[0])
+    libs_path = os.path.join(__path__, 'libs', 'win', platform.architecture()[0])
+    if libs_path not in sys.path:
+        sys.path.insert(0, libs_path)
+elif runtime.platform.isLinux():
+    libs_path = os.path.join(__path__, 'libs', 'linux', platform.architecture()[0])
+    if libs_path not in sys.path:
+        sys.path.insert(0, libs_path)
+elif runtime.platform.isMacOSX():
+    libs_path = os.path.join(__path__, 'libs', 'mac', platform.architecture()[0])
     if libs_path not in sys.path:
         sys.path.insert(0, libs_path)
 
@@ -320,6 +328,20 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
             sublime.active_window().show_quick_panel(self.chatClientKeys, self.disconnectFromChat)
         elif clientIdx > -1:
             registry.getNegotiator(self.chatClientKeys[clientIdx]).disconnect()
+
+
+    def showConnectedChats(self, clientIdx=None):
+        if clientIdx == None:
+            self.chatClientKeys = []
+            for negotiatorKey, negotiator in registry.iterNegotiatorEntries():
+                if negotiator.isConnected():
+                    self.chatClientKeys.append(negotiatorKey)
+            if len(self.chatClientKeys) == 0:
+                self.chatClientKeys = ['*** No Active Chat Connections ***']
+            sublime.active_window().show_quick_panel(self.chatClientKeys, self.showConnectedChats)
+        else:
+            if hasattr(self, 'chatClientKeys'):
+                del self.chatClientKeys
 
     #***************************#
 
