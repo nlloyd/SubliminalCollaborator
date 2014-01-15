@@ -24,7 +24,7 @@ $accounts_config = "{
             {
                 \"host\": \"localhost\",
                 \"port\": ${ircd_ssl_port},
-                \"useSSL\": true
+                \"useSSL\": true,
                 \"username\": \"vagrant_ssl\",
                 \"password\": \"${ircd_server_passwd}\",
                 \"channel\": \"subliminalcollaboration\"
