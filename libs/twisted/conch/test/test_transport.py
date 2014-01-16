@@ -37,14 +37,12 @@ from twisted.trial import unittest
 from twisted.internet import defer
 from twisted.protocols import loopback
 from twisted.python import randbytes
-from twisted.python.reflect import qual
+from twisted.python.reflect import qual, getClass
 from twisted.python.hashlib import md5, sha1
-from twisted.conch.ssh import service, common
+from twisted.conch.ssh import address, service, common
 from twisted.test import proto_helpers
 
 from twisted.conch.error import ConchError
-
-
 
 class MockTransportBase(transport.SSHTransportBase):
     """
@@ -76,7 +74,8 @@ class MockTransportBase(transport.SSHTransportBase):
         @type remoteVersion: C{str}
         """
         self.gotUnsupportedVersion = remoteVersion
-        return transport.SSHTransportBase._unsupportedVersionReceived(self, remoteVersion)
+        return transport.SSHTransportBase._unsupportedVersionReceived(
+            self, remoteVersion)
 
 
     def receiveError(self, reasonCode, description):
@@ -315,7 +314,6 @@ class MockOldFactoryPrivateKeys(MockFactory):
         return keys
 
 
-
 class TransportTestCase(unittest.TestCase):
     """
     Base class for transport test cases.
@@ -359,9 +357,10 @@ class TransportTestCase(unittest.TestCase):
         proto._keySetup("foo", "bar")
         # SSHTransportBase can't handle MSG_NEWKEYS, or it would be the right
         # thing to deliver next.  _newKeys won't work either, because
-        # sendKexInit (probably) hasn't been called.  sendKexInit is responsible
-        # for setting up certain state _newKeys relies on.  So, just change the
-        # key exchange state to what it would be when key exchange is finished.
+        # sendKexInit (probably) hasn't been called.  sendKexInit is
+        # responsible for setting up certain state _newKeys relies on.  So,
+        # just change the key exchange state to what it would be when key
+        # exchange is finished.
         proto._keyExchangeState = proto._KEY_EXCHANGE_NONE
 
 
@@ -573,7 +572,7 @@ class BaseSSHTransportTestCase(TransportTestCase):
         proto.sendKexInit = lambda: None
         proto.makeConnection(self.transport)
         self.transport.clear()
-        proto.currentEncryptions = testCipher = MockCipher()
+        proto.currentEncryptions = MockCipher()
         proto.outgoingCompression = MockCompression()
         proto.incomingCompression = proto.outgoingCompression
         proto.sendPacket(ord('A'), 'BCDEFG')
@@ -674,8 +673,8 @@ class BaseSSHTransportTestCase(TransportTestCase):
 
         RFC 4253, section 7.1.
         """
-        # sendKexInit is called by connectionMade, which is called in setUp.  So
-        # we're in the state already.
+        # sendKexInit is called by connectionMade, which is called in setUp.
+        # So we're in the state already.
         disallowedMessageTypes = [
             transport.MSG_SERVICE_REQUEST,
             transport.MSG_KEXINIT,
@@ -684,8 +683,8 @@ class BaseSSHTransportTestCase(TransportTestCase):
         # Drop all the bytes sent by setUp, they're not relevant to this test.
         self.transport.clear()
 
-        # Get rid of the sendPacket monkey patch, we are testing the behavior of
-        # sendPacket.
+        # Get rid of the sendPacket monkey patch, we are testing the behavior
+        # of sendPacket.
         del self.proto.sendPacket
 
         for messageType in disallowedMessageTypes:
@@ -1152,6 +1151,24 @@ class ServerAndClientSSHTransportBaseCase:
         def blankMACs(proto2):
             proto2.supportedMACs = []
         self.connectModifiedProtocol(blankMACs)
+
+    def test_getPeer(self):
+        """
+        Test that the transport's L{getPeer} method returns an
+        L{SSHTransportAddress} with the L{IAddress} of the peer.
+        """
+        self.assertEqual(self.proto.getPeer(),
+                         address.SSHTransportAddress(
+                self.proto.transport.getPeer()))
+
+    def test_getHost(self):
+        """
+        Test that the transport's L{getHost} method returns an
+        L{SSHTransportAddress} with the L{IAddress} of the host.
+        """
+        self.assertEqual(self.proto.getHost(),
+                         address.SSHTransportAddress(
+                self.proto.transport.getHost()))
 
 
 
@@ -1795,6 +1812,18 @@ class ClientSSHTransportTestCase(ServerAndClientSSHTransportBaseCase,
         self.checkDisconnected()
 
 
+    def test_noPayloadSERVICE_ACCEPT(self):
+        """
+        Some commercial SSH servers don't send a payload with the
+        SERVICE_ACCEPT message.  Conch pretends that it got the correct
+        name of the service.
+        """
+        self.proto.instance = MockService()
+        self.proto.ssh_SERVICE_ACCEPT('') # no payload
+        self.assertTrue(self.proto.instance.started)
+        self.assertEquals(len(self.packets), 0) # not disconnected
+
+
 
 class SSHCiphersTestCase(unittest.TestCase):
     """
@@ -1829,7 +1858,7 @@ class SSHCiphersTestCase(unittest.TestCase):
             if cipName == 'none':
                 self.assertIsInstance(cip, transport._DummyCipher)
             else:
-                self.assertTrue(str(cip).startswith('<' + modName))
+                self.assertTrue(getClass(cip).__name__.startswith(modName))
 
 
     def test_getMAC(self):

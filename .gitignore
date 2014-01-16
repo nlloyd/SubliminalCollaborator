@@ -1,5 +1,6 @@
 *.py[co]
 menu_backup/
+.vagrant/
 
 # Packages
 *.egg

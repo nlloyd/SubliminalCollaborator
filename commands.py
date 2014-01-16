@@ -19,8 +19,9 @@
 #   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #   THE SOFTWARE.
-import sublime, sublime_plugin
-import sys, os, platform
+import os
+import platform
+import sys
 
 # this assures we use the included libs/twisted and libs/zope libraries
 # this is of particular importance on Mac OS X since an older version of twisted
@@ -33,55 +34,89 @@ if libs_path not in sys.path:
 
 # need the windows select.pyd binary
 from twisted.python import runtime, log
+__file__ = os.path.normpath(os.path.abspath(__file__))
+__path__ = os.path.dirname(__file__)
 if runtime.platform.isWindows():
-    __file__ = os.path.normpath(os.path.abspath(__file__))
-    __path__ = os.path.dirname(__file__)
-    libs_path = os.path.join(__path__, 'libs', platform.architecture()[0])
+    libs_path = os.path.join(__path__, 'libs', 'win', platform.architecture()[0])
+    if libs_path not in sys.path:
+        sys.path.insert(0, libs_path)
+elif runtime.platform.isLinux():
+    libs_path = os.path.join(__path__, 'libs', 'linux', platform.architecture()[0])
+    if libs_path not in sys.path:
+        sys.path.insert(0, libs_path)
+elif runtime.platform.isMacOSX():
+    libs_path = os.path.join(__path__, 'libs', 'mac', platform.architecture()[0])
     if libs_path not in sys.path:
         sys.path.insert(0, libs_path)
 
-if not 'REACTORINSTALLED' in globals():
-    from twisted.internet import _threadedselect
-    _threadedselect.install()
-    globals()['REACTORINSTALLED'] = True
+# --- configure logging system --- #
+import logging
+import logging.config
 
-from sub_collab.negotiator import irc
-from sub_collab.peer import interface as pi
-from sub_collab import status_bar
-from sub_collab.peer import base
-from twisted.internet import reactor
-import threading, logging, time, shutil, fileinput, re, functools
+logging.config.fileConfig('logging.cfg', disable_existing_loggers=False)
+# --- ------------------------ --- #
 
-logger = logging.getLogger(__name__)
-logger.propagate = False
-# purge previous handlers set... for plugin reloading
-del logger.handlers[:]
-stdoutHandler = logging.StreamHandler(sys.stdout)
-stdoutHandler.setFormatter(logging.Formatter(fmt='[SubliminalCollaborator(%(levelname)s): %(message)s]'))
-logger.addHandler(stdoutHandler)
-logger.setLevel(logging.INFO)
+logger = logging.getLogger("SubliminalCollaborator")
 
+import sublime
+
+# wrapper function to the entrypoint into the sublime main loop
 def callInSublimeLoop(funcToCall):
     sublime.set_timeout(funcToCall, 0)
 
-if not 'REACTORSTARTED' in globals():
-    reactor.interleave(callInSublimeLoop, installSignalHandlers=False)
-    globals()['REACTORSTARTED'] = True
+# --- install and start the twisted reactor, if it hasn't already be started --- #
+from twisted.internet.error import ReactorAlreadyInstalledError, ReactorAlreadyRunning, ReactorNotRestartable
 
-negotiatorFactoryMap = {
+reactorAlreadyInstalled = False
+try:
+    from twisted.internet import _threadedselect
+    _threadedselect.install()
+except ReactorAlreadyInstalledError:
+    reactorAlreadyInstalled = True
+
+from twisted.internet import reactor
+
+try:
+    reactor.interleave(callInSublimeLoop, installSignalHandlers=False)
+except ReactorAlreadyRunning:
+    reactorAlreadyInstalled = True
+except ReactorNotRestartable:
+    reactorAlreadyInstalled = True
+
+if reactorAlreadyInstalled:
+    logger.debug('twisted reactor already installed')
+    if type(reactor) != _threadedselect.ThreadedSelectReactor:
+        logger.warn('unexpected reactor type installed: %s, it is best to use twisted.internet._threadedselect!' % type(reactor))
+else:
+    logger.debug('twisted reactor installed and running')
+# --- --------------------------------------------------------------------- --- #
+
+import sublime_plugin
+from sub_collab.negotiator import irc
+from sub_collab.peer import base as pi
+from sub_collab import common, registry, status_bar
+from sub_collab import event as collab_event
+from sub_collab.peer import base
+from twisted.internet import reactor
+from zope.interface import implements
+import threading, logging, time, shutil, fileinput, re, functools
+
+
+# map of protocol name to negotiator constructor
+NEGOTIATOR_CONSTRUCTOR_MAP = {
     'irc': irc.IRCNegotiator
 }
 
 #*** globals for preferences and session variables ***#
 # config dictionary, key is protocol:host:username, value is config dict
-chatClientConfig = {}
-connectAllOnStartup = False
-# key is same as config dictionary with value equallying live negotiator instances
-negotiatorInstances = {}
-# sessions by chatClient
-sessions = {}
-# sessions by view id
-sessionsByViewId = {}
+# chatClientConfig = {}
+CONNECT_ALL_ON_STARTUP = False
+# # key is same as config dictionary, values are live negotiator instances
+# negotiatorInstances = {}
+# # sessions by chatClient
+# sessions = {}
+# # sessions by view id
+# sessionsByViewId = {}
 sessionsLock = threading.Lock()
 # global for the current active view... because sublime.active_window().active_view() ignores the console view
 globalActiveView = None
@@ -99,21 +134,11 @@ class SessionCleanupThread(threading.Thread):
         # runs for as long as the reactor is running
         while reactor.running:
             sessionsLock.acquire()
-            for sessionsKey, protocolSessions in sessions.items():
-                for sessionKey, session in protocolSessions.items():
-                    if session.state == pi.STATE_DISCONNECTED:
-                        deadSession = sessions[sessionsKey].pop(sessionKey)
-                        logger.info('Cleaning up dead session: %s' % deadSession.str())
-            for viewId, session in sessionsByViewId.items():
+            for session in registry.listSessions():
                 if session.state == pi.STATE_DISCONNECTED:
-                    if session.view != None:
-                        sublime.set_timeout(functools.partial(session.view.set_read_only, False), 0)
-                    sessionsByViewId.pop(viewId)
+                    logger.info('Cleaning up dead session: %s' % session.str())
+                    registry.removeSession(session)
             sessionsLock.release()
-            for negotiatorKey, negotiator in negotiatorInstances.items():
-                if negotiator.isConnected() == False:
-                    negotiatorInstances.pop(negotiatorKey)
-                    logger.info('Cleaning up disconnected negotiator %s' % negotiatorKey)
             time.sleep(5.0)
 
 
@@ -123,63 +148,44 @@ if not 'SESSION_CLEANUP_THREAD' in globals():
 
 
 def loadConfig():
-    global chatClientConfig
-    global connectAllOnStartup
+    global CONNECT_ALL_ON_STARTUP
     acctConfig = sublime.load_settings('Accounts.sublime-settings')
     accts = acctConfig.get('subliminal_collaborator')
     logger.info('loading configuration from Accounts.sublime-settings')
-    configErrorList = []
     if not accts:
         logger.error('No configuration found!')
         return
     acctConfig.clear_on_change('subliminal_collaborator')
     acctConfig.add_on_change('subliminal_collaborator', loadConfig)
-    newClientConfig = {}
-    for protocol, acct_details in accts.items():
+    loadedNegotiators = {}
+    for protocol, acctDetails in accts.items():
         if protocol == 'connect_all_on_startup':
-            connectAllOnStartup = acct_details
+            CONNECT_ALL_ON_STARTUP = acctDetails
             continue
-        for acct_detail in acct_details:
-            if not acct_detail.has_key('host'):
-                configErrorList.append('A %s protocol configuration is missing a host entry' % protocol)
-            if not acct_detail.has_key('port'):
-                configErrorList.append('A %s protocol configuration is missing a port entry' % protocol)
-            if not acct_detail.has_key('username'):
-                configErrorList.append('A %s protocol configuration is missing a username entry' % protocol)
-            if not acct_detail.has_key('password'):
-                configErrorList.append('A %s protocol configuration is missing a password entry' % protocol)
-            clientKey = '%s|%s@%s:%d' % (protocol, acct_detail['username'], acct_detail['host'], acct_detail['port'])
-            newClientConfig[clientKey] = acct_detail
-    for oldKey in chatClientConfig.keys():
-        if not newClientConfig.has_key(oldKey):
-            if negotiatorInstances.has_key(oldKey):
-                logger.info('Cleaning up old chat client with unused configuration: %s' % oldKey)
-                oldNegotiator = negotiatorInstances.pop(oldKey)
-                oldNegotiator.disconnect()
-    chatClientConfig = newClientConfig
-    # report errors, if any
-    if len(configErrorList) > 0:
-        errorMsg = 'The following configuration errors were found:\n'
-        for error in configErrorList:
-            errorMsg = '%s%s\n' % (errorMsg, error)
-        sublime.error_message(errorMsg)
+        for acctDetail in acctDetails:
+            negotiator = registry.addOrUpdateNegotiator(protocol, acctDetail, NEGOTIATOR_CONSTRUCTOR_MAP)
+            loadedNegotiators[negotiator[0]] = negotiator[1]
+    # search for any configurations in the registry NOT found in the latest config file data
+    for existingNegotiator in registry.listNegotiatorKeys():
+        if not loadedNegotiators.has_key(existingNegotiator):
+            registry.removeNegotiator(existingNegotiator)
 
 
 def connectAllChat():
     logger.info('Connecting to all configured chat servers')
-    chatClientKeys = chatClientConfig.keys()
-    for connectedClient in negotiatorInstances.keys():
-        chatClientKeys.remove(connectedClient)
-    for client in chatClientKeys:
-        logger.info('Connecting to chat %s' % client)
-        negotiatorInstances[client] = negotiatorFactoryMap[client.split('|', 1)[0]]()
-        negotiatorInstances[client].connect(**chatClientConfig[client])
-        status_bar.status_message('connected clients: %d' % len(negotiatorInstances))
+    for key, negotiator in registry.iterNegotiatorEntries():
+        logger.info('Connecting to chat %s' % key)
+        if not negotiator.isConnected():
+            negotiator.connect()
+
 
 loadConfig()
 
-if connectAllOnStartup:
+if CONNECT_ALL_ON_STARTUP:
     connectAllChat()
+
+
+# ===== OpenSublimeSettingsCommand ===== #
 
 
 class OpenSublimeSettingsCommand(sublime_plugin.WindowCommand):
@@ -196,6 +202,9 @@ class OpenSublimeSettingsCommand(sublime_plugin.WindowCommand):
 
     def is_enabled(self):
         return self.window.active_view() != None
+
+
+# ===== InstallMenuProxyCommand ===== #
 
 
 class InstallMenuProxyCommand(sublime_plugin.WindowCommand):
@@ -221,6 +230,7 @@ class InstallMenuProxyCommand(sublime_plugin.WindowCommand):
     def is_enabled(self):
         return not os.path.exists(os.path.join(os.getcwd(), 'menu_backup', 'Main.sublime-menu.backup'))
 
+
     def installProxyEntries(self):
         if not hasattr(self, 'command_pattern'):
             self.command_pattern = re.compile(r'^(\s*\{\s*"command":\s*")(%s)("\s*)(,\s*"mnemonic":\s*"[a-zA-Z]"\s*|)(\})(,|)(\s*)$' \
@@ -235,6 +245,9 @@ class InstallMenuProxyCommand(sublime_plugin.WindowCommand):
             line = self.command_pattern.sub(r'\1edit_command_proxy\3, "caption": "%s", "args": { "real_command": "\2" }\4\5\6\7' % caption, line)
             sys.stdout.write(line)
         os.rename(os.path.join(sublime.packages_path(), 'Default','Main.sublime-menu.tmp'), os.path.join(sublime.packages_path(), 'Default','Main.sublime-menu'))
+
+
+# ===== UninstallMenuProxyCommand ===== #
 
 
 class UninstallMenuProxyCommand(sublime_plugin.WindowCommand):
@@ -254,21 +267,18 @@ class UninstallMenuProxyCommand(sublime_plugin.WindowCommand):
         return os.path.exists(os.path.expanduser(os.path.join('~', '.subliminal_collaborator', 'Main.sublime-menu.backup')))
 
 
+# ===== CollaborateCommand ===== #
+
+
 class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.EventListener):
-    chatClientKeys = []
-    sessionKeys = []
-    userList = []
-    selectedNegotiator = None
+
+    implements(common.Observer)
 
     def __init__(self):
         sublime_plugin.ApplicationCommand.__init__(self)
-        irc.IRCNegotiator.negotiateCallback = self.openSession
-        irc.IRCNegotiator.onNegotiateCallback = self.acceptSessionRequest
-        irc.IRCNegotiator.rejectedOrFailedCallback = self.killHostedSession
-        base.BasePeer.peerConnectedCallback = self.shareView
-        base.BasePeer.peerRecvdViewCallback = self.addSharedView
-        base.BasePeer.acceptSwapRole = self.acceptSwapRole
+        sublime_plugin.EventListener.__init__(self)
         status_bar.status_message('ready')
+
 
     def run(self, task):
         method = getattr(self, task, None)
@@ -280,73 +290,141 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
                 logger.error('unknown plugin task %s' % task)
 
         except:
-            logger.error(sys.exc_info())
+            logger.error('Unexpected exception when trying to run CollaborateCommand.%s(..): %s' % (task, str(sys.exc_info()),))
 
-    def startSession(self):
-        self.chatClientKeys = chatClientConfig.keys()
-        sublime.active_window().show_quick_panel(self.chatClientKeys, self.selectUser)
 
-    def selectUser(self, clientIdx):
-        if clientIdx < 0:
+    #***** plugin commands *****#
+
+    def connectToChat(self, clientIdx=None):
+        if clientIdx == None:
+            self.chatClientKeys = []
+            for negotiatorKey, negotiator in registry.iterNegotiatorEntries():
+                if not negotiator.isConnected():
+                    self.chatClientKeys.append(negotiatorKey)
+            if len(self.chatClientKeys) > 0:
+                self.chatClientKeys.append('*** ALL ***')
+            sublime.active_window().show_quick_panel(self.chatClientKeys, self.connectToChat)
+        elif clientIdx > -1:
+            targetNegotiatorKey = self.chatClientKeys[clientIdx]
+            if targetNegotiatorKey == '*** ALL ***':
+                connectAllChat()
+                for negotiator in registry.iterNegotiators():
+                    negotiator.addObserver(self)
+            elif not registry.getNegotiator(targetNegotiatorKey).isConnected():
+                logger.info('Connecting to chat %s' % targetNegotiatorKey)
+                negotiator = registry.getNegotiator(targetNegotiatorKey)
+                negotiator.addObserver(self)
+                negotiator.connect()
+            else:
+                logger.info('Already connected to chat %s' % targetNegotiatorKey)
+
+
+    def disconnectFromChat(self, clientIdx=None):
+        if clientIdx == None:
+            self.chatClientKeys = []
+            for negotiatorKey, negotiator in registry.iterNegotiatorEntries():
+                if negotiator.isConnected():
+                    self.chatClientKeys.append(negotiatorKey)
+            sublime.active_window().show_quick_panel(self.chatClientKeys, self.disconnectFromChat)
+        elif clientIdx > -1:
+            registry.getNegotiator(self.chatClientKeys[clientIdx]).disconnect()
+
+
+    def showConnectedChats(self, clientIdx=None):
+        if clientIdx == None:
+            self.chatClientKeys = []
+            for negotiatorKey, negotiator in registry.iterNegotiatorEntries():
+                if negotiator.isConnected():
+                    self.chatClientKeys.append(negotiatorKey)
+            if len(self.chatClientKeys) == 0:
+                self.chatClientKeys = ['*** No Active Chat Connections ***']
+            sublime.active_window().show_quick_panel(self.chatClientKeys, self.showConnectedChats)
+        else:
+            if hasattr(self, 'chatClientKeys'):
+                del self.chatClientKeys
+
+    #***************************#
+
+
+    def update(self, event, producer, data=None):
+        if event == collab_event.INCOMING_SESSION_REQUEST:
+            logger.debug('incoming session request: ' + str(data))
+            username = data[0]
+            # someone wants to collaborate with you! do you want to accept?
+            acceptRequest = sublime.ok_cancel_dialog(username + ' wants to collaborate with you!')
+            if acceptRequest == True:
+                producer.acceptSessionRequest(data[0], data[1], data[2])
+            else:
+                producer.rejectSessionRequest(data[0])
+        elif event == collab_event.ESTABLISHED_SESSION:
+            logger.debug('session established, opening view selector')
+            self.chooseView(session=producer)
+        elif event == collab_event.FAILED_SESSION:
+            pass
+            #todo error window popup
+
+
+    def openSession(self):
+        """
+        Start the chain of events to open a new session with a peer.
+        Stores the list of negotiator keys for selection reference in case the configuration
+        changes mid-selection.
+        """
+        self.negotiatorKeys = registry.listNegotiatorKeys()
+        sublime.active_window().show_quick_panel(self.negotiatorKeys, self.chooseNegotiator)
+
+
+    def chooseNegotiator(self, negotiatorKeyIdx=None):
+        """
+        View callback to select a negotiator client in order to choose a user.
+        Returns if negotiatorKeyIdx is not provided.
+        Default value of None for negotiatorKeyIdx provided to avoid exceptions.
+        """
+        if negotiatorKeyIdx is None or (negotiatorKeyIdx < 0):
+            # if negotiatorKeyIdx < 0 then someone changed their mind, cleanup
+            if self.negotiatorKeys:
+                del self.negotiatorKeys
             return
-        targetClient = self.chatClientKeys[clientIdx]
-        logger.debug('select user from client %s' % targetClient)
-        self.selectedNegotiator = None
-        if negotiatorInstances.has_key(targetClient):
-            logger.debug('Found negotiator for %s, using it' % targetClient)
-            self.selectedNegotiator = negotiatorInstances[targetClient]
+        chosenNegotiatorKey = self.negotiatorKeys[negotiatorKeyIdx]
+        del self.negotiatorKeys
+        if registry.hasNegotiator(chosenNegotiatorKey):
+            logger.debug('selecting peer from ' + chosenNegotiatorKey)
+            self.choosePeer(negotiator=registry.getNegotiator(chosenNegotiatorKey))
         else:
-            logger.debug('No negotiator for %s, creating one' % targetClient)
-            self.selectedNegotiator = negotiatorFactoryMap[targetClient.split('|', 1)[0]]()
-            negotiatorInstances[targetClient] = self.selectedNegotiator
-            self.selectedNegotiator.connect(**chatClientConfig[targetClient])
-        # use our negotiator to connect to the chat server and wait to grab the userlist
-        self.retryCounter = 0
-        self.connectToUser()
+            err_msg = 'No negotiator found named ' + chosenNegotiatorKey
+            logger.error(err_msg)
+            sublime.error_message(err_msg)
 
-    def connectToUser(self, userIdx=None):
-        if userIdx == None:
-            if not self.selectedNegotiator.isConnected():
-                if self.retryCounter >= 30:
-                    logger.warn('Failed to connect client %s' % self.selectedNegotiator.str())
-                else:
-                    # increment retry count... 
-                    self.retryCounter = self.retryCounter + 1
-                    logger.debug('Not connected yet to client %s, recheck counter: %d' % (self.selectedNegotiator.str(), self.retryCounter))
-                    sublime.set_timeout(self.connectToUser, 1000)
-            else:
-                # we are connected, retrieve and show current user list from target chat client negotiator
-                self.userList = self.selectedNegotiator.listUsers()
-                sublime.active_window().show_quick_panel(self.userList, self.connectToUser)
-        elif userIdx > -1:
-            if sessions.has_key(self.selectedNegotiator.str()) and sessions[self.selectedNegotiator.str()].has_key(self.userList[userIdx]):
-                logger.debug('Already collaborating with this user!')
-                # TODO status bar: already have a session for this user!
-                return
-            else:
-                # have a specified user, lets open a collaboration session!
-                logger.debug('Opening collaboration session with user %s on client %s' % (self.userList[userIdx], self.selectedNegotiator.str()))
-                session = self.selectedNegotiator.negotiateSession(self.userList[userIdx])
 
-    def openSession(self, session):
-        protocolSessions = None
-        # if we dont have a selected negotiator then the session was not initiated by us, so
-        # search for the negotiator that knows about the initiating peer
-        if self.selectedNegotiator == None:
-            for negotiatorInstance in negotiatorInstances.values():
-                if session.sharingWithUser in negotiatorInstance.listUsers():
-                    self.selectedNegotiator = negotiatorInstance
-                    break
-        if sessions.has_key(self.selectedNegotiator.str()):
-            protocolSessions = sessions[self.selectedNegotiator.str()]
+    def choosePeer(self, peerIdx=None, negotiator=None):
+        """
+        View callback to select a peer connected through a given chat negotiator.
+        """
+        if negotiator:
+            self.chosenNegotiator = negotiator
+            self.chosenNegotiator.addObserver(self)
+            self.peerList = self.chosenNegotiator.listUsers()
+            sublime.active_window().show_quick_panel(self.peerList, self.choosePeer)
+        elif peerIdx is None or (peerIdx < 0):
+            # if peerIdx < 0 then someone changed their mind, cleanup
+            if hasattr(self, 'chosenNegotiator'):
+                del self.chosenNegotiator
+            if hasattr(self, 'peerList'):
+                del self.peerList
+            return
         else:
-            protocolSessions = {}
-        protocolSessions[session.str()] = session
-        sessions[self.selectedNegotiator.str()] = protocolSessions
-        self.newSession = session
+            chosenPeer = self.peerList[peerIdx]
+            chosenNegotiator = self.chosenNegotiator
+            del self.peerList
+            del self.chosenNegotiator
+            logger.debug('request to open session with %s through %s' % (chosenPeer, chosenNegotiator.getId()))
+            chosenNegotiator.negotiateSession(chosenPeer)
 
-    def shareView(self, idx=None):
-        if idx == None:
+
+    def chooseView(self, viewIdx=None, session=None):
+        if session:
+            self.chosenSession = session
+            self.chosenSession.addObserver(self)
             views = sublime.active_window().views()
             self.viewsByName = {}
             self.viewNames = []
@@ -358,46 +436,79 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
                 else:
                     self.viewsByName[view.file_name()] = view
                     self.viewNames.append(view.file_name())
-            sublime.active_window().show_quick_panel(self.viewNames, self.shareView)
+            sublime.active_window().show_quick_panel(self.viewNames, self.chooseView)
+        elif viewIdx is None or (viewIdx < 0):
+            # TODO perhaps send a "decided not to share anything" message out?
+            if self.chosenSession:
+                self.chosenSession.disconnect()
+                del self.chosenSession
+            if hasattr(self, 'viewNames'):
+                del self.viewNames
+            if hasattr(self, 'viewsByName'):
+                del self.viewsByName
+            return
         else:
-            if idx > -1:
-                chosenViewName = self.viewNames[idx]
-                chosenView = self.viewsByName[chosenViewName]
-                self.newSession.startCollab(chosenView)
-                sessionsByViewId[chosenView.id()] = self.newSession
-            else:
-                # TODO perhaps send a "decided not to share anything" message out?
-                self.newSession.disconnect()
-                self.newSession = None
-            self.viewNames = None
-            self.viewsByName = None
-
-    def addSharedView(self, sessionWithView):
-        sessionsByViewId[sessionWithView.view.id()] = sessionWithView
-
-    def acceptSessionRequest(self, deferredOnNegotiateCallback, username):
-        # self.deferredOnNegotiateCallback = deferredOnNegotiateCallback
-        acceptSession = sublime.ok_cancel_dialog('%s wants to collaborate with you!' % username)
-        deferredOnNegotiateCallback.callback(acceptSession)
+            chosenViewName = self.viewNames[viewIdx]
+            chosenView = self.viewsByName[chosenViewName]
+            chosenSession = self.chosenSession
+            del self.viewNames
+            del self.viewsByName
+            del self.chosenSession
+            logger.debug('sharing %s with %s' % (chosenViewName, chosenSession,))
+            registry.registerSessionByView(chosenView, chosenSession)
+            chosenSession.startCollab(chosenView)
+            
 
     def showSessions(self, idx=None, sessionCallback=None):
         if idx == None:
-            sessionList = []
-            for client in sessions.keys():
-                for user in sessions[client].keys():
-                    if sessions[client][user].state == pi.STATE_CONNECTED:
-                        sessionList.append('%s -> %s' % (client, user))
-            if len(sessionList) == 0:
-                sessionList = ['*** No Active Sessions ***']
-            sublime.active_window().show_quick_panel(sessionList, self.showSessions)
-        elif (idx > -1) and sessionCallback is not None:
-            sessionList = []
-            for client in sessions.keys():
-                for user in sessions[client].keys():
-                    if sessions[client][user].state == pi.STATE_CONNECTED:
-                        sessionList.append('%s -> %s' % (client, user))
-            if len(sessionList) > 0:
-               sessionCallback(sessionList[idx])
+            self.activeSessions = registry.listSessions()
+            self.sessionList = []
+            for session in self.activeSessions:
+                sessionLabel = '%s -> %s' % (session.getParentNegotiatorKey(), session.str())
+                if hasattr(session, 'view'):
+                    if session.view.file_name():
+                        sessionLabel += ' (%s)' % os.path.basename(session.view.file_name())
+                    else:
+                        sessionLabel += ' (%s)' % session.view.name()
+                self.sessionList.append(sessionLabel)
+            if len(self.sessionList) == 0:
+                self.sessionList = ['*** No Active Sessions ***']
+            sublime.active_window().show_quick_panel(self.sessionList, self.showSessions)
+        elif (idx > -1) and (sessionCallback is not None):
+           sessionCallback(self.sessionList[idx])
+        if hasattr(self, 'activeSessions'):
+            del self.activeSessions
+        if hasattr(self, 'sessionList'):
+            del self.sessionList
+
+
+    def closeSession(self, idx=None):
+        if idx == None:
+            self.activeSessions = registry.listSessions()
+            self.killList = []
+            for session in self.activeSessions:
+                sessionLabel = '%s -> %s' % (session.getParentNegotiatorKey(), session.str())
+                if hasattr(session, 'view'):
+                    if session.view.file_name():
+                        sessionLabel += ' (%s)' % os.path.basename(session.view.file_name())
+                    else:
+                        sessionLabel += ' (%s)' % session.view.name()
+                self.killList.append(sessionLabel)
+            if len(self.killList) == 0:
+                self.killList = ['*** No Active Sessions ***']
+            logger.debug('Listing active sessions available to close')
+            sublime.active_window().show_quick_panel(self.killList, self.closeSession)
+        elif idx > -1:
+            if (len(self.killList) == 1) and (self.killList[0] == '*** No Active Sessions ***'):
+                return
+            logger.info('Closing session: ' + self.killList[idx])
+            sessionToKill = self.activeSessions[idx]
+            # cleanup regardless in case something goes wrong
+            del self.activeSessions
+            del self.killList
+            # now try and terminate the session
+            sessionToKill.disconnect()
+
 
     def swapRole(self, session=None):
         # if we are called with a session passed... typically as a callback from user selection
@@ -407,8 +518,8 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
         else:
             # swap on the active view? otherwise ask for which shared view
             view = sublime.active_window().active_view()
-            if view and sessionsByViewId.has_key(view.id()):
-                session = sessionsByViewId[view.id()]
+            session = registry.getSessionByView(view)
+            if view and session:
                 if session.state == pi.STATE_CONNECTED:
                     swapping_session = session
             else:
@@ -416,78 +527,22 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
                 return
         swapping_session.swapRole()
 
-    def acceptSwapRole(self, requestMessage):
-        return sublime.ok_cancel_dialog(requestMessage)
-
-    def killHostedSession(self, protocol, username):
-        sessionsLock.acquire()
-        if sessions[protocol].has_key(username):
-            toKill = sessions[protocol].pop(username)
-            logger.debug('Cleaning up hosted session with %s' % username)
-            if not toKill.state == pi.STATE_DISCONNECTED:
-                toKill.state = pi.STATE_REJECT_TRIGGERED_DISCONNECTING
-            toKill.disconnect()
-        sessionsLock.release()
-
-    def endSession(self, idx=None):
-        if idx == None:
-            self.killList = []
-            for client in sessions.keys():
-                for user in sessions[client].keys():
-                    self.killList.append('%s -> %s' % (client, user))
-            if len(self.killList) == 0:
-                self.killList = ['*** No Active Sessions ***']
-            sublime.active_window().show_quick_panel(self.killList, self.endSession)
-        elif idx > -1:
-            clientAndUser = self.killList[idx]
-            if clientAndUser == '*** No Active Sessions ***':
-                return
-            client, user = clientAndUser.split(' -> ')
-            logger.info('Closing session with user %s on chat %s' % (user, client))
-            sessionToKill = sessions[client].pop(user)
-            sessionToKill.disconnect()
-
-    def connectChat(self, clientIdx=None):
-        if clientIdx == None:
-            self.chatClientKeys = chatClientConfig.keys()
-            for connectedKey in negotiatorInstances.keys():
-                if not negotiatorInstances[connectedKey].connectionFailed:
-                    self.chatClientKeys.remove(connectedKey)
-            if len(self.chatClientKeys) > 0:
-                self.chatClientKeys.append('*** ALL ***')
-            sublime.active_window().show_quick_panel(self.chatClientKeys, self.connectChat)
-        elif clientIdx > -1:
-            targetClient = self.chatClientKeys[clientIdx]
-            if targetClient == '*** ALL ***':
-                connectAllChat()
-            elif not negotiatorInstances.has_key(targetClient):
-                logger.info('Connecting to chat %s' % targetClient)
-                negotiatorInstances[targetClient] = negotiatorFactoryMap[targetClient.split('|', 1)[0]]()
-                negotiatorInstances[targetClient].connect(**chatClientConfig[targetClient])
-            else:
-                logger.info('Already connected to chat %s' % targetClient)
-
-    def disconnectChat(self, clientIdx=None):
-        if clientIdx == None:
-            self.chatClientKeys = negotiatorInstances.keys()
-            sublime.active_window().show_quick_panel(self.chatClientKeys, self.disconnectChat)
-        elif clientIdx > -1:
-            negotiatorInstances.pop(self.chatClientKeys[clientIdx]).disconnect()
 
     def on_selection_modified(self, view):
         # if view.file_name():
         # print('new selection: %s' % view.sel())
-        if sessionsByViewId.has_key(view.id()):
-            session = sessionsByViewId[view.id()]
+        session = registry.getSessionByView(view)
+        if session:
             if (session.state == pi.STATE_CONNECTED) and not session.isProxyEventPublishing:
                 logger.debug('selection: %s' % view.sel())
                 session.sendSelectionUpdate(view.sel())
 
+
     def on_modified(self, view):
         # print(view.command_history(0, False))
         # print(view.command_history(-1, False))
-        if sessionsByViewId.has_key(view.id()):
-            session = sessionsByViewId[view.id()]
+        session = registry.getSessionByView(view)
+        if session:
             if (session.state == pi.STATE_CONNECTED) and (session.role == pi.HOST_ROLE):
                 command = view.command_history(0, False)
                 lastCommand = session.lastViewCommand
@@ -520,49 +575,54 @@ class CollaborateCommand(sublime_plugin.ApplicationCommand, sublime_plugin.Event
                     session.sendEdit(pi.EDIT_TYPE_PASTE, payload)
 
 
+# ===== EditCommandProxyCommand ===== #
 
-class EditCommandProxyCommand(sublime_plugin.ApplicationCommand, sublime_plugin.EventListener):
 
-    def on_load(self, view):
-        # handles initial sublime startup
-        global globalActiveView
-        globalActiveView = view
+# class EditCommandProxyCommand(sublime_plugin.ApplicationCommand, sublime_plugin.EventListener):
 
-    def on_activated(self, view):
-        global globalActiveView
-        globalActiveView = view
 
-    def run(self, real_command):
-        global globalActiveView
-        # print('proxying: %s' % real_command)
-        if globalActiveView == None:
-            logger.debug('no view to proxy commands to')
-            return
-        if sessionsByViewId.has_key(globalActiveView.id()):
-            session = sessionsByViewId[globalActiveView.id()]
-            session.isProxyEventPublishing = True
-            if (session.state == pi.STATE_CONNECTED) and (session.role == pi.HOST_ROLE):
-                logger.debug('proxying: %s' % real_command)
-                # make sure our selection is up-to-date
-                if real_command != 'undo':
-                    session.sendSelectionUpdate(globalActiveView.sel())
-                globalActiveView.run_command(real_command)
-                if real_command ==  'cut':
-                    session.sendEdit(pi.EDIT_TYPE_CUT)
-                elif real_command == 'copy':
-                    session.sendEdit(pi.EDIT_TYPE_COPY)
-                # TODO: figure this out! for now we eat these commands
-                # elif real_command == 'undo':
-                #     session.sendEdit(pi.EDIT_TYPE_UNDO)
-                # elif real_command == 'redo':
-                #     session.sendEdit(pi.EDIT_TYPE_REDO)
-                # elif real_command == 'redo_or_repeat':
-                #     session.sendEdit(pi.EDIT_TYPE_REDO_OR_REPEAT)
-                # elif real_command == 'soft_undo':
-                #     session.sendEdit(pi.EDIT_TYPE_SOFT_UNDO)
-                # elif real_command == 'soft_redo':
-                #     session.sendEdit(pi.EDIT_TYPE_SOFT_REDO)
-            session.isProxyEventPublishing = False
-        else:
-            # run the command for real... not part of a session
-            globalActiveView.run_command(real_command)
+#     def on_load(self, view):
+#         # handles initial sublime startup
+#         global globalActiveView
+#         globalActiveView = view
+
+
+#     def on_activated(self, view):
+#         global globalActiveView
+#         globalActiveView = view
+
+
+#     def run(self, real_command):
+#         global globalActiveView
+#         # print('proxying: %s' % real_command)
+#         if globalActiveView == None:
+#             logger.debug('no view to proxy commands to')
+#             return
+#         session = registry.getSessionByView(globalActiveView)
+#         if session:
+#             session.isProxyEventPublishing = True
+#             if (session.state == pi.STATE_CONNECTED) and (session.role == pi.HOST_ROLE):
+#                 logger.debug('proxying: %s' % real_command)
+#                 # make sure our selection is up-to-date
+#                 if real_command != 'undo':
+#                     session.sendSelectionUpdate(globalActiveView.sel())
+#                 globalActiveView.run_command(real_command)
+#                 if real_command ==  'cut':
+#                     session.sendEdit(pi.EDIT_TYPE_CUT)
+#                 elif real_command == 'copy':
+#                     session.sendEdit(pi.EDIT_TYPE_COPY)
+#                 # TODO: figure this out! for now we eat these commands
+#                 # elif real_command == 'undo':
+#                 #     session.sendEdit(pi.EDIT_TYPE_UNDO)
+#                 # elif real_command == 'redo':
+#                 #     session.sendEdit(pi.EDIT_TYPE_REDO)
+#                 # elif real_command == 'redo_or_repeat':
+#                 #     session.sendEdit(pi.EDIT_TYPE_REDO_OR_REPEAT)
+#                 # elif real_command == 'soft_undo':
+#                 #     session.sendEdit(pi.EDIT_TYPE_SOFT_UNDO)
+#                 # elif real_command == 'soft_redo':
+#                 #     session.sendEdit(pi.EDIT_TYPE_SOFT_REDO)
+#             session.isProxyEventPublishing = False
+#         else:
+#             # run the command for real... not part of a session
+#             globalActiveView.run_command(real_command)

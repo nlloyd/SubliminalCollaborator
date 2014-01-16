@@ -81,9 +81,19 @@ class FTPServerTestCase(unittest.TestCase):
         self.dirPath = filepath.FilePath(self.directory)
 
         # Start the server
-        p = portal.Portal(ftp.FTPRealm(self.directory))
+        p = portal.Portal(ftp.FTPRealm(
+            anonymousRoot=self.directory,
+            userHome=self.directory,
+            ))
         p.registerChecker(checkers.AllowAnonymousAccess(),
                           credentials.IAnonymous)
+
+        users_checker = checkers.InMemoryUsernamePasswordDatabaseDontUse()
+        self.username = "test-user"
+        self.password = "test-password"
+        users_checker.addUser(self.username, self.password)
+        p.registerChecker(users_checker, credentials.IUsernamePassword)
+
         self.factory = ftp.FTPFactory(portal=p,
                                       userAnonymous=self.userAnonymous)
         port = reactor.listenTCP(0, self.factory, interface="127.0.0.1")
@@ -159,6 +169,15 @@ class FTPServerTestCase(unittest.TestCase):
             ['230 Anonymous login ok, access restrictions apply.'],
             chainDeferred=d)
 
+    def _userLogin(self):
+        """Authenticates the FTP client using the test account."""
+        d = self.assertCommandResponse(
+            'USER %s' % (self.username),
+            ['331 Password required for %s.' % (self.username)])
+        return self.assertCommandResponse(
+            'PASS %s' % (self.password),
+            ['230 User logged in, proceed'],
+            chainDeferred=d)
 
 
 class FTPAnonymousTestCase(FTPServerTestCase):
@@ -342,12 +361,56 @@ class BasicFTPServerTestCase(FTPServerTestCase):
         self.serverProtocol.transport.loseConnection()
     testPASV = defer.deferredGenerator(testPASV)
 
-    def testSYST(self):
+    def test_SYST(self):
+        """SYST command will always return UNIX Type: L8"""
         d = self._anonymousLogin()
         self.assertCommandResponse('SYST', ["215 UNIX Type: L8"],
                                    chainDeferred=d)
         return d
 
+    def test_RNFRandRNTO(self):
+        """
+        Sending the RNFR command followed by RNTO, with valid filenames, will
+        perform a successful rename operation.
+        """
+        # Create user home folder with a 'foo' file.
+        self.dirPath.child(self.username).createDirectory()
+        self.dirPath.child(self.username).child('foo').touch()
+
+        d = self._userLogin()
+        self.assertCommandResponse(
+            'RNFR foo',
+            ["350 Requested file action pending further information."],
+            chainDeferred=d)
+        self.assertCommandResponse(
+            'RNTO bar',
+            ["250 Requested File Action Completed OK"],
+            chainDeferred=d)
+
+        def check_rename(result):
+            self.assertTrue(
+                self.dirPath.child(self.username).child('bar').exists())
+            return result
+
+        d.addCallback(check_rename)
+        return d
+
+    def test_RNFRwithoutRNTO(self):
+        """
+        Sending the RNFR command followed by any command other than RNTO
+        should return an error informing users that RNFR should be followed
+        by RNTO.
+        """
+        d = self._anonymousLogin()
+        self.assertCommandResponse(
+            'RNFR foo',
+            ["350 Requested file action pending further information."],
+            chainDeferred=d)
+        self.assertCommandFailed(
+            'OTHER don-tcare',
+            ["503 Incorrect sequence of commands: RNTO required after RNFR"],
+            chainDeferred=d)
+        return d
 
     def test_portRangeForwardError(self):
         """
@@ -448,6 +511,37 @@ class FTPServerTestCaseAdvancedClient(FTPServerTestCase):
         d2.addErrback(eb)
         return defer.gatherResults([d1, d2])
 
+    def test_RETRreadError(self):
+        """
+        Any errors during reading a file inside a RETR should be returned to
+        the client.
+        """
+        # Make a failing file reading.
+        class FailingFileReader(ftp._FileReader):
+            def send(self, consumer):
+                return defer.fail(ftp.IsADirectoryError("blah"))
+
+        def failingRETR(a, b):
+            return defer.succeed(FailingFileReader(None))
+
+        # Monkey patch the shell so it returns a file reader that will
+        # fail.
+        self.patch(ftp.FTPAnonymousShell, 'openForReading', failingRETR)
+
+        def check_response(failure):
+            self.flushLoggedErrors()
+            failure.trap(ftp.CommandFailed)
+            self.assertEqual(
+                failure.value.args[0][0],
+                "125 Data connection already open, starting transfer")
+            self.assertEqual(
+                failure.value.args[0][1],
+                "550 blah: is a directory")
+
+        proto = _BufferingProtocol()
+        d = self.client.retrieveFile('failing_file', proto)
+        d.addErrback(check_response)
+        return d
 
 
 class FTPServerPasvDataConnectionTestCase(FTPServerTestCase):

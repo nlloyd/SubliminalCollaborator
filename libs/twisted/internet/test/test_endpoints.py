@@ -5,16 +5,15 @@ Test the C{I...Endpoint} implementations that wrap the L{IReactorTCP},
 L{IReactorSSL}, and L{IReactorUNIX} interfaces found in
 L{twisted.internet.endpoints}.
 """
-
 from errno import EPERM
-from socket import AF_INET, AF_INET6
+from socket import AF_INET, AF_INET6, SOCK_STREAM, IPPROTO_TCP
 from zope.interface import implements
 from zope.interface.verify import verifyObject
 
 from twisted.trial import unittest
 from twisted.internet import error, interfaces, defer
 from twisted.internet import endpoints
-from twisted.internet.address import IPv4Address, UNIXAddress
+from twisted.internet.address import IPv4Address, IPv6Address, UNIXAddress
 from twisted.internet.protocol import ClientFactory, Protocol
 from twisted.test.proto_helpers import (
     MemoryReactor, RaisingMemoryReactor, StringTransport)
@@ -25,6 +24,10 @@ from twisted.plugin import getPlugins
 from twisted import plugins
 from twisted.python.modules import getModule
 from twisted.python.filepath import FilePath
+from twisted.protocols import basic
+from twisted.internet import protocol, reactor, stdio
+from twisted.internet.stdio import PipeAddress
+
 
 pemPath = getModule("twisted.test").filePath.sibling("server.pem")
 casPath = getModule(__name__).filePath.sibling("fake_CAs")
@@ -575,9 +578,83 @@ class EndpointTestCaseMixin(ServerEndpointTestCaseMixin,
 
 
 
+class StdioFactory(protocol.Factory):
+    protocol = basic.LineReceiver
+
+
+
+class StandardIOEndpointsTestCase(unittest.TestCase):
+    """
+    Tests for Standard I/O Endpoints
+    """
+    def setUp(self):
+        self.ep = endpoints.StandardIOEndpoint(reactor)
+
+
+    def test_standardIOInstance(self):
+        """
+        The endpoint creates an L{endpoints.StandardIO} instance.
+        """
+        self.d = self.ep.listen(StdioFactory())
+        def checkInstanceAndLoseConnection(stdioOb):
+            self.assertIsInstance(stdioOb, stdio.StandardIO)
+            stdioOb.loseConnection()
+        self.d.addCallback(checkInstanceAndLoseConnection)
+        return self.d
+
+
+    def test_reactor(self):
+        """
+        The reactor passed to the endpoint is set as its _reactor attribute.
+        """
+        self.assertEqual(self.ep._reactor, reactor)
+
+
+    def test_protocol(self):
+        """
+        The protocol used in the endpoint is a L{basic.LineReceiver} instance.
+        """
+        self.d = self.ep.listen(StdioFactory())
+        def checkProtocol(stdioOb):
+            from twisted.python.runtime import platform
+            if platform.isWindows():
+                self.assertIsInstance(stdioOb.proto, basic.LineReceiver)
+            else:
+                self.assertIsInstance(stdioOb.protocol, basic.LineReceiver)
+            stdioOb.loseConnection()
+        self.d.addCallback(checkProtocol)
+        return self.d
+
+
+    def test_address(self):
+        """
+        The address passed to the factory's buildProtocol in the endpoint
+        should be a PipeAddress instance.
+        """
+        class TestAddrFactory(protocol.Factory):
+            protocol = basic.LineReceiver
+            _address = None
+            def buildProtocol(self, addr):
+                self._address = addr
+                p = self.protocol()
+                p.factory = self
+                return p
+            def getAddress(self):
+                return self._address
+
+        myFactory = TestAddrFactory()
+        self.d = self.ep.listen(myFactory)
+        def checkAddress(stdioOb):
+            self.assertIsInstance(myFactory.getAddress(), PipeAddress)
+            stdioOb.loseConnection()
+        self.d.addCallback(checkAddress)
+        return self.d
+
+
+
 class TCP4EndpointsTestCase(EndpointTestCaseMixin, unittest.TestCase):
     """
-    Tests for TCP Endpoints.
+    Tests for TCP IPv4 Endpoints.
     """
 
     def expectedServers(self, reactor):
@@ -680,6 +757,216 @@ class TCP4EndpointsTestCase(EndpointTestCaseMixin, unittest.TestCase):
                  connectArgs.get('timeout', 30),
                  connectArgs.get('bindAddress', None)),
                 address)
+
+
+
+class TCP6EndpointsTestCase(EndpointTestCaseMixin, unittest.TestCase):
+    """
+    Tests for TCP IPv6 Endpoints.
+    """
+
+    def expectedServers(self, reactor):
+        """
+        @return: List of calls to L{IReactorTCP.listenTCP}
+        """
+        return reactor.tcpServers
+
+
+    def expectedClients(self, reactor):
+        """
+        @return: List of calls to L{IReactorTCP.connectTCP}
+        """
+        return reactor.tcpClients
+
+
+    def assertConnectArgs(self, receivedArgs, expectedArgs):
+        """
+        Compare host, port, timeout, and bindAddress in C{receivedArgs}
+        to C{expectedArgs}.  We ignore the factory because we don't
+        only care what protocol comes out of the
+        C{IStreamClientEndpoint.connect} call.
+
+        @param receivedArgs: C{tuple} of (C{host}, C{port}, C{factory},
+            C{timeout}, C{bindAddress}) that was passed to
+            L{IReactorTCP.connectTCP}.
+        @param expectedArgs: C{tuple} of (C{host}, C{port}, C{factory},
+            C{timeout}, C{bindAddress}) that we expect to have been passed
+            to L{IReactorTCP.connectTCP}.
+        """
+        (host, port, ignoredFactory, timeout, bindAddress) = receivedArgs
+        (expectedHost, expectedPort, _ignoredFactory,
+         expectedTimeout, expectedBindAddress) = expectedArgs
+
+        self.assertEqual(host, expectedHost)
+        self.assertEqual(port, expectedPort)
+        self.assertEqual(timeout, expectedTimeout)
+        self.assertEqual(bindAddress, expectedBindAddress)
+
+
+    def connectArgs(self):
+        """
+        @return: C{dict} of keyword arguments to pass to connect.
+        """
+        return {'timeout': 10, 'bindAddress': ('localhost', 49595)}
+
+
+    def listenArgs(self):
+        """
+        @return: C{dict} of keyword arguments to pass to listen
+        """
+        return {'backlog': 100, 'interface': '::1'}
+
+
+    def createServerEndpoint(self, reactor, factory, **listenArgs):
+        """
+        Create a L{TCP6ServerEndpoint} and return the values needed to verify
+        its behaviour.
+
+        @param reactor: A fake L{IReactorTCP} that L{TCP6ServerEndpoint} can
+            call L{IReactorTCP.listenTCP} on.
+        @param factory: The thing that we expect to be passed to our
+            L{IStreamServerEndpoint.listen} implementation.
+        @param listenArgs: Optional dictionary of arguments to
+            L{IReactorTCP.listenTCP}.
+        """
+        interface = listenArgs.get('interface', '::')
+        address = IPv6Address("TCP", interface, 0)
+
+        if listenArgs is None:
+            listenArgs = {}
+
+        return (endpoints.TCP6ServerEndpoint(reactor,
+                                             address.port,
+                                             **listenArgs),
+                (address.port, factory,
+                 listenArgs.get('backlog', 50),
+                 interface),
+                address)
+
+
+    def createClientEndpoint(self, reactor, clientFactory, **connectArgs):
+        """
+        Create a L{TCP6ClientEndpoint} and return the values needed to verify
+        its behavior.
+
+        @param reactor: A fake L{IReactorTCP} that L{TCP6ClientEndpoint} can
+            call L{IReactorTCP.connectTCP} on.
+        @param clientFactory: The thing that we expect to be passed to our
+            L{IStreamClientEndpoint.connect} implementation.
+        @param connectArgs: Optional dictionary of arguments to
+            L{IReactorTCP.connectTCP}
+        """
+        address = IPv6Address("TCP", "::1", 80)
+
+        return (endpoints.TCP6ClientEndpoint(reactor,
+                                             address.host,
+                                             address.port,
+                                             **connectArgs),
+                (address.host, address.port, clientFactory,
+                 connectArgs.get('timeout', 30),
+                 connectArgs.get('bindAddress', None)),
+                address)
+
+
+class TCP6EndpointNameResolutionTestCase(ClientEndpointTestCaseMixin,
+                                         unittest.TestCase):
+    """
+    Tests for a TCP IPv6 Client Endpoint pointed at a hostname instead
+    of an IPv6 address literal.
+    """
+
+
+    def createClientEndpoint(self, reactor, clientFactory, **connectArgs):
+        """
+        Create a L{TCP6ClientEndpoint} and return the values needed to verify
+        its behavior.
+
+        @param reactor: A fake L{IReactorTCP} that L{TCP6ClientEndpoint} can
+            call L{IReactorTCP.connectTCP} on.
+        @param clientFactory: The thing that we expect to be passed to our
+            L{IStreamClientEndpoint.connect} implementation.
+        @param connectArgs: Optional dictionary of arguments to
+            L{IReactorTCP.connectTCP}
+        """
+        address = IPv6Address("TCP", "::2", 80)
+        self.ep = endpoints.TCP6ClientEndpoint(reactor,
+                                             'ipv6.example.com',
+                                             address.port,
+                                             **connectArgs)
+
+        def testNameResolution(host):
+            self.assertEqual("ipv6.example.com", host)
+            data = [(AF_INET6, SOCK_STREAM, IPPROTO_TCP, '', ('::2', 0, 0, 0)),
+                    (AF_INET6, SOCK_STREAM, IPPROTO_TCP, '', ('::3', 0, 0, 0)),
+                    (AF_INET6, SOCK_STREAM, IPPROTO_TCP, '', ('::4', 0, 0, 0))]
+            return defer.succeed(data)
+
+        self.ep._nameResolution = testNameResolution
+
+        return (self.ep,
+                (address.host, address.port, clientFactory,
+                 connectArgs.get('timeout', 30),
+                 connectArgs.get('bindAddress', None)),
+                address)
+
+
+    def connectArgs(self):
+        """
+        @return: C{dict} of keyword arguments to pass to connect.
+        """
+        return {'timeout': 10, 'bindAddress': ('localhost', 49595)}
+
+
+    def expectedClients(self, reactor):
+        """
+        @return: List of calls to L{IReactorTCP.connectTCP}
+        """
+        return reactor.tcpClients
+
+
+    def assertConnectArgs(self, receivedArgs, expectedArgs):
+        """
+        Compare host, port, timeout, and bindAddress in C{receivedArgs}
+        to C{expectedArgs}.  We ignore the factory because we don't
+        only care what protocol comes out of the
+        C{IStreamClientEndpoint.connect} call.
+
+        @param receivedArgs: C{tuple} of (C{host}, C{port}, C{factory},
+            C{timeout}, C{bindAddress}) that was passed to
+            L{IReactorTCP.connectTCP}.
+        @param expectedArgs: C{tuple} of (C{host}, C{port}, C{factory},
+            C{timeout}, C{bindAddress}) that we expect to have been passed
+            to L{IReactorTCP.connectTCP}.
+        """
+        (host, port, ignoredFactory, timeout, bindAddress) = receivedArgs
+        (expectedHost, expectedPort, _ignoredFactory,
+         expectedTimeout, expectedBindAddress) = expectedArgs
+
+        self.assertEqual(host, expectedHost)
+        self.assertEqual(port, expectedPort)
+        self.assertEqual(timeout, expectedTimeout)
+        self.assertEqual(bindAddress, expectedBindAddress)
+
+
+    def test_nameResolution(self):
+        """
+        While resolving host names, _nameResolution calls
+        _deferToThread with _getaddrinfo.
+        """
+        calls = []
+
+        def fakeDeferToThread(f, *args, **kwargs):
+            calls.append((f, args, kwargs))
+            return defer.Deferred()
+
+        endpoint = endpoints.TCP6ClientEndpoint(reactor, 'ipv6.example.com',
+            1234)
+        fakegetaddrinfo = object()
+        endpoint._getaddrinfo = fakegetaddrinfo
+        endpoint._deferToThread = fakeDeferToThread
+        endpoint.connect(TestFactory())
+        self.assertEqual(
+            [(fakegetaddrinfo, ("ipv6.example.com", 0, AF_INET6), {})], calls)
 
 
 
@@ -1385,8 +1672,10 @@ class SSLClientStringTests(unittest.TestCase):
                 [casPath.child("thing1.pem"), casPath.child("thing2.pem")]
             if x.basename().lower().endswith('.pem')
         ]
-        self.assertEqual([Certificate(x) for x in certOptions.caCerts],
-                          expectedCerts)
+        self.assertEqual(sorted((Certificate(x) for x in certOptions.caCerts),
+                                key=lambda cert: cert.digest()),
+                         sorted(expectedCerts,
+                                key=lambda cert: cert.digest()))
 
 
     def test_sslPositionalArgs(self):
@@ -1644,3 +1933,89 @@ class SystemdEndpointPluginTests(unittest.TestCase):
             raise unittest.SkipTest("Platform lacks AF_UNIX support")
         else:
             self._parseStreamServerTest(AF_UNIX, "UNIX")
+
+
+
+class TCP6ServerEndpointPluginTests(unittest.TestCase):
+    """
+    Unit tests for the TCP IPv6 stream server endpoint string description parser.
+    """
+    _parserClass = endpoints._TCP6ServerParser
+
+    def test_pluginDiscovery(self):
+        """
+        L{endpoints._TCP6ServerParser} is found as a plugin for
+        L{interfaces.IStreamServerEndpointStringParser} interface.
+        """
+        parsers = list(getPlugins(
+                interfaces.IStreamServerEndpointStringParser))
+        for p in parsers:
+            if isinstance(p, self._parserClass):
+                break
+        else:
+            self.fail("Did not find TCP6ServerEndpoint parser in %r" % (parsers,))
+
+
+    def test_interface(self):
+        """
+        L{endpoints._TCP6ServerParser} instances provide
+        L{interfaces.IStreamServerEndpointStringParser}.
+        """
+        parser = self._parserClass()
+        self.assertTrue(verifyObject(
+                interfaces.IStreamServerEndpointStringParser, parser))
+
+
+    def test_stringDescription(self):
+        """
+        L{serverFromString} returns a L{TCP6ServerEndpoint} instance with a 'tcp6'
+        endpoint string description.
+        """
+        ep = endpoints.serverFromString(MemoryReactor(),
+            "tcp6:8080:backlog=12:interface=\:\:1")
+        self.assertIsInstance(ep, endpoints.TCP6ServerEndpoint)
+        self.assertIsInstance(ep._reactor, MemoryReactor)
+        self.assertEqual(ep._port, 8080)
+        self.assertEqual(ep._backlog, 12)
+        self.assertEqual(ep._interface, '::1')
+
+
+
+class StandardIOEndpointPluginTests(unittest.TestCase):
+    """
+    Unit tests for the Standard I/O endpoint string description parser.
+    """
+    _parserClass = endpoints._StandardIOParser
+
+    def test_pluginDiscovery(self):
+        """
+        L{endpoints._StandardIOParser} is found as a plugin for
+        L{interfaces.IStreamServerEndpointStringParser} interface.
+        """
+        parsers = list(getPlugins(
+                interfaces.IStreamServerEndpointStringParser))
+        for p in parsers:
+            if isinstance(p, self._parserClass):
+                break
+        else:
+            self.fail("Did not find StandardIOEndpoint parser in %r" % (parsers,))
+
+
+    def test_interface(self):
+        """
+        L{endpoints._StandardIOParser} instances provide
+        L{interfaces.IStreamServerEndpointStringParser}.
+        """
+        parser = self._parserClass()
+        self.assertTrue(verifyObject(
+                interfaces.IStreamServerEndpointStringParser, parser))
+
+
+    def test_stringDescription(self):
+        """
+        L{serverFromString} returns a L{StandardIOEndpoint} instance with a 'stdio'
+        endpoint string description.
+        """
+        ep = endpoints.serverFromString(MemoryReactor(), "stdio:")
+        self.assertIsInstance(ep, endpoints.StandardIOEndpoint)
+        self.assertIsInstance(ep._reactor, MemoryReactor)

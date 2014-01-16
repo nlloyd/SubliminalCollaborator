@@ -14,43 +14,68 @@ from twisted.internet.interfaces import IProcessTransport
 from twisted.internet import defer
 from twisted.internet.base import DelayedCall
 
-from twisted.trial.unittest import TestCase
+from twisted.trial.unittest import SynchronousTestCase, TestCase
 from twisted.trial import util
 from twisted.trial.util import DirtyReactorAggregateError, _Janitor
-from twisted.trial.test import packages
+from twisted.trial.test import packages, suppression
 
 
 
-class TestMktemp(TestCase):
+class TestMktemp(SynchronousTestCase):
+    """
+    Tests for L{TestCase.mktemp}, a helper function for creating temporary file
+    or directory names.
+    """
     def test_name(self):
+        """
+        The path name returned by C{mktemp} is directly beneath a directory
+        which identifies the test method which created the name.
+        """
         name = self.mktemp()
         dirs = os.path.dirname(name).split(os.sep)[:-1]
         self.assertEqual(
             dirs, ['twisted.trial.test.test_util', 'TestMktemp', 'test_name'])
 
+
     def test_unique(self):
+        """
+        Repeated calls to C{mktemp} return different values.
+        """
         name = self.mktemp()
-        self.failIfEqual(name, self.mktemp())
+        self.assertNotEqual(name, self.mktemp())
+
 
     def test_created(self):
+        """
+        The directory part of the path name returned by C{mktemp} exists.
+        """
         name = self.mktemp()
         dirname = os.path.dirname(name)
-        self.failUnless(os.path.exists(dirname))
-        self.failIf(os.path.exists(name))
+        self.assertTrue(os.path.exists(dirname))
+        self.assertFalse(os.path.exists(name))
+
 
     def test_location(self):
+        """
+        The path returned by C{mktemp} is beneath the current working directory.
+        """
         path = os.path.abspath(self.mktemp())
-        self.failUnless(path.startswith(os.getcwd()))
+        self.assertTrue(path.startswith(os.getcwd()))
 
 
-class TestIntrospection(TestCase):
+
+class TestIntrospection(SynchronousTestCase):
     def test_containers(self):
-        import suppression
+        """
+        When pased a test case, L{util.getPythonContainers} returns a list
+        including the test case and the module the test case is defined in.
+        """
         parents = util.getPythonContainers(
-            suppression.TestSuppression2.testSuppressModule)
-        expected = [suppression.TestSuppression2, suppression]
+            suppression.SynchronousTestSuppression2.testSuppressModule)
+        expected = [suppression.SynchronousTestSuppression2, suppression]
         for a, b in zip(parents, expected):
             self.assertEqual(a, b)
+
 
 
 class TestFindObject(packages.SysPathManglingTest):
@@ -254,7 +279,7 @@ class TestRunSequentially(TestCase):
 
 
 
-class DirtyReactorAggregateErrorTest(TestCase):
+class DirtyReactorAggregateErrorTest(SynchronousTestCase):
     """
     Tests for the L{DirtyReactorAggregateError}.
     """
@@ -371,7 +396,7 @@ class StubErrorReporter(object):
 
 
 
-class JanitorTests(TestCase):
+class JanitorTests(SynchronousTestCase):
     """
     Tests for L{_Janitor}!
     """

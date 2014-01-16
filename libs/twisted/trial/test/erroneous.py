@@ -2,6 +2,16 @@
 # Copyright (c) Twisted Matrix Laboratories.
 # See LICENSE for details.
 
+"""
+Definitions of test cases with various interesting error-related behaviors, to
+be used by test modules to exercise different features of trial's test runner.
+
+See the L{twisted.trial.test.test_tests} module docstring for details about how
+this code is arranged.
+"""
+
+from __future__ import division
+
 from twisted.trial import unittest, util
 from twisted.internet import reactor, protocol, defer
 
@@ -10,7 +20,8 @@ class FoolishError(Exception):
     pass
 
 
-class TestFailureInSetUp(unittest.TestCase):
+
+class FailureInSetUpMixin(object):
     def setUp(self):
         raise FoolishError, "I am a broken setUp method"
 
@@ -18,7 +29,20 @@ class TestFailureInSetUp(unittest.TestCase):
         pass
 
 
-class TestFailureInTearDown(unittest.TestCase):
+
+class SynchronousTestFailureInSetUp(
+    FailureInSetUpMixin, unittest.SynchronousTestCase):
+    pass
+
+
+
+class AsynchronousTestFailureInSetUp(
+    FailureInSetUpMixin, unittest.TestCase):
+    pass
+
+
+
+class FailureInTearDownMixin(object):
     def tearDown(self):
         raise FoolishError, "I am a broken tearDown method"
 
@@ -26,7 +50,20 @@ class TestFailureInTearDown(unittest.TestCase):
         pass
 
 
-class TestRegularFail(unittest.TestCase):
+
+class SynchronousTestFailureInTearDown(
+    FailureInTearDownMixin, unittest.SynchronousTestCase):
+    pass
+
+
+
+class AsynchronousTestFailureInTearDown(
+    FailureInTearDownMixin, unittest.TestCase):
+    pass
+
+
+
+class TestRegularFail(unittest.SynchronousTestCase):
     def test_fail(self):
         self.fail("I fail")
 
@@ -47,7 +84,7 @@ class TestFailureInDeferredChain(unittest.TestCase):
 
 
 
-class ErrorTest(unittest.TestCase):
+class ErrorTest(unittest.SynchronousTestCase):
     """
     A test case which has a L{test_foo} which will raise an error.
 
@@ -64,7 +101,7 @@ class ErrorTest(unittest.TestCase):
 
 
 
-class TestSkipTestCase(unittest.TestCase):
+class TestSkipTestCase(unittest.SynchronousTestCase):
     pass
 
 TestSkipTestCase.skip = "skipping this test"

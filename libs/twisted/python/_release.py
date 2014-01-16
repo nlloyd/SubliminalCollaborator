@@ -25,6 +25,7 @@ from subprocess import PIPE, STDOUT, Popen
 from twisted.python.versions import Version
 from twisted.python.filepath import FilePath
 from twisted.python.dist import twisted_subprojects
+from twisted.python.compat import execfile
 
 # This import is an example of why you shouldn't use this module unless you're
 # radix
@@ -1048,7 +1049,8 @@ class DistributionBuilder(object):
                                                       submodule.basename()))
 
         for docDir in self.rootDirectory.child("doc").children():
-            tarball.add(docDir.path, buildPath("doc", docDir.basename()))
+            if docDir.basename() != "historic":
+                tarball.add(docDir.path, buildPath("doc", docDir.basename()))
 
         for toplevel in self.rootDirectory.children():
             if not toplevel.isdir():

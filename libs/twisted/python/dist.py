@@ -1,3 +1,7 @@
+# -*- test-case-name: twisted.python.test.test_dist -*-
+# Copyright (c) Twisted Matrix Laboratories.
+# See LICENSE for details.
+
 """
 Distutils convenience functionality.
 
@@ -14,6 +18,8 @@ import fnmatch
 import os
 import platform
 import sys
+
+from twisted.python.compat import execfile
 
 
 twisted_subprojects = ["conch", "lore", "mail", "names",
@@ -208,6 +214,25 @@ def getDataFiles(dname, ignore=None, parent=None):
     return result
 
 
+def getExtensions():
+    """
+    Get all extensions from core and all subprojects.
+    """
+    extensions = []
+
+    if not sys.platform.startswith('java'):
+        for dir in os.listdir("twisted") + [""]:
+            topfiles = os.path.join("twisted", dir, "topfiles")
+            if os.path.isdir(topfiles):
+                ns = {}
+                setup_py = os.path.join(topfiles, "setup.py")
+                execfile(setup_py, ns, ns)
+                if "extensions" in ns:
+                    extensions.extend(ns["extensions"])
+
+    return extensions
+
+
 def getPackages(dname, pkgname=None, results=None, ignore=None, parent=None):
     """
     Get all packages which are under dname. This is necessary for
@@ -261,26 +286,27 @@ def getScripts(projname, basedir=''):
 ## Helpers and distutil tweaks
 
 class build_scripts_twisted(build_scripts.build_scripts):
-    """Renames scripts so they end with '.py' on Windows."""
-
+    """
+    Renames scripts so they end with '.py' on Windows.
+    """
     def run(self):
         build_scripts.build_scripts.run(self)
         if not os.name == "nt":
             return
         for f in os.listdir(self.build_dir):
-            fpath=os.path.join(self.build_dir, f)
+            fpath = os.path.join(self.build_dir, f)
             if not fpath.endswith(".py"):
-                try:
-                    os.unlink(fpath + ".py")
-                except EnvironmentError, e:
-                    if e.args[1]=='No such file or directory':
-                        pass
-                os.rename(fpath, fpath + ".py")
+                pypath = fpath + ".py"
+                if os.path.exists(pypath):
+                    os.unlink(pypath)
+                os.rename(fpath, pypath)
 
 
 
 class install_data_twisted(install_data.install_data):
-    """I make sure data files are installed in the package directory."""
+    """
+    I make sure data files are installed in the package directory.
+    """
     def finalize_options(self):
         self.set_undefined_options('install',
             ('install_lib', 'install_dir')

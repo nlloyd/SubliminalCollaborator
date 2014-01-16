@@ -1,4 +1,9 @@
-from __future__ import generators, nested_scopes
+# Copyright (c) Twisted Matrix Laboratories.
+# See LICENSE for details.
+
+"""
+Tests for L{twisted.internet.defer.deferredGenerator} and related APIs.
+"""
 
 import sys
 
@@ -115,7 +120,7 @@ class DeferredGeneratorTests(BaseDefgenTests, unittest.TestCase):
 
     def _genBuggy(self):
         yield waitForDeferred(getThing())
-        1/0
+        1//0
     _genBuggy = deferredGenerator(_genBuggy)
 
 

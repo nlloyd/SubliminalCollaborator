@@ -102,8 +102,8 @@ class DistinguishedName(dict):
         l = []
         lablen = 0
         def uniqueValues(mapping):
-            return dict.fromkeys(mapping.itervalues()).keys()
-        for k in uniqueValues(_x509names):
+            return set(mapping.itervalues())
+        for k in sorted(uniqueValues(_x509names)):
             label = util.nameToLabel(k)
             lablen = max(len(label), lablen)
             v = getattr(self, k, None)

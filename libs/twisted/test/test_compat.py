@@ -6,11 +6,12 @@
 Tests for L{twisted.python.compat}.
 """
 
-import types, socket
+import os, tempfile, types, socket
 
 from twisted.trial import unittest
 
-from twisted.python.compat import set, frozenset, reduce
+from twisted.python.filepath import FilePath
+from twisted.python.compat import set, frozenset, reduce, execfile
 
 
 
@@ -80,11 +81,12 @@ class CompatTestCase(unittest.TestCase):
         self.assertEqual(lst1, lst2)
 
     def testIsinstance(self):
-        self.assert_(isinstance(u'hi', types.StringTypes))
-        self.assert_(isinstance(self, unittest.TestCase))
-        # I'm pretty sure it's impossible to implement this
-        # without replacing isinstance on 2.2 as well :(
-        # self.assert_(isinstance({}, dict))
+        """
+        The current object is an instance of
+        unittest.TestCase.
+        """
+        self.assertTrue(isinstance(self, unittest.TestCase))
+
 
     def testStrip(self):
         self.assertEqual(' x '.lstrip(' '), 'x ')
@@ -182,7 +184,7 @@ class CompatTestCase(unittest.TestCase):
         """
         a = frozenset(['a', 'b'])
         self.assertRaises(AttributeError, getattr, a, "add")
-        self.assertEqual(list(a), ['a', 'b'])
+        self.assertEqual(sorted(a), ['a', 'b'])
 
         b = frozenset(['r', 's'])
         d = a.union(b)
@@ -197,3 +199,54 @@ class CompatTestCase(unittest.TestCase):
         """
         self.assertEqual(15, reduce(lambda x, y: x + y, [1, 2, 3, 4, 5]))
         self.assertEqual(16, reduce(lambda x, y: x + y, [1, 2, 3, 4, 5], 1))
+
+
+
+class ExecfileCompatTestCase(unittest.TestCase):
+    """
+    Tests for the Python 3-friendly L{execfile} implementation.
+    """
+
+    def writeScript(self, content):
+        """
+        Write L{content} to a new temporary file, returning the L{FilePath}
+        for the new file.
+        """
+        script = FilePath(self.mktemp())
+        script.setContent(content.encode("ascii"))
+        return script
+
+
+    def test_execfileGlobals(self):
+        """
+        L{execfile} executes the specified file in the given global namespace.
+        """
+        script = self.writeScript("foo += 1\n")
+        globalNamespace = {"foo": 1}
+        execfile(script.path, globalNamespace)
+        self.assertEqual(2, globalNamespace["foo"])
+
+
+    def test_execfileGlobalsAndLocals(self):
+        """
+        L{execfile} executes the specified file in the given global and local
+        namespaces.
+        """
+        script = self.writeScript("foo += 1\n")
+        globalNamespace = {"foo": 10}
+        localNamespace = {"foo": 20}
+        execfile(script.path, globalNamespace, localNamespace)
+        self.assertEqual(10, globalNamespace["foo"])
+        self.assertEqual(21, localNamespace["foo"])
+
+
+    def test_execfileUniversalNewlines(self):
+        """
+        L{execfile} reads in the specified file using universal newlines so
+        that scripts written on one platform will work on another.
+        """
+        for lineEnding in "\n", "\r", "\r\n":
+            script = self.writeScript("foo = 'okay'" + lineEnding)
+            globalNamespace = {"foo": None}
+            execfile(script.path, globalNamespace)
+            self.assertEqual("okay", globalNamespace["foo"])
