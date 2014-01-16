@@ -5,6 +5,16 @@ Sublime Text 2 Plugin for remote pair programming.
 
 ## NEWS
 
+2014-01-15 : MASSIVE REFACTOR... and IRC ssl support
+
+After leaving this project for a while to work on other things I came to the conclusion that it was necessary to seriously refactor this plugin before moving forward on any new feature work, including Sublime Text 3 compatibility.
+
+After undoing much hackery I am personally satisfied that this is a more readily extensible project, instead of an embarrassing mess of callbacks I had trouble tracing :-)
+
+Also I threw in IRC SSL support (SSL support on the peer-to-peer sharing session level still pending).
+
+2012-09-15 : Beta Release!
+
 The feature set target for **beta** has been achieved!  You can now, once you are setup, do the following:
 
 * Connect to an IRC channel and find other SubliminalCollaborator clients to...
@@ -43,6 +53,7 @@ Want to hear about the latest that is happening on this project? [Read about it 
 //     {
 //         "host": "irc.somewhere.com",
 //         "port": 6667,
+//         "useSSL": false,
 //         "username": "",
 //         "password": "",
 //         "channel": "subliminalcollaboration"
