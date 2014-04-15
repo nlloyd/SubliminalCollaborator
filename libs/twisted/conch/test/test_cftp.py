@@ -1,5 +1,5 @@
 # -*- test-case-name: twisted.conch.test.test_cftp -*-
-# Copyright (c) 2001-2009 Twisted Matrix Laboratories.
+# Copyright (c) Twisted Matrix Laboratories.
 # See LICENSE file for details.
 
 """
@@ -18,9 +18,7 @@ if Crypto and pyasn1:
         from twisted.conch import unix
         from twisted.conch.scripts import cftp
         from twisted.conch.test.test_filetransfer import FileTransferForTestAvatar
-    except ImportError, e:
-        # Python 2.3 compatibility fix
-        sys.modules.pop("twisted.conch.unix", None)
+    except ImportError as e:
         unix = None
         _reason = str(e)
         del e
@@ -636,7 +634,7 @@ class TestOurServerCmdLineClient(CFTPClientTestBase):
 
         d = self.runCommand('get testfile1 "%s/test file2"' % (self.testDir,))
         d.addCallback(_checkGet)
-        d.addCallback(lambda _: self.failIf(
+        d.addCallback(lambda _: self.assertFalse(
             os.path.exists(self.testDir + '/test file2')))
         return d
 
@@ -668,13 +666,13 @@ class TestOurServerCmdLineClient(CFTPClientTestBase):
         def _checkPut(result):
             self.assertFilesEqual(self.testDir + '/testfile1',
                                   self.testDir + '/test"file2')
-            self.failUnless(result.endswith(expectedOutput))
+            self.assertTrue(result.endswith(expectedOutput))
             return self.runCommand('rm "test\\"file2"')
 
         d = self.runCommand('put %s/testfile1 "test\\"file2"'
                             % (self.testDir,))
         d.addCallback(_checkPut)
-        d.addCallback(lambda _: self.failIf(
+        d.addCallback(lambda _: self.assertFalse(
             os.path.exists(self.testDir + '/test"file2')))
         return d
 
@@ -874,7 +872,7 @@ exit
         def _cbCheckResult(res):
             res = res.split('\n')
             log.msg('RES %s' % str(res))
-            self.failUnless(res[1].find(self.testDir) != -1, repr(res))
+            self.assertIn(self.testDir, res[1])
             self.assertEqual(res[3:-2], ['testDirectory', 'testRemoveFile',
                                              'testRenameFile', 'testfile1'])
 
@@ -890,7 +888,7 @@ pwd
 exit
 """
         def _cbCheckResult(res):
-            self.failIf(res.find(self.testDir) != -1)
+            self.assertNotIn(self.testDir, res)
 
         d = self._getBatchOutput(cmds)
         d.addCallback(_cbCheckResult)
@@ -905,7 +903,7 @@ pwd
 exit
 """
         def _cbCheckResult(res):
-            self.failIf(res.find(self.testDir) == -1)
+            self.assertIn(self.testDir, res)
 
         d = self._getBatchOutput(cmds)
         d.addCallback(_cbCheckResult)

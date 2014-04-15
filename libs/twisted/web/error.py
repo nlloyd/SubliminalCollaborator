@@ -6,9 +6,18 @@
 Exception definitions for L{twisted.web}.
 """
 
-import operator
+from __future__ import division, absolute_import
 
-from twisted.web import http
+__all__ = [
+    'Error', 'PageRedirect', 'InfiniteRedirection', 'RenderError',
+    'MissingRenderMethod', 'MissingTemplateLoader', 'UnexposedMethodError',
+    'UnfilledSlot', 'UnsupportedType', 'FlattenerError',
+    'RedirectWithNoLocation',
+    ]
+
+from collections import Sequence
+
+from twisted.web._responses import RESPONSES
 
 
 class Error(Exception):
@@ -16,12 +25,12 @@ class Error(Exception):
     A basic HTTP error.
 
     @type status: C{str}
-    @ivar status: Refers to an HTTP status code, for example L{http.NOT_FOUND}.
+    @ivar status: Refers to an HTTP status code, for example C{http.NOT_FOUND}.
 
     @type message: C{str}
     @param message: A short error message, for example "NOT FOUND".
 
-    @type response: C{str}
+    @type response: C{bytes}
     @ivar response: A complete HTML document for an error page.
     """
     def __init__(self, code, message=None, response=None):
@@ -30,18 +39,18 @@ class Error(Exception):
 
         @type code: C{str}
         @param code: Refers to an HTTP status code, for example
-            L{http.NOT_FOUND}. If no C{message} is given, C{code} is mapped to a
-            descriptive string that is used instead.
+            C{http.NOT_FOUND}. If no C{message} is given, C{code} is mapped to a
+            descriptive bytestring that is used instead.
 
         @type message: C{str}
         @param message: A short error message, for example "NOT FOUND".
 
-        @type response: C{str}
+        @type response: C{bytes}
         @param response: A complete HTML document for an error page.
         """
         if not message:
             try:
-                message = http.responses.get(int(code))
+                message = RESPONSES.get(int(code))
             except ValueError:
                 # If code wasn't a stringified int, can't map the
                 # status code to a descriptive string so keep message
@@ -55,7 +64,7 @@ class Error(Exception):
 
 
     def __str__(self):
-        return '%s %s' % (self[0], self[1])
+        return '%s %s' % (self.status, self.message)
 
 
 
@@ -72,7 +81,7 @@ class PageRedirect(Error):
 
         @type code: C{str}
         @param code: Refers to an HTTP status code, for example
-            L{http.NOT_FOUND}. If no C{message} is given, C{code} is mapped to a
+            C{http.NOT_FOUND}. If no C{message} is given, C{code} is mapped to a
             descriptive string that is used instead.
 
         @type message: C{str}
@@ -88,7 +97,7 @@ class PageRedirect(Error):
         """
         if not message:
             try:
-                message = http.responses.get(int(code))
+                message = RESPONSES.get(int(code))
             except ValueError:
                 # If code wasn't a stringified int, can't map the
                 # status code to a descriptive string so keep message
@@ -117,7 +126,7 @@ class InfiniteRedirection(Error):
 
         @type code: C{str}
         @param code: Refers to an HTTP status code, for example
-            L{http.NOT_FOUND}. If no C{message} is given, C{code} is mapped to a
+            C{http.NOT_FOUND}. If no C{message} is given, C{code} is mapped to a
             descriptive string that is used instead.
 
         @type message: C{str}
@@ -133,7 +142,7 @@ class InfiniteRedirection(Error):
         """
         if not message:
             try:
-                message = http.responses.get(int(code))
+                message = RESPONSES.get(int(code))
             except ValueError:
                 # If code wasn't a stringified int, can't map the
                 # status code to a descriptive string so keep message
@@ -162,7 +171,7 @@ class RedirectWithNoLocation(Error):
 
         @type code: C{str}
         @param code: Refers to an HTTP status code, for example
-            L{http.NOT_FOUND}. If no C{message} is given, C{code} is mapped to
+            C{http.NOT_FOUND}. If no C{message} is given, C{code} is mapped to
             a descriptive string that is used instead.
 
         @type message: C{str}
@@ -201,11 +210,10 @@ class UnsupportedMethod(Exception):
         Exception.__init__(self, allowedMethods, *args)
         self.allowedMethods = allowedMethods
 
-        if not operator.isSequenceType(allowedMethods):
-            why = "but my first argument is not a sequence."
-            s = ("First argument must be a sequence of"
-                 " supported methods, %s" % (why,))
-            raise TypeError, s
+        if not isinstance(allowedMethods, Sequence):
+            raise TypeError(
+                "First argument must be a sequence of supported methods, "
+                "but my first argument is not a sequence.")
 
 
 
@@ -370,12 +378,3 @@ class FlattenerError(Exception):
 
     def __str__(self):
         return repr(self)
-
-
-
-__all__ = [
-    'Error', 'PageRedirect', 'InfiniteRedirection', 'RenderError',
-    'MissingRenderMethod', 'MissingTemplateLoader', 'UnexposedMethodError',
-    'UnfilledSlot', 'UnsupportedType', 'FlattenerError',
-    'RedirectWithNoLocation'
-]

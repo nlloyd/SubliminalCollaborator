@@ -33,36 +33,28 @@ if libs_path not in sys.path:
     sys.path.insert(0, libs_path)
 
 # need the windows select.pyd binary
-from twisted.python import runtime, log
-__file__ = os.path.normpath(os.path.abspath(__file__))
-__path__ = os.path.dirname(__file__)
-if runtime.platform.isWindows():
-    libs_path = os.path.join(__path__, 'libs', 'win', platform.architecture()[0])
-    if libs_path not in sys.path:
-        sys.path.insert(0, libs_path)
-elif runtime.platform.isLinux():
-    libs_path = os.path.join(__path__, 'libs', 'linux', platform.architecture()[0])
-    if libs_path not in sys.path:
-        sys.path.insert(0, libs_path)
-elif runtime.platform.isMacOSX():
-    libs_path = os.path.join(__path__, 'libs', 'mac', platform.architecture()[0])
-    if libs_path not in sys.path:
-        sys.path.insert(0, libs_path)
+import sublime
+platform = sublime.platform()
+arch = sublime.arch()
+sys.path.insert(0, os.path.join(libs_path, platform, arch))
 
 # --- configure logging system --- #
 import logging
 import logging.config
 
-logging.config.fileConfig('logging.cfg', disable_existing_loggers=False)
+logging.config.fileConfig(os.path.join(__path__, 'logging.cfg'), disable_existing_loggers=False)
 # --- ------------------------ --- #
 
 logger = logging.getLogger("SubliminalCollaborator")
 
-import sublime
-
 # wrapper function to the entrypoint into the sublime main loop
 def callInSublimeLoop(funcToCall):
     sublime.set_timeout(funcToCall, 0)
+
+# dirty hack: in case zope is already imported by another plugin, clear the module cache reference
+# otherwise zope.interface will not be imported in here
+if 'zope' in sys.modules:
+    del sys.modules['zope']
 
 # --- install and start the twisted reactor, if it hasn't already be started --- #
 from twisted.internet.error import ReactorAlreadyInstalledError, ReactorAlreadyRunning, ReactorNotRestartable
@@ -158,7 +150,7 @@ def loadConfig():
     acctConfig.clear_on_change('subliminal_collaborator')
     acctConfig.add_on_change('subliminal_collaborator', loadConfig)
     loadedNegotiators = {}
-    for protocol, acctDetails in accts.items():
+    for protocol, acctDetails in list(accts.items()):
         if protocol == 'connect_all_on_startup':
             CONNECT_ALL_ON_STARTUP = acctDetails
             continue
@@ -167,7 +159,7 @@ def loadConfig():
             loadedNegotiators[negotiator[0]] = negotiator[1]
     # search for any configurations in the registry NOT found in the latest config file data
     for existingNegotiator in registry.listNegotiatorKeys():
-        if not loadedNegotiators.has_key(existingNegotiator):
+        if existingNegotiator not in loadedNegotiators:
             registry.removeNegotiator(existingNegotiator)
 
 
@@ -234,7 +226,7 @@ class InstallMenuProxyCommand(sublime_plugin.WindowCommand):
     def installProxyEntries(self):
         if not hasattr(self, 'command_pattern'):
             self.command_pattern = re.compile(r'^(\s*\{\s*"command":\s*")(%s)("\s*)(,\s*"mnemonic":\s*"[a-zA-Z]"\s*|)(\})(,|)(\s*)$' \
-                % '|'.join(self.proxiedCommands.keys()))
+                % '|'.join(list(self.proxiedCommands.keys())))
         logger.info('Installing proxy commands to Main.sublime-menu')
         os.rename(os.path.join(sublime.packages_path(), 'Default','Main.sublime-menu'), os.path.join(sublime.packages_path(), 'Default','Main.sublime-menu.tmp'))
         for line in fileinput.FileInput(os.path.join(sublime.packages_path(), 'Default','Main.sublime-menu.tmp'), inplace=1):

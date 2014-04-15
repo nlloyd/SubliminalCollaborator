@@ -204,7 +204,7 @@ class PatchedIRCClient(irc.IRCClient):
         if not self._nickprefixes:
             self._nickprefixes = ''
             prefixes = self.supported.getFeature('PREFIX', {})
-            for prefixTuple in prefixes.itervalues():
+            for prefixTuple in prefixes.values():
                 self._nickprefixes = self._nickprefixes + prefixTuple[0]
         channel = params[2]
         prefixedUsers = params[3].split()
@@ -230,7 +230,7 @@ class PatchedIRCClient(irc.IRCClient):
         """
         channel = params[1]
         if channel not in self._namreply:
-            for channel, users in self._namreply.iteritems():
+            for channel, users in self._namreply.items():
                 self.channelNames(channel, users)
             self._namreply = {}
         else:

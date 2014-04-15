@@ -103,7 +103,7 @@ class Registry(object):
 
 
     def hasNegotiator(self, negotiatorKey):
-        return self.negotiators.has_key(negotiatorKey)
+        return negotiatorKey in self.negotiators
 
 
     def removeNegotiator(self, protocol, config):
@@ -118,23 +118,23 @@ class Registry(object):
 
 
     def listNegotiatorKeys(self):
-        return self.negotiators.keys()
+        return list(self.negotiators.keys())
 
 
     def listNegotiators(self):
-        return self.negotiators.values();
+        return list(self.negotiators.values());
 
 
     def listNegotiatorEntries(self):
-        return self.negotiators.items()
+        return list(self.negotiators.items())
 
 
     def iterNegotiators(self):
-        return self.negotiators.itervalues()
+        return iter(self.negotiators.values())
 
 
     def iterNegotiatorEntries(self):
-        return self.negotiators.iteritems()
+        return iter(self.negotiators.items())
 
 
     def getNegotiator(self, protocol, config):
@@ -189,8 +189,8 @@ class Registry(object):
 
     def listSessions(self):
         sessions = []
-        for sessionsByUser in self.sessionsByUserByNegotiator.itervalues():
-            for userSessions in sessionsByUser.itervalues():
+        for sessionsByUser in self.sessionsByUserByNegotiator.values():
+            for userSessions in sessionsByUser.values():
                 sessions += userSessions
         return sessions
 
@@ -205,8 +205,8 @@ class Registry(object):
             sessionsByUser = self.sessionsByUserByNegotiator[negotiatorKey]
             if peerUser in sessionsByUser:
                 sessionsByUser[peerUser].discard(session)
-        if session in self.sessionsByViewId.values():
-            for viewId, registeredSession in self.sessionsByViewId.items():
+        if session in list(self.sessionsByViewId.values()):
+            for viewId, registeredSession in list(self.sessionsByViewId.items()):
                 if session == registeredSession:
                     self.sessionsByViewId.pop(viewId, None)
 

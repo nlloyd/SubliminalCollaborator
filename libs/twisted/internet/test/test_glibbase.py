@@ -5,6 +5,8 @@
 Tests for twisted.internet.glibbase.
 """
 
+from __future__ import division, absolute_import
+
 import sys
 from twisted.trial.unittest import TestCase
 from twisted.internet._glibbase import ensureNotImported
@@ -26,7 +28,7 @@ class EnsureNotImportedTests(TestCase):
         self.patch(sys, "modules", modules)
         ensureNotImported(["m1", "m2"], "A message.",
                           preventImports=["m1", "m2", "m3"])
-        self.assertEquals(modules, {"m1": None, "m2": None, "m3": None})
+        self.assertEqual(modules, {"m1": None, "m2": None, "m3": None})
 
 
     def test_ensureWhenNotImportedDontPrevent(self):
@@ -37,7 +39,7 @@ class EnsureNotImportedTests(TestCase):
         modules = {}
         self.patch(sys, "modules", modules)
         ensureNotImported(["m1", "m2"], "A message.")
-        self.assertEquals(modules, {})
+        self.assertEqual(modules, {})
 
 
     def test_ensureWhenFailedToImport(self):
@@ -48,7 +50,7 @@ class EnsureNotImportedTests(TestCase):
         modules = {"m2": None}
         self.patch(sys, "modules", modules)
         ensureNotImported(["m1", "m2"], "A message.", preventImports=["m1", "m2"])
-        self.assertEquals(modules, {"m1": None, "m2": None})
+        self.assertEqual(modules, {"m1": None, "m2": None})
 
 
     def test_ensureFailsWhenImported(self):
@@ -62,5 +64,5 @@ class EnsureNotImportedTests(TestCase):
         e = self.assertRaises(ImportError, ensureNotImported,
                               ["m1", "m2"], "A message.",
                               preventImports=["m1", "m2"])
-        self.assertEquals(modules, {"m2": module})
-        self.assertEquals(e.args, ("A message.",))
+        self.assertEqual(modules, {"m2": module})
+        self.assertEqual(e.args, ("A message.",))

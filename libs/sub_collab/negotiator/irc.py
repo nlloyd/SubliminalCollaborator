@@ -55,17 +55,17 @@ class IRCNegotiator(base.BaseNegotiator, common.Observable, protocol.ClientFacto
         common.Observable.__init__(self)
         base.BaseNegotiator.__init__(self, id, config)
         base.PatchedIRCClient.__init__(self)
-        assert config.has_key('host'), 'IRCNegotiator missing host'
-        assert config.has_key('port'), 'IRCNegotiator missing port'
-        assert config.has_key('username'), 'IRCNegotiator missing username'
-        assert config.has_key('channel'), 'IRCNegotiator missing channel to connect to'
+        assert 'host' in config, 'IRCNegotiator missing host'
+        assert 'port' in config, 'IRCNegotiator missing port'
+        assert 'username' in config, 'IRCNegotiator missing username'
+        assert 'channel' in config, 'IRCNegotiator missing channel to connect to'
         self.clientConnection = None
         self.host = self.config['host'].encode()
         self.port = int(self.config['port'])
         self.nickname = self.config['username'].encode()
-        if self.config.has_key('password'):
+        if 'password' in self.config:
             self.password = self.config['password'].encode()
-        if self.config.has_key('useSSL'):
+        if 'useSSL' in self.config:
             self.useSSL = self.config['useSSL']
         else:
             # default to false
@@ -370,7 +370,7 @@ class IRCNegotiator(base.BaseNegotiator, common.Observable, protocol.ClientFacto
         if not self._nickprefixes:
             self._nickprefixes = ''
             prefixes = self.supported.getFeature('PREFIX', {})
-            for prefixTuple in prefixes.itervalues():
+            for prefixTuple in prefixes.values():
                 self._nickprefixes = self._nickprefixes + prefixTuple[0]
         return self._nickprefixes
 

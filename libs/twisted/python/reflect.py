@@ -8,18 +8,12 @@ with Python's reflection capabilities.
 """
 
 import sys
-import os
 import types
 import pickle
-import traceback
 import weakref
 import re
 import warnings
-
-try:
-    from collections import deque
-except ImportError:
-    deque = list
+from collections import deque
 
 RegexType = type(re.compile(""))
 
@@ -29,252 +23,19 @@ try:
 except ImportError:
     from StringIO import StringIO
 
-from twisted.python.util import unsignedID
-from twisted.python.deprecate import deprecated, deprecatedModuleAttribute
+from twisted.python.compat import _PY3
+from twisted.python.deprecate import deprecated
 from twisted.python.deprecate import _fullyQualifiedName as fullyQualifiedName
 from twisted.python.versions import Version
 
-
-
-class Settable:
-    """
-    A mixin class for syntactic sugar.  Lets you assign attributes by
-    calling with keyword arguments; for example, C{x(a=b,c=d,y=z)} is the
-    same as C{x.a=b;x.c=d;x.y=z}.  The most useful place for this is
-    where you don't want to name a variable, but you do want to set
-    some attributes; for example, C{X()(y=z,a=b)}.
-    """
-
-    deprecatedModuleAttribute(
-        Version("Twisted", 12, 1, 0),
-        "Settable is old and untested. Please write your own version of this "
-        "functionality if you need it.", "twisted.python.reflect", "Settable")
-
-    def __init__(self, **kw):
-        self(**kw)
-
-    def __call__(self,**kw):
-        for key,val in kw.items():
-            setattr(self,key,val)
-        return self
-
-
-class AccessorType(type):
-    """
-    Metaclass that generates properties automatically.
-
-    This is for Python 2.2 and up.
-
-    Using this metaclass for your class will give you explicit accessor
-    methods; a method called set_foo, will automatically create a property
-    'foo' that uses set_foo as a setter method. Same for get_foo and del_foo.
-
-    Note that this will only work on methods that are present on class
-    creation. If you add methods after the class is defined they will not
-    automatically become properties. Likewise, class attributes will only
-    be used if they are present upon class creation, and no getter function
-    was set - if a getter is present, the class attribute will be ignored.
-
-    This is a 2.2-only alternative to the Accessor mixin - just set in your
-    class definition::
-
-        __metaclass__ = AccessorType
-
-    """
-
-    deprecatedModuleAttribute(
-        Version("Twisted", 12, 1, 0),
-        "AccessorType is old and untested. Please write your own version of "
-        "this functionality if you need it.", "twisted.python.reflect",
-        "AccessorType")
-
-    def __init__(self, name, bases, d):
-        type.__init__(self, name, bases, d)
-        accessors = {}
-        prefixs = ["get_", "set_", "del_"]
-        for k in d.keys():
-            v = getattr(self, k)
-            for i in range(3):
-                if k.startswith(prefixs[i]):
-                    accessors.setdefault(k[4:], [None, None, None])[i] = v
-        for name, (getter, setter, deler) in accessors.items():
-            # create default behaviours for the property - if we leave
-            # the getter as None we won't be able to getattr, etc..
-            if getter is None:
-                if hasattr(self, name):
-                    value = getattr(self, name)
-                    def getter(this, value=value, name=name):
-                        if name in this.__dict__:
-                            return this.__dict__[name]
-                        else:
-                            return value
-                else:
-                    def getter(this, name=name):
-                        if name in this.__dict__:
-                            return this.__dict__[name]
-                        else:
-                            raise AttributeError("no such attribute %r" % name)
-            if setter is None:
-                def setter(this, value, name=name):
-                    this.__dict__[name] = value
-            if deler is None:
-                def deler(this, name=name):
-                    del this.__dict__[name]
-            setattr(self, name, property(getter, setter, deler, ""))
-
-
-class PropertyAccessor(object):
-    """
-    A mixin class for Python 2.2 that uses AccessorType.
-
-    This provides compatability with the pre-2.2 Accessor mixin, up
-    to a point.
-
-    Extending this class will give you explicit accessor methods; a
-    method called set_foo, for example, is the same as an if statement
-    in __setattr__ looking for 'foo'.  Same for get_foo and del_foo.
-
-    There are also reallyDel and reallySet methods, so you can
-    override specifics in subclasses without clobbering __setattr__
-    and __getattr__, or using non-2.1 compatible code.
-
-    There is are incompatibilities with Accessor - accessor
-    methods added after class creation will *not* be detected. OTOH,
-    this method is probably way faster.
-
-    In addition, class attributes will only be used if no getter
-    was defined, and instance attributes will not override getter methods
-    whereas in original Accessor the class attribute or instance attribute
-    would override the getter method.
-    """
-    # addendum to above:
-    # The behaviour of Accessor is wrong IMHO, and I've found bugs
-    # caused by it.
-    #  -- itamar
-
-    deprecatedModuleAttribute(
-        Version("Twisted", 12, 1, 0),
-        "PropertyAccessor is old and untested. Please write your own version "
-        "of this functionality if you need it.", "twisted.python.reflect",
-        "PropertyAccessor")
-    __metaclass__ = AccessorType
-
-    def reallySet(self, k, v):
-        self.__dict__[k] = v
-
-    def reallyDel(self, k):
-        del self.__dict__[k]
-
-
-class Accessor:
-    """
-    Extending this class will give you explicit accessor methods; a
-    method called C{set_foo}, for example, is the same as an if statement
-    in L{__setattr__} looking for C{'foo'}.  Same for C{get_foo} and
-    C{del_foo}.  There are also L{reallyDel} and L{reallySet} methods,
-    so you can override specifics in subclasses without clobbering
-    L{__setattr__} and L{__getattr__}.
-
-    This implementation is for Python 2.1.
-    """
-
-    deprecatedModuleAttribute(
-        Version("Twisted", 12, 1, 0),
-        "Accessor is an implementation for Python 2.1 which is no longer "
-        "supported by Twisted.", "twisted.python.reflect", "Accessor")
-
-    def __setattr__(self, k,v):
-        kstring='set_%s'%k
-        if hasattr(self.__class__,kstring):
-            return getattr(self,kstring)(v)
-        else:
-            self.reallySet(k,v)
-
-    def __getattr__(self, k):
-        kstring='get_%s'%k
-        if hasattr(self.__class__,kstring):
-            return getattr(self,kstring)()
-        raise AttributeError("%s instance has no accessor for: %s" % (qual(self.__class__),k))
-
-    def __delattr__(self, k):
-        kstring='del_%s'%k
-        if hasattr(self.__class__,kstring):
-            getattr(self,kstring)()
-            return
-        self.reallyDel(k)
-
-    def reallySet(self, k,v):
-        """
-        *actually* set self.k to v without incurring side-effects.
-        This is a hook to be overridden by subclasses.
-        """
-        if k == "__dict__":
-            self.__dict__.clear()
-            self.__dict__.update(v)
-        else:
-            self.__dict__[k]=v
-
-    def reallyDel(self, k):
-        """
-        *actually* del self.k without incurring side-effects.  This is a
-        hook to be overridden by subclasses.
-        """
-        del self.__dict__[k]
-
-# just in case
-OriginalAccessor = Accessor
-deprecatedModuleAttribute(
-    Version("Twisted", 12, 1, 0),
-    "OriginalAccessor is a reference to class twisted.python.reflect.Accessor "
-    "which is deprecated.", "twisted.python.reflect", "OriginalAccessor")
-
-
-class Summer(Accessor):
-    """
-    Extend from this class to get the capability to maintain 'related
-    sums'.  Have a tuple in your class like the following::
-
-        sums=(('amount','credit','credit_total'),
-              ('amount','debit','debit_total'))
-
-    and the 'credit_total' member of the 'credit' member of self will
-    always be incremented when the 'amount' member of self is
-    incremented, similiarly for the debit versions.
-    """
-
-    deprecatedModuleAttribute(
-        Version("Twisted", 12, 1, 0),
-        "Summer is a child class of twisted.python.reflect.Accessor which is " 
-        "deprecated.", "twisted.python.reflect", "Summer")
-
-    def reallySet(self, k,v):
-        "This method does the work."
-        for sum in self.sums:
-            attr=sum[0]
-            obj=sum[1]
-            objattr=sum[2]
-            if k == attr:
-                try:
-                    oldval=getattr(self, attr)
-                except:
-                    oldval=0
-                diff=v-oldval
-                if hasattr(self, obj):
-                    ob=getattr(self,obj)
-                    if ob is not None:
-                        try:oldobjval=getattr(ob, objattr)
-                        except:oldobjval=0.0
-                        setattr(ob,objattr,oldobjval+diff)
-
-            elif k == obj:
-                if hasattr(self, attr):
-                    x=getattr(self,attr)
-                    setattr(self,attr,0)
-                    y=getattr(self,k)
-                    Accessor.reallySet(self,k,v)
-                    setattr(self,attr,x)
-                    Accessor.reallySet(self,y,v)
-        Accessor.reallySet(self,k,v)
+from twisted.python._reflectpy3 import (
+    prefixedMethods, accumulateMethods, prefixedMethodNames,
+    addMethodNamesToDict)
+from twisted.python._reflectpy3 import namedModule, namedObject, namedClass
+from twisted.python._reflectpy3 import InvalidName, ModuleNotFound
+from twisted.python._reflectpy3 import ObjectNotFound, namedAny
+from twisted.python._reflectpy3 import filenameToModuleName
+from twisted.python._reflectpy3 import qual, safe_str, safe_repr
 
 
 class QueueMethod:
@@ -328,12 +89,6 @@ def fullFuncName(func):
     return qualName
 
 
-def qual(clazz):
-    """
-    Return full import path of a class.
-    """
-    return clazz.__module__ + '.' + clazz.__name__
-
 
 def getcurrent(clazz):
     assert type(clazz) == types.ClassType, 'must be a class...'
@@ -373,296 +128,39 @@ def isinst(inst,clazz):
         return ISNT
 
 
-def namedModule(name):
-    """
-    Return a module given its name.
-    """
-    topLevel = __import__(name)
-    packages = name.split(".")[1:]
-    m = topLevel
-    for p in packages:
-        m = getattr(m, p)
-    return m
-
-
-def namedObject(name):
-    """
-    Get a fully named module-global object.
-    """
-    classSplit = name.split('.')
-    module = namedModule('.'.join(classSplit[:-1]))
-    return getattr(module, classSplit[-1])
-
-namedClass = namedObject # backwards compat
-
-
-
-class _NoModuleFound(Exception):
-    """
-    No module was found because none exists.
-    """
-
-
-class InvalidName(ValueError):
-    """
-    The given name is not a dot-separated list of Python objects.
-    """
-
-
-class ModuleNotFound(InvalidName):
-    """
-    The module associated with the given name doesn't exist and it can't be
-    imported.
-    """
-
-
-class ObjectNotFound(InvalidName):
-    """
-    The object associated with the given name doesn't exist and it can't be
-    imported.
-    """
-
-
-def _importAndCheckStack(importName):
-    """
-    Import the given name as a module, then walk the stack to determine whether
-    the failure was the module not existing, or some code in the module (for
-    example a dependent import) failing.  This can be helpful to determine
-    whether any actual application code was run.  For example, to distiguish
-    administrative error (entering the wrong module name), from programmer
-    error (writing buggy code in a module that fails to import).
-
-    @raise Exception: if something bad happens.  This can be any type of
-    exception, since nobody knows what loading some arbitrary code might do.
-
-    @raise _NoModuleFound: if no module was found.
-    """
-    try:
-        try:
-            return __import__(importName)
-        except ImportError:
-            excType, excValue, excTraceback = sys.exc_info()
-            while excTraceback:
-                execName = excTraceback.tb_frame.f_globals["__name__"]
-                if (execName is None or # python 2.4+, post-cleanup
-                    execName == importName): # python 2.3, no cleanup
-                    raise excType, excValue, excTraceback
-                excTraceback = excTraceback.tb_next
-            raise _NoModuleFound()
-    except:
-        # Necessary for cleaning up modules in 2.3.
-        sys.modules.pop(importName, None)
-        raise
-
-
-
-def namedAny(name):
-    """
-    Retrieve a Python object by its fully qualified name from the global Python
-    module namespace.  The first part of the name, that describes a module,
-    will be discovered and imported.  Each subsequent part of the name is
-    treated as the name of an attribute of the object specified by all of the
-    name which came before it.  For example, the fully-qualified name of this
-    object is 'twisted.python.reflect.namedAny'.
-
-    @type name: L{str}
-    @param name: The name of the object to return.
-
-    @raise InvalidName: If the name is an empty string, starts or ends with
-        a '.', or is otherwise syntactically incorrect.
-
-    @raise ModuleNotFound: If the name is syntactically correct but the
-        module it specifies cannot be imported because it does not appear to
-        exist.
-
-    @raise ObjectNotFound: If the name is syntactically correct, includes at
-        least one '.', but the module it specifies cannot be imported because
-        it does not appear to exist.
-
-    @raise AttributeError: If an attribute of an object along the way cannot be
-        accessed, or a module along the way is not found.
-
-    @return: the Python object identified by 'name'.
-    """
-    if not name:
-        raise InvalidName('Empty module name')
-
-    names = name.split('.')
-
-    # if the name starts or ends with a '.' or contains '..', the __import__
-    # will raise an 'Empty module name' error. This will provide a better error
-    # message.
-    if '' in names:
-        raise InvalidName(
-            "name must be a string giving a '.'-separated list of Python "
-            "identifiers, not %r" % (name,))
-
-    topLevelPackage = None
-    moduleNames = names[:]
-    while not topLevelPackage:
-        if moduleNames:
-            trialname = '.'.join(moduleNames)
-            try:
-                topLevelPackage = _importAndCheckStack(trialname)
-            except _NoModuleFound:
-                moduleNames.pop()
-        else:
-            if len(names) == 1:
-                raise ModuleNotFound("No module named %r" % (name,))
-            else:
-                raise ObjectNotFound('%r does not name an object' % (name,))
-
-    obj = topLevelPackage
-    for n in names[1:]:
-        obj = getattr(obj, n)
-
-    return obj
-
-
-
-def _determineClass(x):
-    try:
-        return x.__class__
-    except:
-        return type(x)
-
-
-
-def _determineClassName(x):
-    c = _determineClass(x)
-    try:
-        return c.__name__
-    except:
-        try:
-            return str(c)
-        except:
-            return '<BROKEN CLASS AT 0x%x>' % unsignedID(c)
-
-
-
-def _safeFormat(formatter, o):
-    """
-    Helper function for L{safe_repr} and L{safe_str}.
-    """
-    try:
-        return formatter(o)
-    except:
-        io = StringIO()
-        traceback.print_exc(file=io)
-        className = _determineClassName(o)
-        tbValue = io.getvalue()
-        return "<%s instance at 0x%x with %s error:\n %s>" % (
-            className, unsignedID(o), formatter.__name__, tbValue)
-
-
-
-def safe_repr(o):
-    """
-    safe_repr(anything) -> string
-
-    Returns a string representation of an object, or a string containing a
-    traceback, if that object's __repr__ raised an exception.
-    """
-    return _safeFormat(repr, o)
-
-
-
-def safe_str(o):
-    """
-    safe_str(anything) -> string
-
-    Returns a string representation of an object, or a string containing a
-    traceback, if that object's __str__ raised an exception.
-    """
-    return _safeFormat(str, o)
-
-
 
 ## the following were factored out of usage
 
-@deprecated(Version("Twisted", 11, 0, 0), "inspect.getmro")
-def allYourBase(classObj, baseClass=None):
-    """
-    allYourBase(classObj, baseClass=None) -> list of all base
-    classes that are subclasses of baseClass, unless it is None,
-    in which case all bases will be added.
-    """
-    l = []
-    _accumulateBases(classObj, l, baseClass)
-    return l
+if not _PY3:
+    # These functions are still imported by libraries used in turn by the
+    # Twisted unit tests, like Nevow 0.10. Since they are deprecated,
+    # there's no need to port them to Python 3 (hence the condition above).
+    # https://bazaar.launchpad.net/~divmod-dev/divmod.org/trunk/revision/2716
+    # removed the dependency in Nevow. Once that is released, these functions
+    # can be safely removed from Twisted.
+
+    @deprecated(Version("Twisted", 11, 0, 0), "inspect.getmro")
+    def allYourBase(classObj, baseClass=None):
+        """
+        allYourBase(classObj, baseClass=None) -> list of all base
+        classes that are subclasses of baseClass, unless it is None,
+        in which case all bases will be added.
+        """
+        l = []
+        _accumulateBases(classObj, l, baseClass)
+        return l
 
 
-@deprecated(Version("Twisted", 11, 0, 0), "inspect.getmro")
-def accumulateBases(classObj, l, baseClass=None):
-    _accumulateBases(classObj, l, baseClass)
+    @deprecated(Version("Twisted", 11, 0, 0), "inspect.getmro")
+    def accumulateBases(classObj, l, baseClass=None):
+        _accumulateBases(classObj, l, baseClass)
 
 
-def _accumulateBases(classObj, l, baseClass=None):
-    for base in classObj.__bases__:
-        if baseClass is None or issubclass(base, baseClass):
-            l.append(base)
-        _accumulateBases(base, l, baseClass)
-
-
-def prefixedMethodNames(classObj, prefix):
-    """
-    A list of method names with a given prefix in a given class.
-    """
-    dct = {}
-    addMethodNamesToDict(classObj, dct, prefix)
-    return dct.keys()
-
-
-def addMethodNamesToDict(classObj, dict, prefix, baseClass=None):
-    """
-    addMethodNamesToDict(classObj, dict, prefix, baseClass=None) -> dict
-    this goes through 'classObj' (and its bases) and puts method names
-    starting with 'prefix' in 'dict' with a value of 1. if baseClass isn't
-    None, methods will only be added if classObj is-a baseClass
-
-    If the class in question has the methods 'prefix_methodname' and
-    'prefix_methodname2', the resulting dict should look something like:
-    {"methodname": 1, "methodname2": 1}.
-    """
-    for base in classObj.__bases__:
-        addMethodNamesToDict(base, dict, prefix, baseClass)
-
-    if baseClass is None or baseClass in classObj.__bases__:
-        for name, method in classObj.__dict__.items():
-            optName = name[len(prefix):]
-            if ((type(method) is types.FunctionType)
-                and (name[:len(prefix)] == prefix)
-                and (len(optName))):
-                dict[optName] = 1
-
-
-def prefixedMethods(obj, prefix=''):
-    """
-    A list of methods with a given prefix on a given instance.
-    """
-    dct = {}
-    accumulateMethods(obj, dct, prefix)
-    return dct.values()
-
-
-def accumulateMethods(obj, dict, prefix='', curClass=None):
-    """
-    accumulateMethods(instance, dict, prefix)
-    I recurse through the bases of instance.__class__, and add methods
-    beginning with 'prefix' to 'dict', in the form of
-    {'methodname':*instance*method_object}.
-    """
-    if not curClass:
-        curClass = obj.__class__
-    for base in curClass.__bases__:
-        accumulateMethods(obj, dict, prefix, base)
-
-    for name, method in curClass.__dict__.items():
-        optName = name[len(prefix):]
-        if ((type(method) is types.FunctionType)
-            and (name[:len(prefix)] == prefix)
-            and (len(optName))):
-            dict[optName] = getattr(obj, name)
+    def _accumulateBases(classObj, l, baseClass=None):
+        for base in classObj.__bases__:
+            if baseClass is None or issubclass(base, baseClass):
+                l.append(base)
+            _accumulateBases(base, l, baseClass)
 
 
 def accumulateClassDict(classObj, attr, adict, baseClass=None):
@@ -784,44 +282,19 @@ def objgrep(start, goal, eq=isLike, path='', paths=None, seen=None, showUnknowns
     return paths
 
 
-def filenameToModuleName(fn):
-    """
-    Convert a name in the filesystem to the name of the Python module it is.
-
-    This is agressive about getting a module name back from a file; it will
-    always return a string.  Agressive means 'sometimes wrong'; it won't look
-    at the Python path or try to do any error checking: don't use this method
-    unless you already know that the filename you're talking about is a Python
-    module.
-    """
-    fullName = os.path.abspath(fn)
-    base = os.path.basename(fn)
-    if not base:
-        # this happens when fn ends with a path separator, just skit it
-        base = os.path.basename(fn[:-1])
-    modName = os.path.splitext(base)[0]
-    while 1:
-        fullName = os.path.dirname(fullName)
-        if os.path.exists(os.path.join(fullName, "__init__.py")):
-            modName = "%s.%s" % (os.path.basename(fullName), modName)
-        else:
-            break
-    return modName
-
-
 
 __all__ = [
     'InvalidName', 'ModuleNotFound', 'ObjectNotFound',
 
     'ISNT', 'WAS', 'IS',
 
-    'Settable', 'AccessorType', 'PropertyAccessor', 'Accessor', 'Summer',
-    'QueueMethod', 'OriginalAccessor',
+    'QueueMethod',
 
     'funcinfo', 'fullFuncName', 'qual', 'getcurrent', 'getClass', 'isinst',
     'namedModule', 'namedObject', 'namedClass', 'namedAny',
     'safe_repr', 'safe_str', 'allYourBase', 'accumulateBases',
     'prefixedMethodNames', 'addMethodNamesToDict', 'prefixedMethods',
+    'accumulateMethods',
     'accumulateClassDict', 'accumulateClassList', 'isSame', 'isLike',
     'modgrep', 'isOfType', 'findInstances', 'objgrep', 'filenameToModuleName',
     'fullyQualifiedName']

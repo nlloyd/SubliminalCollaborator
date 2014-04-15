@@ -5,6 +5,8 @@
 Tests for L{twisted.internet.epollreactor}.
 """
 
+from __future__ import division, absolute_import
+
 from twisted.trial.unittest import TestCase
 try:
     from twisted.internet.epollreactor import _ContinuousPolling
@@ -60,7 +62,7 @@ class ContinuousPollingTests(TestCase):
         poller.addReader(reader)
         self.assertNotEqual(poller._loop, None)
         self.assertTrue(poller._loop.running)
-        self.assertIdentical(poller._loop.clock, poller._reactor)
+        self.assertIs(poller._loop.clock, poller._reactor)
         self.assertTrue(poller.isReading(reader))
 
 
@@ -76,7 +78,7 @@ class ContinuousPollingTests(TestCase):
         poller.addWriter(writer)
         self.assertNotEqual(poller._loop, None)
         self.assertTrue(poller._loop.running)
-        self.assertIdentical(poller._loop.clock, poller._reactor)
+        self.assertIs(poller._loop.clock, poller._reactor)
         self.assertTrue(poller.isWriting(writer))
 
 

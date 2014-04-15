@@ -5,6 +5,8 @@
 Tests for implementations of L{IReactorCore}.
 """
 
+from __future__ import division, absolute_import
+
 __metaclass__ = type
 
 import signal
@@ -268,7 +270,7 @@ class SystemEventTestsBuilder(ReactorBuilder):
         reactor.iterate(0) # Shouldn't block
         elapsed = time.time() - start
 
-        self.failUnless(elapsed < 2)
+        self.assertTrue(elapsed < 2)
         t.cancel()
 
 

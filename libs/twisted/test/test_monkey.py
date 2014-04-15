@@ -5,6 +5,8 @@
 Tests for L{twisted.python.monkey}.
 """
 
+from __future__ import division, absolute_import
+
 from twisted.trial import unittest
 from twisted.python.monkey import MonkeyPatcher
 
@@ -16,7 +18,8 @@ class TestObj:
         self.baz = 'baz value'
 
 
-class MonkeyPatcherTest(unittest.TestCase):
+
+class MonkeyPatcherTest(unittest.SynchronousTestCase):
     """
     Tests for L{MonkeyPatcher} monkey-patching class.
     """

@@ -19,7 +19,28 @@ import os
 import platform
 import sys
 
+from twisted import copyright
 from twisted.python.compat import execfile
+
+STATIC_PACKAGE_METADATA = dict(
+    name="Twisted",
+    version=copyright.version,
+    description="An asynchronous networking framework written in Python",
+    author="Twisted Matrix Laboratories",
+    author_email="twisted-python@twistedmatrix.com",
+    maintainer="Glyph Lefkowitz",
+    maintainer_email="glyph@twistedmatrix.com",
+    url="http://twistedmatrix.com/",
+    license="MIT",
+    long_description="""\
+An extensible framework for Python programming, with special focus
+on event-based network programming and multiprotocol integration.
+""",
+    classifiers=[
+        "Programming Language :: Python :: 2.6",
+        "Programming Language :: Python :: 2.7",
+        ],
+    )
 
 
 twisted_subprojects = ["conch", "lore", "mail", "names",
@@ -263,6 +284,19 @@ def getPackages(dname, pkgname=None, results=None, ignore=None, parent=None):
     return res
 
 
+
+def getAllScripts():
+    # "" is included because core scripts are directly in bin/
+    projects = [''] + [x for x in os.listdir('bin')
+                       if os.path.isdir(os.path.join("bin", x))
+                       and x in twisted_subprojects]
+    scripts = []
+    for i in projects:
+        scripts.extend(getScripts(i))
+    return scripts
+
+
+
 def getScripts(projname, basedir=''):
     """
     Returns a list of scripts for a Twisted subproject; this works in
@@ -416,12 +450,3 @@ def _checkCPython(sys=sys, platform=platform):
 
 
 _isCPython = _checkCPython()
-
-
-def _hasEpoll(builder):
-    """
-    Checks if the header for building epoll (C{sys/epoll.h}) is available.
-
-    @return: C{True} if the header is available, C{False} otherwise.
-    """
-    return builder._check_header("sys/epoll.h")

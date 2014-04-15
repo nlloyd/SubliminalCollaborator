@@ -5,15 +5,17 @@
 Address objects for network connections.
 """
 
+from __future__ import division, absolute_import
+
 import warnings, os
 
-from zope.interface import implements
-
+from zope.interface import implementer
 from twisted.internet.interfaces import IAddress
-from twisted.python import util
+from twisted.python.util import FancyEqMixin
 
 
-class _IPAddress(object, util.FancyEqMixin):
+@implementer(IAddress)
+class _IPAddress(FancyEqMixin, object):
     """
     An L{_IPAddress} represents the address of an IP socket endpoint, providing
     common behavior for IPv4 and IPv6.
@@ -28,8 +30,6 @@ class _IPAddress(object, util.FancyEqMixin):
     @ivar port: An integer representing the port number.
     @type port: C{int}
     """
-
-    implements(IAddress)
 
     compareAttributes = ('type', 'host', 'port')
 
@@ -79,15 +79,50 @@ class IPv6Address(_IPAddress):
 
 
 
-class UNIXAddress(object, util.FancyEqMixin):
+@implementer(IAddress)
+class _ProcessAddress(object):
+    """
+    An L{interfaces.IAddress} provider for process transports.
+    """
+
+
+
+@implementer(IAddress)
+class HostnameAddress(FancyEqMixin, object):
+    """
+    A L{HostnameAddress} represents the address of a L{HostnameEndpoint}.
+
+    @ivar hostname: A hostname byte string; for example, b"example.com".
+    @type hostname: L{bytes}
+
+    @ivar port: An integer representing the port number.
+    @type port: L{int}
+    """
+    compareAttributes = ('hostname', 'port')
+
+    def __init__(self, hostname, port):
+        self.hostname = hostname
+        self.port = port
+
+
+    def __repr__(self):
+        return '%s(%s, %d)' % (
+            self.__class__.__name__, self.hostname, self.port)
+
+
+    def __hash__(self):
+        return hash((self.hostname, self.port))
+
+
+
+@implementer(IAddress)
+class UNIXAddress(FancyEqMixin, object):
     """
     Object representing a UNIX socket endpoint.
 
     @ivar name: The filename associated with this socket.
     @type name: C{str}
     """
-
-    implements(IAddress)
 
     compareAttributes = ('name', )
 
@@ -101,7 +136,7 @@ class UNIXAddress(object, util.FancyEqMixin):
     if getattr(os.path, 'samefile', None) is not None:
         def __eq__(self, other):
             """
-            overriding L{util.FancyEqMixin} to ensure the os level samefile
+            Overriding C{FancyEqMixin} to ensure the os level samefile
             check is done if the name attributes do not match.
             """
             res = super(UNIXAddress, self).__eq__(other)

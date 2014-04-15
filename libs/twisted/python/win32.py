@@ -11,6 +11,8 @@ See also twisted.python.shortcut.
     may safely be OR'ed into a mask for os.open.
 """
 
+from __future__ import division, absolute_import
+
 import re
 import os
 
@@ -44,13 +46,15 @@ except NameError:
 # XXX fix this to use python's builtin _winreg?
 
 def getProgramsMenuPath():
-    """Get the path to the Programs menu.
+    """
+    Get the path to the Programs menu.
 
     Probably will break on non-US Windows.
 
-    @returns: the filesystem location of the common Start Menu->Programs.
+    @return: the filesystem location of the common Start Menu->Programs.
+    @rtype: L{str}
     """
-    if not platform.isWinNT():
+    if not platform.isWindows():
         return "C:\\Windows\\Start Menu\\Programs"
     keyname = 'SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Shell Folders'
     hShellFolders = win32api.RegOpenKeyEx(win32con.HKEY_LOCAL_MACHINE,
@@ -64,6 +68,7 @@ def getProgramFilesPath():
     currentV = win32api.RegOpenKeyEx(win32con.HKEY_LOCAL_MACHINE,
                                      keyname, 0, win32con.KEY_READ)
     return win32api.RegQueryValueEx(currentV, 'ProgramFilesDir')[0]
+
 
 _cmdLineQuoteRe = re.compile(r'(\\*)"')
 _cmdLineQuoteRe2 = re.compile(r'(\\+)\Z')

@@ -132,7 +132,7 @@ symbolic_to_numeric = {
 
 # tyvm twisted/words/protocols/irc.py for this handy dandy trick!
 numeric_to_symbolic = {}
-for k, v in symbolic_to_numeric.items():
+for k, v in list(symbolic_to_numeric.items()):
     numeric_to_symbolic[v] = k
 
 #################################################################################

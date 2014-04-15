@@ -9,7 +9,13 @@ In most cases you can just use C{reactor.callInThread} and friends
 instead of creating a thread pool directly.
 """
 
-import Queue
+from __future__ import division, absolute_import
+
+try:
+    from Queue import Queue
+except ImportError:
+    from queue import Queue
+import contextlib
 import threading
 import copy
 
@@ -47,7 +53,7 @@ class ThreadPool:
         """
         assert minthreads >= 0, 'minimum is negative'
         assert minthreads <= maxthreads, 'minimum is greater than maximum'
-        self.q = Queue.Queue(0)
+        self.q = Queue(0)
         self.min = minthreads
         self.max = maxthreads
         self.name = name
@@ -150,6 +156,24 @@ class ThreadPool:
             self._startSomeWorkers()
 
 
+    @contextlib.contextmanager
+    def _workerState(self, stateList, workerThread):
+        """
+        Manages adding and removing this worker from a list of workers
+        in a particular state.
+
+        @param stateList: the list managing workers in this state
+
+        @param workerThread: the thread the worker is running in, used to
+            represent the worker in stateList
+        """
+        stateList.append(workerThread)
+        try:
+            yield
+        finally:
+            stateList.remove(workerThread)
+
+
     def _worker(self):
         """
         Method used as target of the created threads: retrieve a task to run
@@ -159,24 +183,22 @@ class ThreadPool:
         ct = self.currentThread()
         o = self.q.get()
         while o is not WorkerStop:
-            self.working.append(ct)
-            ctx, function, args, kwargs, onResult = o
-            del o
+            with self._workerState(self.working, ct):
+                ctx, function, args, kwargs, onResult = o
+                del o
 
-            try:
-                result = context.call(ctx, function, *args, **kwargs)
-                success = True
-            except:
-                success = False
-                if onResult is None:
-                    context.call(ctx, log.err)
-                    result = None
-                else:
-                    result = failure.Failure()
+                try:
+                    result = context.call(ctx, function, *args, **kwargs)
+                    success = True
+                except:
+                    success = False
+                    if onResult is None:
+                        context.call(ctx, log.err)
+                        result = None
+                    else:
+                        result = failure.Failure()
 
-            del function, args, kwargs
-
-            self.working.remove(ct)
+                del function, args, kwargs
 
             if onResult is not None:
                 try:
@@ -186,9 +208,8 @@ class ThreadPool:
 
             del ctx, onResult, result
 
-            self.waiters.append(ct)
-            o = self.q.get()
-            self.waiters.remove(ct)
+            with self._workerState(self.waiters, ct):
+                o = self.q.get()
 
         self.threads.remove(ct)
 

@@ -1,6 +1,105 @@
 Ticket numbers in this file can be looked up by visiting
 http://twistedmatrix.com/trac/ticket/<number>
 
+Twisted Web 13.2.0 (2013-10-29)
+===============================
+
+Features
+--------
+ - IAgent has been added to twisted.web.iweb to explicitly define the
+   interface implemented by the various "Agent" classes in
+   twisted.web.client. (#6702)
+
+Bugfixes
+--------
+ - twisted.web.client.Response.deliverBody now calls connectionLost on
+   the body protocol for responses with no body (such as 204, 304, and
+   HEAD requests). (#5476)
+ - twisted.web.static.loadMimeTypes now uses all available system MIME
+   types. (#5717)
+
+Deprecations and Removals
+-------------------------
+ - Two attributes of twisted.web.iweb.IRequest, headers and
+   received_headers, are now deprecated. (#6704)
+
+Other
+-----
+ - #5387, #6119, #6121, #6695, #6701, #6734
+
+
+Twisted Web 13.1.0 (2013-06-23)
+===============================
+
+Features
+--------
+ - The deferred returned by twisted.web.client.Agent.request can now
+   be cancelled. (#4330)
+ - twisted.web.client.BrowserLikeRedirectAgent, a new redirect agent,
+   treats HTTP 301 and 302 like HTTP 303 on non-HEAD/GET requests,
+   changing the method to GET before proceeding. (#5434)
+ - The new attribute twisted.web.iweb.IResponse.request is a reference
+   to a provider of the new twisted.web.iweb.IClientRequest interface
+   which, among other things, provides a way to access the request's
+   absolute URI. It is now also possible to inspect redirect history
+   with twisted.web.iweb.IResponse.previousResponse. (#5435)
+ - twisted.web.client.RedirectAgent now supports relative URI
+   references in the Location HTTP header. (#5462)
+ - twisted.web.client now provides readBody to collect the body of a
+   response from Agent into a string. (#6251)
+
+Bugfixes
+--------
+ - twisted.web.xmlrpc.QueryProtocol now generates valid Authorization
+   headers for long user names and passwords. (#2980)
+
+Other
+-----
+ - #6122, #6153, #6342, #6381, #6391, #6503
+
+
+Twisted Web 13.0.0 (2013-03-19)
+===============================
+
+Bugfixes
+--------
+ - twisted.web.template now properly quotes attribute values,
+   including Tag instances serialized within attribute values. (#6275)
+
+Other
+-----
+ - #6167, #6297, #6326
+
+
+Twisted Web 12.3.0 (2012-12-20)
+===============================
+
+Features
+--------
+ - twisted.web.server.Site now supports an encoders argument to encode
+   request content, twisted.web.server.GzipEncoderFactory being the
+   first one provided. (#104)
+
+Bugfixes
+--------
+ - twisted.web.http.HTTPChannel.headerReceived now catches the error
+   if the Content-Length header is not an integer and return a 400 Bad
+   Request response. (#6029)
+ - twisted.web.http.HTTPChannel now drops the connection and issues a
+   400 error upon receipt of a chunk-encoding encoded request with a
+   bad chunk-length field. (#6030)
+
+Improved Documentation
+----------------------
+ - twisted.web.iweb.IRequest now documents its `content` attribute and
+   a new "web in 60 seconds" howto demonstrates its use. (#6181)
+
+Other
+-----
+ - #5882, #5883, #5887, #5920, #6031, #6077, #6078, #6079, #6080,
+   #6110, #6113, #6196, #6205
+
+
 Twisted Web 12.2.0 (2012-08-26)
 ===============================
 

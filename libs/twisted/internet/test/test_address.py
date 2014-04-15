@@ -1,11 +1,14 @@
 # Copyright (c) Twisted Matrix Laboratories.
 # See LICENSE for details.
 
+from __future__ import division, absolute_import
+
 import re
 import os
 
 from twisted.trial import unittest
-from twisted.internet.address import IPv4Address, UNIXAddress
+from twisted.internet.address import (
+        IPv4Address, UNIXAddress, IPv6Address, HostnameAddress)
 
 try:
     os.symlink
@@ -45,7 +48,7 @@ class AddressTestCaseMixin(object):
         ])
         stringValue = stringFunction(addr)
         m = re.match(pattern, stringValue)
-        self.assertNotEquals(
+        self.assertNotEqual(
             None, m,
             "%s does not match the standard __str__ pattern "
             "ClassName(arg1, arg2, etc)" % (stringValue,))
@@ -54,7 +57,8 @@ class AddressTestCaseMixin(object):
         args = [x.strip() for x in m.group(2).split(",")]
         self.assertEqual(
             args,
-            [argSpec[1] % (getattr(addr, argSpec[0]),) for argSpec in self.addressArgSpec])
+            [argSpec[1] % (getattr(addr, argSpec[0]),)
+             for argSpec in self.addressArgSpec])
 
 
     def test_str(self):
@@ -112,7 +116,33 @@ class IPv4AddressTestCaseMixin(AddressTestCaseMixin):
 
 
 
-class IPv4AddressTCPTestCase(unittest.TestCase, IPv4AddressTestCaseMixin):
+class HostnameAddressTests(unittest.TestCase, AddressTestCaseMixin):
+    """
+    Test case for L{HostnameAddress}.
+    """
+    addressArgSpec = (("hostname", "%s"), ("port", "%d"))
+
+    def buildAddress(self):
+        """
+        Create an arbitrary new L{HostnameAddress} instance.
+
+        @return: A L{HostnameAddress} instance.
+        """
+        return HostnameAddress(b"example.com", 0)
+
+
+    def buildDifferentAddress(self):
+        """
+        Like L{buildAddress}, but with a different hostname.
+
+        @return: A L{HostnameAddress} instance.
+        """
+        return HostnameAddress(b"example.net", 0)
+
+
+
+class IPv4AddressTCPTestCase(unittest.SynchronousTestCase,
+                             IPv4AddressTestCaseMixin):
     def buildAddress(self):
         """
         Create an arbitrary new L{IPv4Address} instance with a C{"TCP"}
@@ -144,7 +174,8 @@ class IPv4AddressTCPTestCase(unittest.TestCase, IPv4AddressTestCaseMixin):
 
 
 
-class IPv4AddressUDPTestCase(unittest.TestCase, IPv4AddressTestCaseMixin):
+class IPv4AddressUDPTestCase(unittest.SynchronousTestCase,
+                             IPv4AddressTestCaseMixin):
     def buildAddress(self):
         """
         Create an arbitrary new L{IPv4Address} instance with a C{"UDP"}
@@ -176,7 +207,27 @@ class IPv4AddressUDPTestCase(unittest.TestCase, IPv4AddressTestCaseMixin):
 
 
 
-class UNIXAddressTestCase(unittest.TestCase, AddressTestCaseMixin):
+class IPv6AddressTestCase(unittest.SynchronousTestCase, AddressTestCaseMixin):
+    addressArgSpec = (("type", "%s"), ("host", "%r"), ("port", "%d"))
+
+    def buildAddress(self):
+        """
+        Create an arbitrary new L{IPv6Address} instance with a C{"TCP"}
+        type.  A new instance is created for each call, but always for the
+        same address.
+        """
+        return IPv6Address("TCP", "::1", 0)
+
+
+    def buildDifferentAddress(self):
+        """
+        Like L{buildAddress}, but with a different fixed address.
+        """
+        return IPv6Address("TCP", "::2", 0)
+
+
+
+class UNIXAddressTestCase(unittest.SynchronousTestCase, AddressTestCaseMixin):
     addressArgSpec = (("name", "%r"),)
 
     def setUp(self):
@@ -240,7 +291,8 @@ class UNIXAddressTestCase(unittest.TestCase, AddressTestCaseMixin):
 
 
 
-class EmptyUNIXAddressTestCase(unittest.TestCase, AddressTestCaseMixin):
+class EmptyUNIXAddressTestCase(unittest.SynchronousTestCase,
+                               AddressTestCaseMixin):
     """
     Tests for L{UNIXAddress} operations involving a C{None} address.
     """

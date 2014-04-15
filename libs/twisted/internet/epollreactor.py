@@ -11,28 +11,21 @@ listeners or connectors are added)::
     epollreactor.install()
 """
 
+from __future__ import division, absolute_import
+
+from select import epoll, EPOLLHUP, EPOLLERR, EPOLLIN, EPOLLOUT
 import errno
 
-from zope.interface import implements
+from zope.interface import implementer
 
 from twisted.internet.interfaces import IReactorFDSet
 
 from twisted.python import log
 from twisted.internet import posixbase
 
-try:
-    # In Python 2.6+, select.epoll provides epoll functionality. Try to import
-    # it, and fall back to Twisted's own epoll wrapper if it isn't available
-    # for any reason.
-    from select import epoll
-except ImportError:
-    from twisted.python import _epoll
-else:
-    del epoll
-    import select as _epoll
 
 
-
+@implementer(IReactorFDSet)
 class _ContinuousPolling(posixbase._PollLikeMixin,
                          posixbase._DisconnectSelectableMixin):
     """
@@ -56,7 +49,6 @@ class _ContinuousPolling(posixbase._PollLikeMixin,
     @ivar _writers: A C{set} of C{FileDescriptor} objects that should be
         written to.
     """
-    implements(IReactorFDSet)
 
     # Attributes for _PollLikeMixin
     _POLL_DISCONNECTED = 1
@@ -69,8 +61,6 @@ class _ContinuousPolling(posixbase._PollLikeMixin,
         self._loop = None
         self._readers = set()
         self._writers = set()
-        self.isReading = self._readers.__contains__
-        self.isWriting = self._writers.__contains__
 
 
     def _checkLoop(self):
@@ -130,7 +120,8 @@ class _ContinuousPolling(posixbase._PollLikeMixin,
 
     def removeWriter(self, writer):
         """
-        Remove a C{FileDescriptor} from notification of data available to write.
+        Remove a C{FileDescriptor} from notification of data available to
+        write.
         """
         try:
             self._writers.remove(writer)
@@ -165,7 +156,36 @@ class _ContinuousPolling(posixbase._PollLikeMixin,
         return list(self._writers)
 
 
+    def isReading(self, fd):
+        """
+        Checks if the file descriptor is currently being observed for read
+        readiness.
 
+        @param fd: The file descriptor being checked.
+        @type fd: L{twisted.internet.abstract.FileDescriptor}
+        @return: C{True} if the file descriptor is being observed for read
+            readiness, C{False} otherwise.
+        @rtype: C{bool}
+        """
+        return fd in self._readers
+
+
+    def isWriting(self, fd):
+        """
+        Checks if the file descriptor is currently being observed for write
+        readiness.
+
+        @param fd: The file descriptor being checked.
+        @type fd: L{twisted.internet.abstract.FileDescriptor}
+        @return: C{True} if the file descriptor is being observed for write
+            readiness, C{False} otherwise.
+        @rtype: C{bool}
+        """
+        return fd in self._writers
+
+
+
+@implementer(IReactorFDSet)
 class EPollReactor(posixbase.PosixReactorBase, posixbase._PollLikeMixin):
     """
     A reactor that uses epoll(7).
@@ -179,40 +199,37 @@ class EPollReactor(posixbase.PosixReactorBase, posixbase._PollLikeMixin):
         write readiness notifications will be present as values in this
         dictionary.
 
-    @ivar _reads: A dictionary mapping integer file descriptors to arbitrary
-        values (this is essentially a set).  Keys in this dictionary will be
-        registered with C{_poller} for read readiness notifications which will
-        be dispatched to the corresponding C{FileDescriptor} instances in
-        C{_selectables}.
+    @ivar _reads: A set containing integer file descriptors.  Values in this
+        set will be registered with C{_poller} for read readiness notifications
+        which will be dispatched to the corresponding C{FileDescriptor}
+        instances in C{_selectables}.
 
-    @ivar _writes: A dictionary mapping integer file descriptors to arbitrary
-        values (this is essentially a set).  Keys in this dictionary will be
-        registered with C{_poller} for write readiness notifications which will
-        be dispatched to the corresponding C{FileDescriptor} instances in
-        C{_selectables}.
+    @ivar _writes: A set containing integer file descriptors.  Values in this
+        set will be registered with C{_poller} for write readiness
+        notifications which will be dispatched to the corresponding
+        C{FileDescriptor} instances in C{_selectables}.
 
     @ivar _continuousPolling: A L{_ContinuousPolling} instance, used to handle
         file descriptors (e.g. filesytem files) that are not supported by
         C{epoll(7)}.
     """
-    implements(IReactorFDSet)
 
     # Attributes for _PollLikeMixin
-    _POLL_DISCONNECTED = (_epoll.EPOLLHUP | _epoll.EPOLLERR)
-    _POLL_IN = _epoll.EPOLLIN
-    _POLL_OUT = _epoll.EPOLLOUT
+    _POLL_DISCONNECTED = (EPOLLHUP | EPOLLERR)
+    _POLL_IN = EPOLLIN
+    _POLL_OUT = EPOLLOUT
 
     def __init__(self):
         """
         Initialize epoll object, file descriptor tracking dictionaries, and the
         base class.
         """
-        # Create the poller we're going to use.  The 1024 here is just a hint to
-        # the kernel, it is not a hard maximum.  After Linux 2.6.8, the size
+        # Create the poller we're going to use.  The 1024 here is just a hint
+        # to the kernel, it is not a hard maximum.  After Linux 2.6.8, the size
         # argument is completely ignored.
-        self._poller = _epoll.epoll(1024)
-        self._reads = {}
-        self._writes = {}
+        self._poller = epoll(1024)
+        self._reads = set()
+        self._writes = set()
         self._selectables = {}
         self._continuousPolling = _ContinuousPolling(self)
         posixbase.PosixReactorBase.__init__(self)
@@ -241,7 +258,7 @@ class EPollReactor(posixbase.PosixReactorBase, posixbase._PollLikeMixin):
 
             # Update our own tracking state *only* after the epoll call has
             # succeeded.  Otherwise we may get out of sync.
-            primary[fd] = 1
+            primary.add(fd)
             selectables[fd] = xer
 
 
@@ -251,8 +268,8 @@ class EPollReactor(posixbase.PosixReactorBase, posixbase._PollLikeMixin):
         """
         try:
             self._add(reader, self._reads, self._writes, self._selectables,
-                      _epoll.EPOLLIN, _epoll.EPOLLOUT)
-        except IOError, e:
+                      EPOLLIN, EPOLLOUT)
+        except IOError as e:
             if e.errno == errno.EPERM:
                 # epoll(7) doesn't support certain file descriptors,
                 # e.g. filesystem files, so for those we just poll
@@ -268,8 +285,8 @@ class EPollReactor(posixbase.PosixReactorBase, posixbase._PollLikeMixin):
         """
         try:
             self._add(writer, self._writes, self._reads, self._selectables,
-                      _epoll.EPOLLOUT, _epoll.EPOLLIN)
-        except IOError, e:
+                      EPOLLOUT, EPOLLIN)
+        except IOError as e:
             if e.errno == errno.EPERM:
                 # epoll(7) doesn't support certain file descriptors,
                 # e.g. filesystem files, so for those we just poll
@@ -302,7 +319,7 @@ class EPollReactor(posixbase.PosixReactorBase, posixbase._PollLikeMixin):
                 del selectables[fd]
                 # See comment above _control call in _add.
                 self._poller.unregister(fd)
-            del primary[fd]
+            primary.remove(fd)
 
 
     def removeReader(self, reader):
@@ -313,7 +330,7 @@ class EPollReactor(posixbase.PosixReactorBase, posixbase._PollLikeMixin):
             self._continuousPolling.removeReader(reader)
             return
         self._remove(reader, self._reads, self._writes, self._selectables,
-                     _epoll.EPOLLIN, _epoll.EPOLLOUT)
+                     EPOLLIN, EPOLLOUT)
 
 
     def removeWriter(self, writer):
@@ -324,7 +341,7 @@ class EPollReactor(posixbase.PosixReactorBase, posixbase._PollLikeMixin):
             self._continuousPolling.removeWriter(writer)
             return
         self._remove(writer, self._writes, self._reads, self._selectables,
-                     _epoll.EPOLLOUT, _epoll.EPOLLIN)
+                     EPOLLOUT, EPOLLIN)
 
 
     def removeAll(self):
@@ -360,7 +377,7 @@ class EPollReactor(posixbase.PosixReactorBase, posixbase._PollLikeMixin):
             # the amount of time we block to the value specified by our
             # caller.
             l = self._poller.poll(timeout, len(self._selectables))
-        except IOError, err:
+        except IOError as err:
             if err.errno == errno.EINTR:
                 return
             # See epoll_wait(2) for documentation on the other conditions
@@ -391,4 +408,3 @@ def install():
 
 
 __all__ = ["EPollReactor", "install"]
-
